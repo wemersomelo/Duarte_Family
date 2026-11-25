@@ -176,7 +176,25 @@ function drawTree() {
   };
   // copa de fundo (folhagem suave)
   const cx = W / 2, crownTop = TOP + 10, crownBottom = rowY(0) - 10;
-  let bg = `<ellipse cx="${cx}" cy="${(crownTop + crownBottom) / 2 + 20}" rx="${W / 2 - 10}" ry="${(crownBottom - crownTop) / 2 + 40}" fill="var(--canopy)"/>`;
+  const ecy = (crownTop + crownBottom) / 2 + 20, erx = W / 2 - 10, ery = (crownBottom - crownTop) / 2 + 40;
+  let bg = `<ellipse cx="${cx}" cy="${ecy}" rx="${erx}" ry="${ery}" fill="var(--canopy)"/>`;
+  // folhagem cheia: muitas folhas espalhadas pela copa, mais densas perto da borda
+  const total = Math.round((erx * ery) / (mob ? 260 : 400));
+  let fill = '';
+  for (let k = 0; k < total; k++) {
+    const a = rnd() * Math.PI * 2, d = Math.sqrt(rnd()) * (0.55 + 0.45 * rnd());
+    const x = cx + Math.cos(a) * erx * d, y = ecy + Math.sin(a) * ery * d;
+    if (y > rowY(0) + CH * 0.2 && Math.abs(x - cx) < CW * 0.9) continue; // deixa o tronco à mostra
+    fill += leaf(x, y, (mob ? 6 : 8) + rnd() * 5, rnd() * 180, rnd() > .45);
+  }
+  // borda da copa: anel de folhas para dar contorno de árvore
+  for (let k = 0, n = mob ? 70 : 140; k < n; k++) {
+    const a = (k / n) * Math.PI * 2 + rnd() * 0.05, j2 = 0.92 + rnd() * 0.1;
+    const x = cx + Math.cos(a) * erx * j2, y = ecy + Math.sin(a) * ery * j2;
+    if (y > rowY(0) + CH * 0.5 && Math.abs(x - cx) < erx * 0.35) continue;
+    fill += leaf(x, y, (mob ? 7 : 10) + rnd() * 5, (a * 180 / Math.PI) + 90 + rnd() * 30, rnd() > .5);
+  }
+  bg += fill;
   place(focus, 0, 0, null, null, 0, 0);
   // tronco: do chão até a plaquinha da pessoa
   const ty = rowY(0) + CH - 6, tw = mob ? 26 : 34;
@@ -186,7 +204,7 @@ function drawTree() {
   const rw = Math.min(W - 40, mob ? 320 : 520), ry = H - ribbonH - 8;
   const ribbon = `<path d="M${cx - rw / 2 - 26} ${ry + 14} l26 6 l-10 16 l${rw + 20} 0 l-10 -16 l26 -6 l-20 -10 Z" fill="var(--ribbon2)"/>
     <path d="M${cx - rw / 2} ${ry} Q${cx} ${ry - 14} ${cx + rw / 2} ${ry} L${cx + rw / 2} ${ry + 38} Q${cx} ${ry + 24} ${cx - rw / 2} ${ry + 38} Z" fill="var(--ribbon)" stroke="var(--plaque-line)" stroke-width="1.5"/>`;
-  const ribbonText = `<div class="ribbonText" style="top:${ry + 2}px">${esc(familyName)}</div>`;
+  const ribbonText = `<div class="ribbonText" style="top:${ry + 2}px">${esc(p.name)}</div>`;
   fig.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" aria-hidden="true">${bg}${grass}${trunk}${branches}${leaves}${ribbon}</svg>${ribbonText}${cards}`;
   const sc = fig.parentElement; sc.scrollLeft = (W - sc.clientWidth) / 2;
 }

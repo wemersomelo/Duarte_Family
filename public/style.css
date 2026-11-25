@@ -133,6 +133,6 @@ dialog.viewer{width:min(1000px,96vw)}
 .fig.illus .card.plaque .meta{font-size:11px;line-height:13px;color:light-dark(#7a5a34,#cbb88a)}
 .fig.illus .card.plaque .av{position:static;transform:none;width:28px;height:28px;flex:none;border-color:var(--plaque-line)}
 .fig.illus .card.plaque.focus{border-color:var(--accent);box-shadow:0 0 0 3px light-dark(#2b3aa633,#a9b6ff44)}
-.fig.illus .card.plaque.empty{background:transparent;border:2px dashed var(--plaque-line);box-shadow:none;color:light-dark(#7a5a34,#cbb88a)}
+.fig.illus .card.plaque.empty{background:light-dark(#f6faefee,#16251aee);border:2px dashed var(--plaque-line);box-shadow:none;color:light-dark(#7a5a34,#cbb88a)}
 .ribbonText{position:absolute;left:0;right:0;text-align:center;font:700 20px/34px var(--serif);color:light-dark(#4a2e14,#f1e4c0);pointer-events:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 60px}
 @media(max-width:699px){.fig.illus .card.plaque .nm{font-size:13px;line-height:15px}.ribbonText{font-size:16px}}
