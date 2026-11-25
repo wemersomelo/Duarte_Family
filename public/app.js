@@ -10,7 +10,9 @@ const canWrite = () => !!me && (me.role === 'member' || me.role === 'admin');
 const isGuest = () => !!me && me.role === 'guest';
 const canContribute = () => !!me && !isGuest();
 const canEdit = p => !!p && canWrite() && (me.role === 'admin' || (p.createdBy != null && p.createdBy === me.id));
-const yr = p => { const y = s => (String(s || '').match(/\d{4}/) || [''])[0]; return p.birth || p.death ? `${y(p.birth) || '?'}${p.death ? ' – ' + (y(p.death) || '†') : ''}` : ''; };
+const y4 = s => (String(s || '').match(/\d{4}/) || [''])[0];
+const isDead = p => !!(p.death || p.deathPlace || (y4(p.birth) && +y4(p.birth) <= 1915));
+const yr = p => { const b = y4(p.birth), d = y4(p.death), out = []; if (b) out.push('★ ' + b); if (isDead(p)) out.push(d ? '✝ ' + d : '✝'); return out.join('  ') || '—'; };
 const byName = (a, b) => norm(a.name).localeCompare(norm(b.name));
 const childrenOf = id => Object.values(people).filter(p => p.fatherId === id || p.motherId === id);
 const spousesOf = id => {
@@ -147,9 +149,10 @@ function drawChart() {
     if (g > 0) { const mid = cy0 + (y - cy0) / 2; lines += `<path d="M${cx0} ${cy0}V${mid}H${cx}V${y}" fill="none" stroke="currentColor" stroke-opacity=".35" stroke-width="1.5"/>`; }
     if (q) {
       const av = q.photoFileId ? `<img class="av" src="/api/files/${encodeURIComponent(q.photoFileId)}" alt="" loading="lazy">` : '';
-      const meta = q.living ? '' : [yr(q), g === 0 ? q.birthPlace : ''].filter(Boolean).join(' · ');
+      const meta = q.living ? '—' : [yr(q), g === 0 ? q.birthPlace : ''].filter(Boolean).join(' · ');
       const nm = mob && g > 0 ? short(q.name) : q.name;
-      html += `<button type="button" class="card td${g === 0 ? ' focus main' : ''}" data-id="${esc(q.id)}" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px" title="${esc(q.name)}">${av}<span class="nm">${esc(nm)}</span>${meta ? `<span class="meta">${esc(meta)}</span>` : ''}</button>`;
+      const mt = mob && g > 0 ? meta.replace(/([★✝]) /g, '$1') : meta;
+      html += `<button type="button" class="card td${g === 0 ? ' focus main' : ''}" data-id="${esc(q.id)}" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px" title="${esc(q.name)}">${av}<span class="nm">${esc(nm)}</span>${mt ? `<span class="meta">${esc(mt)}</span>` : ''}</button>`;
       if (g < G - 1) { place(q.fatherId, g + 1, i * 2, q.id, 'father', cx, y + h); place(q.motherId, g + 1, i * 2 + 1, q.id, 'mother', cx, y + h); }
     } else {
       html += `<button type="button" class="card td empty" data-add="${role}" data-child="${esc(childId)}" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px">+ ${role === 'father' ? 'Pai' : 'Mãe'}</button>`;
@@ -240,7 +243,7 @@ const q = $('#q'), res = $('#results');
 function search() {
   const t = norm(q.value.trim()); if (!t) { res.style.display = 'none'; return; }
   const hits = Object.values(people).filter(p => norm([p.name, p.nick, p.birthPlace, p.deathPlace, p.origin, COLOR[p.color], p.notes].join(' ')).includes(t)).sort(byName).slice(0, 30);
-  res.innerHTML = hits.length ? hits.map(p => `<button type="button" data-hit="${esc(p.id)}">${esc(p.name)}<small>${esc([p.nick, yr(p), p.birthPlace].filter(Boolean).join(' · ') || 'sem datas')}</small></button>`).join('') : '<p class="none" style="padding:12px 14px;margin:0">Ninguém encontrado. Você pode adicionar essa pessoa.</p>';
+  res.innerHTML = hits.length ? hits.map(p => `<button type="button" data-hit="${esc(p.id)}">${esc(p.name)}<small>${esc([p.nick, yr(p), p.birthPlace].filter(Boolean).join(' · '))}</small></button>`).join('') : '<p class="none" style="padding:12px 14px;margin:0">Ninguém encontrado. Você pode adicionar essa pessoa.</p>';
   res.style.display = 'block';
 }
 q.addEventListener('input', search); q.addEventListener('focus', search);
@@ -254,7 +257,7 @@ const COLOR = { branca: 'Branca', preta: 'Preta', parda: 'Parda', amarela: 'Amar
 const dlg = $('#dlg'), form = $('#form');
 function fillSelect(sel, val, excl) {
   const opts = Object.values(people).filter(p => p.id !== excl).sort(byName);
-  sel.innerHTML = '<option value="">Não informado</option>' + opts.map(p => `<option value="${esc(p.id)}">${esc(p.name)}${yr(p) ? ' (' + esc(yr(p)) + ')' : ''}</option>`).join('');
+  sel.innerHTML = '<option value="">Não informado</option>' + opts.map(p => `<option value="${esc(p.id)}">${esc(p.name)}${yr(p) !== '—' ? ' (' + esc(yr(p)) + ')' : ''}</option>`).join('');
   sel.value = val || '';
 }
 function openForm(id, c = {}) {

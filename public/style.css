@@ -135,7 +135,7 @@ dialog.viewer{width:min(1000px,96vw)}
 .card.td.main .nm{font-size:21px;line-height:24px}
 .card.td.main .av{width:40px;height:40px}
 .card.td.empty{display:grid}
-@media(max-width:699px){.card.td .nm{font-size:14px;line-height:16px}.card.td.main .nm{font-size:18px;line-height:21px}}
+@media(max-width:699px){.card.td .nm{font-size:14px;line-height:16px}.card.td.main .nm{font-size:18px;line-height:21px}.card.td:not(.main) .meta{font-size:11px;letter-spacing:-.2px}}
 .card.td{background-image:none;border-radius:10px;box-shadow:0 1px 0 var(--line)}
 .card.td .nm{font-family:var(--serif)}
 .card.td.main{border-width:2px;box-shadow:0 6px 18px #3C3A2F26}
