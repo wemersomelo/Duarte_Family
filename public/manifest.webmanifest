@@ -1,0 +1,10 @@
+{
+  "name": "Árvore da Família",
+  "short_name": "Árvore",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1f4a33",
+  "theme_color": "#1f4a33",
+  "lang": "pt-BR",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}

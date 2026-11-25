@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#1f4a33">
+<title>Árvore da Família</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon.svg">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<!-- Entrar / criar conta -->
+<section id="auth" class="auth" hidden>
+  <div class="authcard">
+    <h1 id="authTitle">Árvore da Família</h1>
+    <p id="authSub" class="sub"></p>
+    <form id="authForm">
+      <label class="f" id="fName">Seu nome<input name="name" autocomplete="name" maxlength="80"></label>
+      <label class="f">E-mail<input name="email" type="email" autocomplete="email" required maxlength="120"></label>
+      <label class="f">Senha<input name="password" type="password" autocomplete="current-password" required minlength="8" maxlength="200"></label>
+      <label class="f" id="fKey" hidden>Chave de instalação (se configurada)<input name="setupKey" autocomplete="off" maxlength="200"></label>
+      <div class="err" id="authErr"></div>
+      <button class="primary wide" type="submit" id="authBtn">Entrar</button>
+    </form>
+    <p class="note" id="authHelp">Ainda não tem conta? Peça um convite ao administrador da árvore.</p>
+  </div>
+</section>
+
+<!-- Aplicativo -->
+<div id="main" hidden>
+<header class="band head">
+  <div class="toprow">
+    <h1 id="title">Árvore da Família</h1>
+    <div class="menu">
+      <span id="whoami" class="who"></span>
+      <button type="button" id="adminBtn" class="ghost" hidden>Administrar</button>
+      <button type="button" id="pwBtn" class="ghost">Senha</button>
+      <button type="button" id="logoutBtn" class="ghost">Sair</button>
+    </div>
+  </div>
+  <div class="top">
+    <div class="searchwrap">
+      <input id="q" type="search" placeholder="Procurar nome, apelido, cidade…" autocomplete="off" aria-label="Procurar">
+      <div id="results" role="listbox"></div>
+    </div>
+    <button id="addBtn" type="button" hidden>+ Adicionar pessoa</button>
+  </div>
+  <div class="status" id="status">Carregando…</div>
+  <div class="how" id="how">Clique em uma pessoa para navegar. Use <b>+ Acrescentar informação</b>, <b>Fotos e documentos</b> ou os espaços <b>+ Adicionar pai/mãe</b>. Cada pessoa só altera o que ela mesma adicionou.</div>
+</header>
+
+<section class="band">
+  <div class="chartbar">
+    <h2 id="chartTitle">Antepassados</h2>
+    <label>Gerações <select id="gens"><option>3</option><option selected>4</option><option>5</option></select></label>
+  </div>
+  <div class="scroll"><div class="fig" id="fig"></div></div>
+</section>
+
+<section class="band nopad">
+  <div class="record">
+    <div class="slip" id="slip"></div>
+    <div class="slip kin" id="kin"></div>
+  </div>
+</section>
+
+<section class="band nopad">
+  <h2>Todas as pessoas <span id="count" class="note"></span></h2>
+  <ul class="index" id="index"></ul>
+</section>
+</div>
+
+<!-- Pessoa -->
+<dialog id="dlg">
+  <form id="form">
+    <h2 id="formTitle">Adicionar pessoa</h2>
+    <label class="f">Nome completo<input name="name" required maxlength="200"></label>
+    <div class="grid2">
+      <label class="f">Apelido<input name="nick" maxlength="200"></label>
+      <label class="f">Sexo<select name="sex"><option value="">Não informado</option><option value="m">Masculino</option><option value="f">Feminino</option></select></label>
+      <label class="f">Nascimento (data ou ano)<input name="birth" maxlength="60" placeholder="01/01/1950"></label>
+      <label class="f">Local de nascimento<input name="birthPlace" maxlength="200" placeholder="Cidade, UF"></label>
+      <label class="f">Falecimento<input name="death" maxlength="60"></label>
+      <label class="f">Local de falecimento<input name="deathPlace" maxlength="200"></label>
+      <label class="f">Pai<select name="fatherId"></select></label>
+      <label class="f">Mãe<select name="motherId"></select></label>
+    </div>
+    <label class="f">Cônjuge<select name="spouseId"></select></label>
+    <label class="f">Histórias e observações<textarea name="notes" maxlength="5000"></textarea></label>
+    <label class="f">Fontes (documentos, quem contou)<textarea name="sources" maxlength="2000"></textarea></label>
+    <div class="err" id="formErr"></div>
+    <div class="actions">
+      <button class="primary" type="submit" id="saveBtn">Salvar</button>
+      <button type="button" class="closeDlg">Cancelar</button>
+      <button type="button" class="danger" id="delBtn" hidden>Excluir</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Informação -->
+<dialog id="ndlg">
+  <form id="nform">
+    <h2 id="nTitle">Acrescentar informação</h2>
+    <p class="note">Escreva o que você sabe: datas, lugares, histórias, correções. Diga de onde veio a informação, se souber.</p>
+    <label class="f">Informação<textarea name="text" required maxlength="5000"></textarea></label>
+    <div class="err" id="nErr"></div>
+    <div class="actions"><button class="primary" type="submit">Salvar</button><button type="button" class="closeDlg">Cancelar</button></div>
+  </form>
+</dialog>
+
+<!-- Documentos -->
+<dialog id="fdlg">
+  <form id="fform">
+    <h2 id="fTitle">Fotos e documentos</h2>
+    <p class="note">Fotos de certidões, carteiras, identidades e retratos antigos. JPG, PNG, HEIC ou PDF, até 10 de cada vez.</p>
+    <label class="f">Arquivos<input name="files" type="file" multiple accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf" required></label>
+    <label class="f">O que é (ex.: certidão de casamento)<input name="caption" maxlength="500"></label>
+    <div class="err" id="fErr"></div>
+    <div class="actions"><button class="primary" type="submit" id="fSave">Enviar</button><button type="button" class="closeDlg">Cancelar</button></div>
+  </form>
+</dialog>
+
+<!-- Visualizar documento -->
+<dialog id="vdlg" class="viewer">
+  <div class="vhead"><span id="vCap"></span><a id="vDl" href="#">Baixar</a><button type="button" class="closeDlg">Fechar</button></div>
+  <div id="vBody"></div>
+</dialog>
+
+<!-- Senha -->
+<dialog id="pdlg">
+  <form id="pform">
+    <h2>Trocar senha</h2>
+    <label class="f">Senha atual<input name="current" type="password" required autocomplete="current-password"></label>
+    <label class="f">Nova senha (mínimo 8 caracteres)<input name="password" type="password" required minlength="8" autocomplete="new-password"></label>
+    <div class="err" id="pErr"></div>
+    <div class="actions"><button class="primary" type="submit">Salvar</button><button type="button" class="closeDlg">Cancelar</button></div>
+  </form>
+</dialog>
+
+<!-- Administração -->
+<dialog id="adlg" class="wide">
+  <div class="admin">
+    <div class="actions" style="justify-content:space-between;margin:0 0 8px"><h2 style="margin:0">Administrar</h2><button type="button" class="closeDlg">Fechar</button></div>
+    <h3>Convidar parente</h3>
+    <form id="iform" class="inline">
+      <input name="label" placeholder="Para quem (ex.: tia Maria)" maxlength="100">
+      <select name="role"><option value="member">Pode adicionar</option><option value="viewer">Só ver</option><option value="admin">Administrador</option></select>
+      <button class="primary" type="submit">Criar convite</button>
+    </form>
+    <div id="newInvite" class="newinv" hidden></div>
+    <div id="invites"></div>
+    <h3>Pessoas com acesso</h3>
+    <div id="users"></div>
+    <h3>Cópias de segurança</h3>
+    <p class="note">Baixe uma cópia de vez em quando e guarde num lugar seguro. O arquivo GEDCOM abre em qualquer programa de genealogia.</p>
+    <div class="actions"><a class="btn" href="/api/export.json">Baixar dados (JSON)</a><a class="btn" href="/api/export.ged">Baixar GEDCOM</a></div>
+    <h3>Importar</h3>
+    <p class="note">Importa um arquivo JSON exportado desta árvore ou da versão anterior. Pessoas com o mesmo código são atualizadas.</p>
+    <form id="impform" class="inline"><input name="file" type="file" accept="application/json,.json" required><button type="submit">Importar</button></form>
+    <div class="err" id="aErr"></div>
+  </div>
+</dialog>
+
+<script src="/app.js"></script>
+</body>
+</html>

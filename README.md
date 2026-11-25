@@ -1,0 +1,81 @@
+# Árvore da Família
+
+Um app privado de árvore genealógica que **você mesmo hospeda**. Os dados da família ficam no seu servidor, não num site comercial.
+
+- Só entra quem recebe um **convite** (link de uso único, vale 30 dias).
+- Todos os convidados **veem** a árvore inteira.
+- Quem tem acesso "Pode adicionar" acrescenta pessoas, pais, filhos, cônjuges, **informações** e **fotos de documentos** (JPG, PNG, HEIC, PDF).
+- **Cada pessoa só altera ou remove o que ela mesma adicionou.** Para corrigir algo de outra pessoa, usa "Acrescentar informação".
+- O **administrador** altera tudo, convida, bloqueia contas, exporta e importa.
+- Funciona no celular e pode ser instalado na tela inicial ("Adicionar à tela de início").
+- Exporta em **JSON** (cópia completa) e **GEDCOM** (formato padrão de genealogia).
+
+Este repositório guarda **só o código**. Nenhum dado da família vai para cá: a pasta `data/` fica no servidor e é ignorada pelo Git.
+
+---
+
+## Colocar no ar (servidor próprio, ~1 hora)
+
+Você precisa de:
+1. **Um servidor pequeno (VPS)** com Ubuntu. Qualquer um com 1 GB de memória serve (por exemplo Hetzner CX22, a partir de uns 4 euros por mês).
+2. **Um endereço** (domínio ou subdomínio) apontando para o IP do servidor. Pode ser um domínio seu (`arvore.seusite.com`) ou um subdomínio gratuito (por exemplo DuckDNS). O HTTPS é configurado automaticamente.
+
+No servidor, como administrador:
+
+```bash
+# 1. Instalar Docker
+curl -fsSL https://get.docker.com | sh
+
+# 2. Baixar o código
+git clone https://github.com/wemersomelo/duarte_family.git arvore
+cd arvore
+
+# 3. Configurar
+cp .env.example .env
+nano .env            # preencha DOMAIN e troque SETUP_KEY por uma frase longa
+
+# 4. Pasta dos dados (fica só no servidor)
+mkdir -p data && sudo chown 1000:1000 data
+
+# 5. Ligar
+sudo docker compose up -d --build
+```
+
+Depois:
+1. Abra `https://SEU-ENDERECO` e crie a conta de **administrador** (vai pedir a `SETUP_KEY`).
+2. Em **Administrar → Importar**, envie o arquivo `arvore-familia-AAAA-MM-DD.json` com os dados atuais.
+3. Em **Administrar → Convidar parente**, crie um convite para cada pessoa e mande o link por WhatsApp.
+
+### Atualizar o app
+```bash
+cd arvore && git pull && sudo docker compose up -d --build
+```
+
+### Cópias de segurança
+Tudo fica na pasta `data/` (o banco `arvore.db` e a pasta `uploads/` com os documentos). Para guardar uma cópia:
+```bash
+cd arvore && sudo tar czf ~/backup-arvore-$(date +%F).tgz data
+```
+Baixe esse arquivo para o seu computador de vez em quando. Pelo app, **Administrar → Baixar dados (JSON)** e **Baixar GEDCOM** também servem como cópia.
+
+---
+
+## Testar no próprio computador
+
+Precisa do Node.js 20 ou mais novo.
+
+```bash
+npm install
+npm start          # abre em http://localhost:3000
+npm test           # testa as regras de acesso
+```
+
+Variáveis úteis: `DATA_DIR` (onde guardar os dados), `PORT`, `FAMILY_NAME`, `DEFAULT_PERSON`, `SETUP_KEY`, `MAX_UPLOAD_MB`, `COOKIE_SECURE=1` (use atrás de HTTPS).
+
+## Como funciona por dentro
+
+- `server.js`: servidor (Node.js + Express), contas, convites, regras de acesso, envio de arquivos, exportação.
+- `src/db.js`: banco SQLite (um único arquivo, fácil de copiar).
+- `src/gedcom.js`: exportação GEDCOM.
+- `public/`: a página (HTML, CSS e JavaScript, sem dependências externas).
+- Senhas guardadas com bcrypt; sessão por cookie HttpOnly; limite de tentativas de login; documentos só abrem para quem está logado.
