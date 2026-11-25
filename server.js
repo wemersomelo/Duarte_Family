@@ -502,7 +502,7 @@ app.delete('/api/files/:id', needWriter, (req, res) => {
   db.prepare("UPDATE people SET photo_file_id='' WHERE photo_file_id=?").run(f.id);
   // Vai para a lixeira (data/uploads/lixeira) em vez de sumir: o administrador pode recuperar.
   fs.mkdirSync(TRASH_DIR, { recursive: true });
-  fs.rename(path.join(UPLOAD_DIR, path.basename(f.stored_name)), path.join(TRASH_DIR, path.basename(f.stored_name)), () => {});
+  try { fs.renameSync(path.join(UPLOAD_DIR, path.basename(f.stored_name)), path.join(TRASH_DIR, path.basename(f.stored_name))); } catch { /* arquivo já não existe */ }
   res.json({ ok: true });
 });
 
