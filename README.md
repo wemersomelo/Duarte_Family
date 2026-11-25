@@ -3,6 +3,8 @@
 Um app privado de árvore genealógica que **você mesmo hospeda**. Os dados da família ficam no seu servidor, não num site comercial.
 
 - Só entra quem recebe um **convite** (link de uso único, vale 30 dias).
+- **Link da família** (opcional): um link único, sem cadastro, para mandar no grupo. Mostra tudo dos falecidos e, dos vivos, só nome e ligações. O administrador troca ou desliga o link quando quiser. Conta como falecido quem tem data ou local de falecimento, ou nasceu até 1915 (ajuste com `FALECIDOS_ATE_ANO`).
+- Quem entra pelo link pode **pedir para participar** (nome, e-mail, parentesco). O administrador aprova, e o convite só funciona com aquele e-mail.
 - Todos os convidados **veem** a árvore inteira e podem deixar **lembranças**, **fotos e documentos** (JPG, PNG, HEIC, PDF) e **links de vídeos** em qualquer pessoa.
 - Quem tem acesso "Pode adicionar" também acrescenta pessoas, pais, filhos, cônjuges e **informações**.
 - Cada pessoa pode ter uma **foto principal**, que aparece na ficha e na árvore.

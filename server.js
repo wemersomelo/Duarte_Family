@@ -82,6 +82,32 @@ app.use((req, res, next) => {
   next();
 });
 const needUser = (req, res, next) => req.user ? next() : res.status(401).json({ error: 'Entre na sua conta.' });
+const needUserOrGuest = (req, res, next) => (req.user || req.guest) ? next() : res.status(401).json({ error: 'Entre na sua conta.' });
+
+// ---------- link da família (só ver, sem cadastro) ----------
+// Um link único que o administrador cria, troca ou desliga. Quem entra por ele só vê:
+// dos falecidos, tudo; dos vivos, só nome, apelido e ligações de família.
+const getSetting = k => (db.prepare('SELECT value FROM settings WHERE key=?').get(k) || {}).value || '';
+const setSetting = (k, v) => db.prepare('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(k, v);
+const GUEST_DAYS = 30;
+app.use((req, res, next) => {
+  req.guest = false;
+  if (!req.user) {
+    const fam = parseCookies(req).fam, current = getSetting('family_link');
+    if (fam && current && fam.length === current.length && crypto.timingSafeEqual(Buffer.from(fam), Buffer.from(current))) req.guest = true;
+  }
+  next();
+});
+const DEAD_BEFORE = Number(process.env.FALECIDOS_ATE_ANO || 1915);
+function isDeceased(p) {
+  if (String(p.death || '').trim() || String(p.deathPlace || '').trim()) return true;
+  const y = Number((String(p.birth || '').match(/\d{4}/) || [])[0]);
+  return !!y && y <= DEAD_BEFORE;
+}
+function guestPerson(p) {
+  if (isDeceased(p)) return { ...p, createdBy: null };
+  return { id: p.id, name: p.name, nick: p.nick, sex: p.sex, fatherId: p.fatherId, motherId: p.motherId, spouseId: p.spouseId, living: true, createdBy: null };
+}
 const needWriter = (req, res, next) => req.user && req.user.role !== 'viewer' ? next() : res.status(403).json({ error: 'Seu acesso é só de leitura.' });
 const needAdmin = (req, res, next) => req.user && req.user.role === 'admin' ? next() : res.status(403).json({ error: 'Só o administrador pode fazer isso.' });
 const owns = (req, createdBy) => req.user.role === 'admin' || (createdBy != null && createdBy === req.user.id);
@@ -149,7 +175,8 @@ function exists(id) { return !!db.prepare('SELECT 1 FROM people WHERE id=?').get
 // ---------- conta ----------
 app.get('/api/status', (req, res) => {
   const users = db.prepare('SELECT COUNT(*) n FROM users').get().n;
-  res.json({ needsSetup: users === 0, user: req.user, familyName: process.env.FAMILY_NAME || 'Árvore da Família', defaultPerson: process.env.DEFAULT_PERSON || '' });
+  const pending = req.user && req.user.role === 'admin' ? db.prepare("SELECT COUNT(*) n FROM access_requests WHERE status='pending'").get().n : 0;
+  res.json({ needsSetup: users === 0, pendingRequests: pending, user: req.user || (req.guest ? { id: null, name: 'Visitante', role: 'guest' } : null), familyName: process.env.FAMILY_NAME || 'Árvore da Família', defaultPerson: process.env.DEFAULT_PERSON || '' });
 });
 
 app.post('/api/setup', (req, res) => {
@@ -184,7 +211,7 @@ app.post('/api/login', (req, res) => {
 
 app.post('/api/logout', (req, res) => {
   if (req.sid) db.prepare('DELETE FROM sessions WHERE token=?').run(req.sid);
-  res.setHeader('Set-Cookie', 'sid=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0');
+  res.setHeader('Set-Cookie', ['sid=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0', 'fam=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0']);
   res.json({ ok: true });
 });
 
@@ -216,25 +243,47 @@ app.post('/api/reset/:token', (req, res) => {
 
 // ---------- convites ----------
 app.get('/api/invites/:token', (req, res) => {
-  const inv = db.prepare('SELECT role,label,used_by,expires FROM invites WHERE token=?').get(req.params.token);
+  const inv = db.prepare('SELECT role,label,email,used_by,expires FROM invites WHERE token=?').get(req.params.token);
   if (!inv || inv.used_by || inv.expires < Date.now()) return res.status(404).json({ error: 'Convite inválido ou já usado.' });
-  res.json({ role: inv.role, label: inv.label });
+  res.json({ role: inv.role, label: inv.label, email: inv.email || '' });
 });
 app.post('/api/invites/:token', (req, res) => {
   const inv = db.prepare('SELECT * FROM invites WHERE token=?').get(req.params.token);
   if (!inv || inv.used_by || inv.expires < Date.now()) return res.status(404).json({ error: 'Convite inválido ou já usado.' });
   const { name, email, password } = req.body || {};
+  // Convite de um pedido aprovado só vale para o e-mail que pediu.
+  if (inv.email && String(email || '').trim().toLowerCase() !== inv.email) return res.status(400).json({ error: `Este convite é para o e-mail ${inv.email}.` });
   const err = checkAccount(name, email, password); if (err) return res.status(400).json({ error: err });
   const id = db.prepare('INSERT INTO users(name,email,pass_hash,role,created_at) VALUES(?,?,?,?,?)')
     .run(name.trim(), email.trim().toLowerCase(), bcrypt.hashSync(password, 10), inv.role, now()).lastInsertRowid;
   db.prepare('UPDATE invites SET used_by=?, used_at=? WHERE token=?').run(id, now(), inv.token);
+  db.prepare("UPDATE access_requests SET status='joined' WHERE invite_token=?").run(inv.token);
   setSession(res, id);
   res.json({ ok: true });
 });
 
+// ---------- pedidos para participar (a partir do link da família) ----------
+const reqLimit = new Map();
+app.post('/api/access-requests', (req, res) => {
+  if (!req.guest) return res.status(403).json({ error: 'Abra pelo link da família para pedir acesso.' });
+  const ip = req.ip || '', nowMs = Date.now();
+  const a = (reqLimit.get(ip) || []).filter(t => nowMs - t < 864e5);
+  if (a.length >= 3) return res.status(429).json({ error: 'Você já enviou pedidos hoje. Aguarde a resposta.' });
+  const name = String(req.body.name || '').trim().slice(0, 100), email = String(req.body.email || '').trim().toLowerCase().slice(0, 120);
+  const relation = String(req.body.relation || '').trim().slice(0, 200), message = String(req.body.message || '').trim().slice(0, 1000);
+  if (!name) return res.status(400).json({ error: 'Escreva seu nome completo.' });
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(400).json({ error: 'E-mail inválido.' });
+  if (!relation) return res.status(400).json({ error: 'Conte como você é da família (ex.: neta do Clemente).' });
+  if (db.prepare("SELECT COUNT(*) n FROM access_requests WHERE status='pending'").get().n >= 300) return res.status(429).json({ error: 'Muitos pedidos aguardando. Tente mais tarde.' });
+  if (db.prepare("SELECT 1 FROM access_requests WHERE email=? AND status='pending'").get(email)) return res.json({ ok: true });
+  a.push(nowMs); reqLimit.set(ip, a);
+  db.prepare("INSERT INTO access_requests(name,email,relation,message,ip,status,created_at) VALUES(?,?,?,?,?,'pending',?)").run(name, email, relation, message, ip, now());
+  res.json({ ok: true });
+});
+
 // ---------- leitura da árvore ----------
-app.get('/api/tree', needUser, (req, res) => {
-  const people = db.prepare('SELECT * FROM people').all().map(personOut);
+app.get('/api/tree', needUserOrGuest, (req, res) => {
+  let people = db.prepare('SELECT * FROM people').all().map(personOut);
   // Ligações de pai/mãe feitas por quem não é dono do registro do filho.
   const links = db.prepare('SELECT * FROM links ORDER BY id').all();
   const byId = Object.fromEntries(people.map(p => [p.id, p]));
@@ -247,6 +296,20 @@ app.get('/api/tree', needUser, (req, res) => {
   const media = db.prepare('SELECT id,person_id personId,url,title,created_by createdBy,created_at createdAt FROM media_links ORDER BY created_at').all();
   const files = db.prepare('SELECT id,person_id personId,original_name name,mime,size,caption,created_by createdBy,created_at createdAt FROM files ORDER BY created_at').all();
   const users = db.prepare('SELECT id,name FROM users').all();
+  if (req.guest) {
+    // Ligações primeiro (já aplicadas acima); depois esconde os dados dos vivos.
+    const dead = new Set(people.filter(isDeceased).map(p => p.id));
+    people = people.map(guestPerson);
+    const anon = x => ({ ...x, createdBy: null });
+    return res.json({
+      people,
+      notes: notes.filter(n => dead.has(n.personId)).map(anon),
+      files: files.filter(f => dead.has(f.personId)).map(f => ({ ...anon(f), name: f.caption || 'documento' })),
+      media: media.filter(m => dead.has(m.personId)).map(anon),
+      users: [],
+      me: { id: null, name: 'Visitante', role: 'guest' }
+    });
+  }
   res.json({ people, notes, files, media, users, me: req.user });
 });
 
@@ -413,9 +476,13 @@ async function cleanImage(f) {
     return toJpeg ? { filename: f.filename, mime: f.mimetype, size: f.size } : null;
   }
 }
-app.get('/api/files/:id', needUser, (req, res) => {
+app.get('/api/files/:id', needUserOrGuest, (req, res) => {
   const f = db.prepare('SELECT * FROM files WHERE id=?').get(req.params.id);
   if (!f) return res.status(404).end();
+  if (req.guest) {
+    const p = db.prepare('SELECT * FROM people WHERE id=?').get(f.person_id);
+    if (!p || !isDeceased(personOut(p))) return res.status(404).end();
+  }
   const file = path.join(UPLOAD_DIR, path.basename(f.stored_name));
   res.set('Content-Type', f.mime);
   res.set('X-Frame-Options', 'SAMEORIGIN');
@@ -474,6 +541,42 @@ app.post('/api/admin/users/:id/reset', needAdmin, (req, res) => {
   log(req, 'criou link de nova senha', 'usuário ' + u.id);
   res.json({ token });
 });
+app.get('/api/admin/access-requests', needAdmin, (req, res) => {
+  const rows = db.prepare(`SELECT r.id,r.name,r.email,r.relation,r.message,r.status,r.created_at createdAt,r.decided_at decidedAt,r.invite_token inviteToken,u.name decidedBy
+    FROM access_requests r LEFT JOIN users u ON u.id=r.decided_by ORDER BY (r.status='pending') DESC, r.id DESC LIMIT 200`).all();
+  res.json({ requests: rows });
+});
+app.post('/api/admin/access-requests/:id/approve', needAdmin, (req, res) => {
+  const r = db.prepare('SELECT * FROM access_requests WHERE id=?').get(Number(req.params.id));
+  if (!r) return res.status(404).json({ error: 'Pedido não encontrado.' });
+  if (db.prepare('SELECT 1 FROM users WHERE email=?').get(r.email)) return res.status(400).json({ error: 'Já existe uma conta com esse e-mail.' });
+  const role = ['member', 'viewer'].includes(req.body.role) ? req.body.role : 'member';
+  const token = crypto.randomBytes(18).toString('base64url');
+  db.prepare('INSERT INTO invites(token,role,label,email,created_by,created_at,expires) VALUES(?,?,?,?,?,?,?)')
+    .run(token, role, `${r.name} (${r.relation})`.slice(0, 100), r.email, req.user.id, now(), Date.now() + 30 * 864e5);
+  db.prepare("UPDATE access_requests SET status='approved', decided_by=?, decided_at=?, invite_token=? WHERE id=?").run(req.user.id, now(), token, r.id);
+  log(req, 'aprovou pedido de acesso', r.email, { name: r.name, relation: r.relation, role });
+  res.json({ token, email: r.email, name: r.name });
+});
+app.post('/api/admin/access-requests/:id/reject', needAdmin, (req, res) => {
+  const r = db.prepare('SELECT * FROM access_requests WHERE id=?').get(Number(req.params.id));
+  if (!r) return res.status(404).json({ error: 'Pedido não encontrado.' });
+  db.prepare("UPDATE access_requests SET status='rejected', decided_by=?, decided_at=? WHERE id=?").run(req.user.id, now(), r.id);
+  log(req, 'recusou pedido de acesso', r.email, { name: r.name });
+  res.json({ ok: true });
+});
+app.get('/api/admin/family-link', needAdmin, (req, res) => res.json({ token: getSetting('family_link') || null }));
+app.post('/api/admin/family-link', needAdmin, (req, res) => {
+  const token = crypto.randomBytes(24).toString('base64url');
+  setSetting('family_link', token);
+  log(req, 'criou novo link da família', '');
+  res.json({ token });
+});
+app.delete('/api/admin/family-link', needAdmin, (req, res) => {
+  setSetting('family_link', '');
+  log(req, 'desligou o link da família', '');
+  res.json({ ok: true });
+});
 app.get('/api/admin/activity', needAdmin, (req, res) => {
   const rows = db.prepare('SELECT a.id,a.action,a.target,a.detail,a.at,u.name FROM activity a LEFT JOIN users u ON u.id=a.user_id ORDER BY a.id DESC LIMIT 300').all();
   res.json({ activity: rows });
@@ -531,6 +634,14 @@ app.post('/api/admin/import', needAdmin, (req, res) => {
 // ---------- páginas ----------
 // 'no-cache': o navegador sempre confere se há versão nova (rápido, usa ETag), então atualizações aparecem na hora.
 app.use(express.static(path.join(__dirname, 'public'), { index: 'index.html', setHeaders: res => res.set('Cache-Control', 'no-cache') }));
+app.get('/familia/:token', (req, res) => {
+  const current = getSetting('family_link'), t = String(req.params.token);
+  if (current && t.length === current.length && crypto.timingSafeEqual(Buffer.from(t), Buffer.from(current))) {
+    res.setHeader('Set-Cookie', `fam=${current}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${GUEST_DAYS * 86400}${COOKIE_SECURE ? '; Secure' : ''}`);
+    return res.redirect(302, '/');
+  }
+  res.redirect(302, '/?link=invalido');
+});
 app.get('/robots.txt', (req, res) => res.type('text/plain').send('User-agent: *\nDisallow: /\n'));
 app.get(/^\/((convite|senha)\/[\w-]+)?$/, (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 app.use('/api', (req, res) => res.status(404).json({ error: 'Não encontrado.' }));

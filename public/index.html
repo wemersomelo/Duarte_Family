@@ -47,6 +47,7 @@
       <div id="results" role="listbox"></div>
     </div>
     <button id="addBtn" type="button" hidden>+ Adicionar pessoa</button>
+    <button id="askBtn" type="button" hidden>Pedir para participar</button>
   </div>
   <div class="status" id="status">Carregando…</div>
   <div class="how" id="how">Clique em uma pessoa para navegar. Use <b>+ Acrescentar informação</b>, <b>+ Deixar uma lembrança</b>, <b>+ Fotos e documentos</b>, <b>+ Vídeo ou link</b> ou os espaços <b>+ Adicionar pai/mãe</b>. Cada pessoa só altera o que ela mesma adicionou.</div>
@@ -111,6 +112,20 @@
   </form>
 </dialog>
 
+<!-- Pedir para participar -->
+<dialog id="rdlg">
+  <form id="rform">
+    <h2>Pedir para participar</h2>
+    <p class="note">Com uma conta você pode ver os dados de todos e deixar lembranças, fotos e informações. O administrador confere seu pedido e manda um convite para o seu e-mail ou WhatsApp.</p>
+    <label class="f">Nome completo<input name="name" required maxlength="100" autocomplete="name"></label>
+    <label class="f">E-mail<input name="email" type="email" required maxlength="120" autocomplete="email"></label>
+    <label class="f">Como você é da família (ex.: neta do Clemente, filho da Dilma)<input name="relation" required maxlength="200"></label>
+    <label class="f">Recado (opcional, ex.: seu WhatsApp)<textarea name="message" maxlength="1000"></textarea></label>
+    <div class="err" id="rErr"></div>
+    <div class="actions"><button class="primary" type="submit">Enviar pedido</button><button type="button" class="closeDlg">Cancelar</button></div>
+  </form>
+</dialog>
+
 <!-- Vídeos e links -->
 <dialog id="ldlg">
   <form id="lform">
@@ -156,6 +171,8 @@
 <dialog id="adlg" class="wide">
   <div class="admin">
     <div class="actions" style="justify-content:space-between;margin:0 0 8px"><h2 style="margin:0">Administrar</h2><button type="button" class="closeDlg">Fechar</button></div>
+    <h3>Pedidos para participar <span id="reqCount" class="note"></span></h3>
+    <div id="requests"></div>
     <h3>Convidar parente</h3>
     <form id="iform" class="inline">
       <input name="label" placeholder="Para quem (ex.: tia Maria)" maxlength="100">
@@ -164,6 +181,9 @@
     </form>
     <div id="newInvite" class="newinv" hidden></div>
     <div id="invites"></div>
+    <h3>Link da família (só ver, sem cadastro)</h3>
+    <p class="note">Um link único para mandar no grupo da família. Quem abre vê a árvore sem criar conta: dos falecidos aparece tudo; das pessoas vivas, só o nome e as ligações de família. Se o link se espalhar demais, troque: o antigo para de funcionar na hora.</p>
+    <div id="famLink"></div>
     <h3>Pessoas com acesso</h3>
     <div id="users"></div>
     <h3>Histórico</h3>

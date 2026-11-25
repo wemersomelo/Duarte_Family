@@ -86,6 +86,23 @@ function openDb(file) {
       created_by INTEGER,
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS access_requests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      email TEXT NOT NULL,
+      relation TEXT,
+      message TEXT,
+      ip TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',   -- pending | approved | rejected | joined
+      created_at TEXT NOT NULL,
+      decided_by INTEGER,
+      decided_at TEXT,
+      invite_token TEXT
+    );
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT
+    );
     CREATE TABLE IF NOT EXISTS resets (
       token TEXT PRIMARY KEY,
       user_id INTEGER NOT NULL,
@@ -106,6 +123,7 @@ function openDb(file) {
   // Migrações para bancos criados por versões anteriores.
   const cols = t => db.prepare(`PRAGMA table_info(${t})`).all().map(c => c.name);
   if (!cols('notes').includes('kind')) db.exec(`ALTER TABLE notes ADD COLUMN kind TEXT NOT NULL DEFAULT 'info'`);
+  if (!cols('invites').includes('email')) db.exec(`ALTER TABLE invites ADD COLUMN email TEXT`);
   if (!cols('people').includes('photo_file_id')) db.exec(`ALTER TABLE people ADD COLUMN photo_file_id TEXT DEFAULT ''`);
   db.prepare('DELETE FROM sessions WHERE expires < ?').run(Date.now());
   return db;

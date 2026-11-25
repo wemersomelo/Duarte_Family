@@ -17,7 +17,7 @@ function client() {
     if (cookie) headers.cookie = cookie;
     let payload;
     if (isForm) payload = body; else if (body !== undefined) { headers['content-type'] = 'application/json'; payload = JSON.stringify(body); }
-    const r = await fetch(base + url, { method, headers, body: payload });
+    const r = await fetch(base + url, { method, headers, body: payload, redirect: 'manual' });
     const sc = r.headers.get('set-cookie'); if (sc) cookie = sc.split(';')[0];
     const buf = Buffer.from(await r.arrayBuffer()); let data; try { data = JSON.parse(buf.toString()); } catch { data = buf; }
     return { status: r.status, data, headers: r.headers };
@@ -81,6 +81,59 @@ function client() {
 
   // pedidos malformados não derrubam nada
   assert.equal((await anon('POST', '/api/login', undefined, true, { 'content-type': 'application/json', cookie: 'sid=%E0%A4%A' })).status < 500, true);
+
+  // link da família: só ver, vivos sem detalhes
+  await admin('POST', '/api/admin/import', { people: [
+    { id: 'vivo', name: 'Prima Viva', birth: '01/01/1990', birthPlace: 'Cidade X', notes: 'segredo do vivo', fatherId: 'antigo' },
+    { id: 'antigo', name: 'Bisavô', birth: '01/01/1900', notes: 'história antiga' },
+    { id: 'falecida', name: 'Tia Falecida', death: '2010', notes: 'história dela' }] });
+  const famTok = (await admin('POST', '/api/admin/family-link')).data.token;
+  assert.equal((await tia('POST', '/api/admin/family-link')).status, 403, 'só admin cria link');
+  const guest = client();
+  assert.equal((await guest('GET', '/familia/errado')).headers.get('location'), '/?link=invalido', 'link errado volta para a entrada');
+  assert.equal((await guest('GET', '/api/tree')).status, 401);
+  await guest('GET', '/familia/' + famTok);
+  let gt = (await guest('GET', '/api/tree')).data;
+  const viva = gt.people.find(p => p.id === 'vivo');
+  assert.equal(viva.name, 'Prima Viva');
+  assert.equal(viva.fatherId, 'antigo', 'ligações aparecem');
+  assert.equal(viva.birth, undefined, 'data do vivo escondida');
+  assert.equal(viva.birthPlace, undefined); assert.equal(viva.notes, undefined);
+  assert.equal(gt.people.find(p => p.id === 'antigo').notes, 'história antiga', 'nascido até 1915 conta como falecido');
+  assert.equal(gt.people.find(p => p.id === 'falecida').notes, 'história dela');
+  assert.equal(gt.users.length, 0, 'nomes de quem tem conta não aparecem');
+  assert.ok(!JSON.stringify(gt).includes('t@ex.com'));
+  assert.equal((await guest('POST', '/api/people/antigo/notes', { text: 'x', kind: 'memory' })).status, 401, 'visitante não escreve');
+  assert.equal((await guest('POST', '/api/people', { name: 'x' })).status, 403);
+  assert.equal((await guest('GET', '/api/admin')).status, 403);
+  // foto de pessoa viva não abre para visitante; de falecido abre
+  const jpg = await sharp({ create: { width: 8, height: 8, channels: 3, background: '#555' } }).jpeg().toBuffer();
+  for (const pid of ['vivo', 'antigo']) { const f = new FormData(); f.append('files', new Blob([jpg], { type: 'image/jpeg' }), pid + '.jpg'); await admin('POST', `/api/people/${pid}/files`, f, true); }
+  const all = (await admin('GET', '/api/tree')).data.files;
+  const fVivo = all.find(f => f.personId === 'vivo'), fAntigo = all.find(f => f.personId === 'antigo');
+  gt = (await guest('GET', '/api/tree')).data;
+  assert.ok(!gt.files.some(f => f.id === fVivo.id), 'lista não mostra arquivo do vivo');
+  assert.equal((await guest('GET', '/api/files/' + fVivo.id)).status, 404, 'arquivo do vivo bloqueado');
+  assert.equal((await guest('GET', '/api/files/' + fAntigo.id)).status, 200);
+  // pedir para participar: só pelo link; convite aprovado só vale para aquele e-mail
+  assert.equal((await client()('POST', '/api/access-requests', { name: 'X', email: 'x@ex.com', relation: 'primo' })).status, 403, 'sem o link não pede');
+  assert.equal((await guest('POST', '/api/access-requests', { name: 'Prima Nova', email: 'nova@ex.com', relation: '' })).status, 400, 'parentesco obrigatório');
+  assert.equal((await guest('POST', '/api/access-requests', { name: 'Prima Nova', email: 'Nova@Ex.com', relation: 'neta do Bisavô', message: 'zap 123' })).status, 200);
+  const reqs = (await admin('GET', '/api/admin/access-requests')).data.requests;
+  assert.equal(reqs[0].email, 'nova@ex.com');
+  assert.equal((await tia('GET', '/api/admin/access-requests')).status, 403, 'só admin vê pedidos');
+  const apr = (await admin('POST', `/api/admin/access-requests/${reqs[0].id}/approve`, { role: 'member' })).data;
+  assert.equal((await client()('POST', '/api/invites/' + apr.token, { name: 'Outra', email: 'outra@ex.com', password: 'senha-forte-7' })).status, 400, 'convite preso ao e-mail do pedido');
+  assert.equal((await client()('POST', '/api/invites/' + apr.token, { name: 'Prima Nova', email: 'nova@ex.com', password: 'senha-forte-7' })).status, 200);
+  assert.equal((await admin('GET', '/api/admin/access-requests')).data.requests[0].status, 'joined');
+  for (let i = 0; i < 3; i++) await guest('POST', '/api/access-requests', { name: 'Spam', email: `s${i}@ex.com`, relation: 'x' });
+  assert.equal((await guest('POST', '/api/access-requests', { name: 'Spam', email: 's9@ex.com', relation: 'x' })).status, 429, 'limite de pedidos por dia');
+
+  // trocar o link derruba quem entrou pelo antigo
+  await admin('POST', '/api/admin/family-link');
+  assert.equal((await guest('GET', '/api/tree')).status, 401, 'link antigo para de funcionar');
+  await admin('DELETE', '/api/admin/family-link');
+  assert.equal((await client()('GET', '/familia/' + famTok)).headers.get('location'), '/?link=invalido', 'link desligado não entra');
 
   // limite de tentativas de login
   let last;
