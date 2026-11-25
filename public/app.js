@@ -13,6 +13,7 @@ const canEdit = p => !!p && canWrite() && (me.role === 'admin' || (p.createdBy !
 const y4 = s => (String(s || '').match(/\d{4}/) || [''])[0];
 const isDead = p => !!(p.death || p.deathPlace || (y4(p.birth) && +y4(p.birth) <= 1915));
 const yr = p => { const b = y4(p.birth), d = y4(p.death), out = []; if (b) out.push('★ ' + b); if (isDead(p)) out.push(d ? '✝ ' + d : '✝'); return out.join('  ') || '—'; };
+const dn = (p, n = p.name) => n + (isDead(p) ? '\u00a0✝' : '');
 const byName = (a, b) => norm(a.name).localeCompare(norm(b.name));
 const childrenOf = id => Object.values(people).filter(p => p.fatherId === id || p.motherId === id);
 const spousesOf = id => {
@@ -128,7 +129,7 @@ function drawChart() {
   $('#gensWrap').hidden = mob;
   const G = mob ? 3 : +$('#gens').value, p = P(focus);
   if (!p) { fig.innerHTML = '<p class="none" style="padding:20px 0">Nenhuma pessoa selecionada.</p>'; fig.style.cssText = ''; return; }
-  $('#chartTitle').textContent = 'Antepassados de ' + (p.nick || p.name.split(' ')[0]);
+  $('#chartTitle').textContent = 'Antepassados de ' + dn(p, p.nick || p.name.split(' ')[0]);
   const slots = 2 ** (G - 1), M = mob ? 4 : 8, GX = mob ? 6 : 10;
   const avail = (fig.parentElement.clientWidth || innerWidth) - 2;
   const CW = Math.max(mob ? 78 : 104, Math.min(200, Math.floor((avail - 2 * M) / slots) - GX));
@@ -152,7 +153,7 @@ function drawChart() {
       const meta = q.living ? '—' : [yr(q), g === 0 ? q.birthPlace : ''].filter(Boolean).join(' · ');
       const nm = mob && g > 0 ? short(q.name) : q.name;
       const mt = mob && g > 0 ? meta.replace(/([★✝]) /g, '$1') : meta;
-      html += `<button type="button" class="card td${g === 0 ? ' focus main' : ''}" data-id="${esc(q.id)}" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px" title="${esc(q.name)}">${av}<span class="nm">${esc(nm)}</span>${mt ? `<span class="meta">${esc(mt)}</span>` : ''}</button>`;
+      html += `<button type="button" class="card td${g === 0 ? ' focus main' : ''}" data-id="${esc(q.id)}" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px" title="${esc(q.name)}">${av}<span class="nm">${esc(nm)}${isDead(q) ? '<span class="x">\u00a0✝</span>' : ''}</span>${mt ? `<span class="meta">${esc(mt)}</span>` : ''}</button>`;
       if (g < G - 1) { place(q.fatherId, g + 1, i * 2, q.id, 'father', cx, y + h); place(q.motherId, g + 1, i * 2 + 1, q.id, 'mother', cx, y + h); }
     } else {
       html += `<button type="button" class="card td empty" data-add="${role}" data-child="${esc(childId)}" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px">+ ${role === 'father' ? 'Pai' : 'Mãe'}</button>`;
@@ -171,7 +172,7 @@ $('#gens').addEventListener('change', drawChart);
 let rt; addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(drawChart, 150); });
 
 /* ---------- ficha da pessoa ---------- */
-const chip = q => `<button type="button" class="chip" data-go="${esc(q.id)}">${esc(q.nick ? q.name + ' (' + q.nick + ')' : q.name)}</button>`;
+const chip = q => `<button type="button" class="chip" data-go="${esc(q.id)}">${esc(dn(q, q.nick ? q.name + ' (' + q.nick + ')' : q.name))}</button>`;
 const chips = list => list.length ? `<div class="chips">${list.sort(byName).map(chip).join('')}</div>` : '<p class="none">Ninguém registrado ainda.</p>';
 function renderRecord() {
   const p = P(focus), slip = $('#slip'), kin = $('#kin');
@@ -187,7 +188,7 @@ function renderRecord() {
   const host = u => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return ''; } };
   const kindOf = u => /youtu\.?be/.test(u) ? 'YouTube' : /drive\.google|photos\.google/.test(u) ? 'Google' : /instagram/.test(u) ? 'Instagram' : /facebook|fb\.watch/.test(u) ? 'Facebook' : /vimeo/.test(u) ? 'Vimeo' : /whatsapp/.test(u) ? 'WhatsApp' : 'Link';
   const noteList = list => list.length ? `<ul class="notes">${list.map(n => `<li>${esc(n.text)}<small>${esc(who(n.createdBy))}, ${esc(fmtDate(n.createdAt))}${mine(n) ? ` · <button type="button" class="link" data-rmnote="${n.id}">remover</button>` : ''}</small></li>`).join('')}</ul>` : '';
-  slip.innerHTML = `<div class="phead">${p.photoFileId ? `<button type="button" class="pphoto" data-view="${esc(p.photoFileId)}" aria-label="Ver foto"><img src="/api/files/${encodeURIComponent(p.photoFileId)}" alt="Foto de ${esc(p.name)}"></button>` : ''}<div><h3 class="person">${esc(p.name)}</h3><p class="nick">${p.nick ? '“' + esc(p.nick) + '”' : '&nbsp;'}</p></div></div>
+  slip.innerHTML = `<div class="phead">${p.photoFileId ? `<button type="button" class="pphoto" data-view="${esc(p.photoFileId)}" aria-label="Ver foto"><img src="/api/files/${encodeURIComponent(p.photoFileId)}" alt="Foto de ${esc(p.name)}"></button>` : ''}<div><h3 class="person">${esc(dn(p))}</h3><p class="nick">${p.nick ? '“' + esc(p.nick) + '”' : '&nbsp;'}</p></div></div>
   <dl>${row('Nascimento', p.birth)}${row('Local', p.birthPlace)}${row('Falecimento', p.death)}${row('Local', p.deathPlace)}${row('Cor/raça', COLOR[p.color])}${row('Origem/etnia', p.origin)}${row('Histórias', p.notes, 1)}${row('Fontes', p.sources, 1)}</dl>
   ${!p.birth && !p.birthPlace && !p.notes ? '<p class="none">Ainda faltam informações sobre esta pessoa. Se você sabe algo, acrescente.</p>' : ''}
   ${isGuest() ? '' : `<p class="by">Registrado por ${esc(who(p.createdBy))}</p>`}
@@ -237,13 +238,13 @@ function confirmBtn(btn) {
 function renderIndex() {
   const list = Object.values(people).sort(byName);
   $('#count').textContent = list.length ? `(${list.length})` : '';
-  $('#index').innerHTML = list.length ? list.map(p => `<li><button type="button" data-go="${esc(p.id)}">${esc(p.name)} <span>${esc(yr(p))}</span></button></li>`).join('') : '<li class="none">A árvore ainda está vazia. Comece adicionando alguém.</li>';
+  $('#index').innerHTML = list.length ? list.map(p => `<li><button type="button" data-go="${esc(p.id)}">${esc(dn(p))} <span>${esc(yr(p))}</span></button></li>`).join('') : '<li class="none">A árvore ainda está vazia. Comece adicionando alguém.</li>';
 }
 const q = $('#q'), res = $('#results');
 function search() {
   const t = norm(q.value.trim()); if (!t) { res.style.display = 'none'; return; }
   const hits = Object.values(people).filter(p => norm([p.name, p.nick, p.birthPlace, p.deathPlace, p.origin, COLOR[p.color], p.notes].join(' ')).includes(t)).sort(byName).slice(0, 30);
-  res.innerHTML = hits.length ? hits.map(p => `<button type="button" data-hit="${esc(p.id)}">${esc(p.name)}<small>${esc([p.nick, yr(p), p.birthPlace].filter(Boolean).join(' · '))}</small></button>`).join('') : '<p class="none" style="padding:12px 14px;margin:0">Ninguém encontrado. Você pode adicionar essa pessoa.</p>';
+  res.innerHTML = hits.length ? hits.map(p => `<button type="button" data-hit="${esc(p.id)}">${esc(dn(p))}<small>${esc([p.nick, yr(p), p.birthPlace].filter(Boolean).join(' · '))}</small></button>`).join('') : '<p class="none" style="padding:12px 14px;margin:0">Ninguém encontrado. Você pode adicionar essa pessoa.</p>';
   res.style.display = 'block';
 }
 q.addEventListener('input', search); q.addEventListener('focus', search);
@@ -257,7 +258,7 @@ const COLOR = { branca: 'Branca', preta: 'Preta', parda: 'Parda', amarela: 'Amar
 const dlg = $('#dlg'), form = $('#form');
 function fillSelect(sel, val, excl) {
   const opts = Object.values(people).filter(p => p.id !== excl).sort(byName);
-  sel.innerHTML = '<option value="">Não informado</option>' + opts.map(p => `<option value="${esc(p.id)}">${esc(p.name)}${yr(p) !== '—' ? ' (' + esc(yr(p)) + ')' : ''}</option>`).join('');
+  sel.innerHTML = '<option value="">Não informado</option>' + opts.map(p => `<option value="${esc(p.id)}">${esc(dn(p))}${yr(p) !== '—' ? ' (' + esc(yr(p)) + ')' : ''}</option>`).join('');
   sel.value = val || '';
 }
 function openForm(id, c = {}) {
@@ -376,7 +377,7 @@ async function loadActivity() {
   const box = $('#activity');
   try {
     const d = await api('/api/admin/activity');
-    box.innerHTML = d.activity.length ? `<table class="tbl"><tbody>${d.activity.map(a => `<tr><td>${esc(new Date(a.at).toLocaleString('pt-BR'))}</td><td>${esc(a.name || 'sistema')}</td><td>${esc(a.action)}</td><td>${P(a.target) ? `<button type="button" class="link" data-go="${esc(a.target)}">${esc(P(a.target).name)}</button>` : esc(a.target || '')}</td></tr>`).join('')}</tbody></table>` : '<p class="none">Nada registrado ainda.</p>';
+    box.innerHTML = d.activity.length ? `<table class="tbl"><tbody>${d.activity.map(a => `<tr><td>${esc(new Date(a.at).toLocaleString('pt-BR'))}</td><td>${esc(a.name || 'sistema')}</td><td>${esc(a.action)}</td><td>${P(a.target) ? `<button type="button" class="link" data-go="${esc(a.target)}">${esc(dn(P(a.target)))}</button>` : esc(a.target || '')}</td></tr>`).join('')}</tbody></table>` : '<p class="none">Nada registrado ainda.</p>';
   } catch (err) { box.textContent = err.message; }
 }
 const ROLE = { admin: 'Administrador', member: 'Pode adicionar', viewer: 'Ver e deixar lembranças' };
