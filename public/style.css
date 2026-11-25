@@ -121,3 +121,9 @@ dialog.viewer{width:min(1000px,96vw)}
 .mlinks a:hover{text-decoration:underline}
 .mlinks small{display:block;color:var(--mute);font-size:13px}
 .tag{display:inline-block;font-size:11px;font-weight:700;background:var(--soft);border:1px solid var(--line);border-radius:4px;padding:1px 6px;margin-right:8px;color:var(--mute);vertical-align:2px}
+.card.v{width:var(--cw);padding:6px 4px;text-align:center;background-image:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px}
+.card.v .av{position:static;transform:none;width:30px;height:30px;flex:none}
+.card.v .nm{font-size:13px;line-height:15px;white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;text-overflow:clip}
+.card.v .meta{font-size:11px;line-height:13px}
+.card.v.empty{font-size:13px}
+@media(max-width:699px){.chartbar h2{font-size:20px}.band{padding-left:12px;padding-right:12px}}

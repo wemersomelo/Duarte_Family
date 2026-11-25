@@ -67,7 +67,8 @@ function toGedcom(people, title) {
       if (gedDate(p.death)) out.push(line(2, 'DATE', gedDate(p.death)));
       if (p.deathPlace) out.push(line(2, 'PLAC', p.deathPlace));
     }
-    const note = [p.notes, p.sources ? `Fontes: ${p.sources}` : ''].filter(Boolean).join('\n');
+    const COL = { branca: 'Branca', preta: 'Preta', parda: 'Parda', amarela: 'Amarela', indigena: 'Indígena' };
+    const note = [p.color ? `Cor/raça: ${COL[p.color] || p.color}` : '', p.origin ? `Origem/etnia: ${p.origin}` : '', p.notes, p.sources ? `Fontes: ${p.sources}` : ''].filter(Boolean).join('\n');
     if (note) out.push(...noteLines(1, note));
     for (const f of famcOf(p.id)) out.push(line(1, 'FAMC', f.id));
     for (const f of famsOf(p.id)) out.push(line(1, 'FAMS', f.id));

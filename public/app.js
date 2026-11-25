@@ -118,7 +118,36 @@ function go(id) { setFocus(id); $('#fig').scrollIntoView({ behavior: matchMedia(
 
 /* ---------- gráfico de antepassados ---------- */
 const fig = $('#fig');
-function drawChart() {
+const isMobile = () => innerWidth < 700;
+function drawChart() { if (isMobile()) return drawVertical(); drawHorizontal(); }
+// Celular: árvore em pé. A pessoa fica embaixo (o tronco) e os antepassados sobem como galhos.
+function drawVertical() {
+  const G = +$('#gens').value, p = P(focus);
+  if (!p) { fig.innerHTML = '<p class="none" style="padding:20px 0">Nenhuma pessoa selecionada.</p>'; fig.style.cssText = ''; return; }
+  $('#chartTitle').textContent = 'Antepassados de ' + (p.nick || p.name.split(' ')[0]);
+  const slots = 2 ** (G - 1), CW = 92, GX = 6, CH = 78, RH = 112, TOP = 10;
+  const W = Math.max(slots * (CW + GX), innerWidth - 32), H = TOP + G * RH;
+  fig.style.cssText = `--cw:${CW}px;width:${W}px;height:${H}px`;
+  let html = '', lines = '';
+  const short = n => { const parts = String(n).split(' '); return parts.length > 2 ? parts[0] + ' ' + parts[parts.length - 1] : n; };
+  const place = (id, g, i, childId, role, cx0, cy0) => {
+    const n = 2 ** g, cx = (i + .5) * W / n, y = TOP + (G - 1 - g) * RH, x = cx - CW / 2;
+    const q = P(id); if (!q && !(childId && canWrite())) return;
+    if (g > 0) { const mid = y + CH + (cy0 - y - CH) / 2; lines += `<path d="M${cx0} ${cy0}V${mid}H${cx}V${y + CH}" fill="none" stroke="currentColor" stroke-opacity=".35" stroke-width="1.5"/>`; }
+    if (q) {
+      const av = q.photoFileId ? `<img class="av" src="/api/files/${encodeURIComponent(q.photoFileId)}" alt="" loading="lazy">` : '';
+      const meta = q.living ? '' : yr(q);
+      html += `<button type="button" class="card v${g === 0 ? ' focus' : ''}" data-id="${esc(q.id)}" style="left:${x}px;top:${y}px;height:${CH}px" title="${esc(q.name)}">${av}<span class="nm">${esc(short(q.name))}</span>${meta ? `<span class="meta">${esc(meta)}</span>` : ''}</button>`;
+      if (g < G - 1) { place(q.fatherId, g + 1, i * 2, q.id, 'father', cx, y); place(q.motherId, g + 1, i * 2 + 1, q.id, 'mother', cx, y); }
+    } else {
+      html += `<button type="button" class="card v empty" data-add="${role}" data-child="${esc(childId)}" style="left:${x}px;top:${y}px;height:${CH}px">+ ${role === 'father' ? 'Pai' : 'Mãe'}</button>`;
+    }
+  };
+  place(focus, 0, 0, null, null, 0, 0);
+  fig.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" aria-hidden="true" style="color:var(--ink)">${lines}</svg>` + html;
+  const sc = fig.parentElement; sc.scrollLeft = (W - sc.clientWidth) / 2;
+}
+function drawHorizontal() {
   const G = +$('#gens').value, p = P(focus);
   if (!p) { fig.innerHTML = '<p class="none" style="padding:20px 0">Nenhuma pessoa selecionada.</p>'; fig.style.cssText = ''; return; }
   $('#chartTitle').textContent = 'Antepassados de ' + (p.nick || p.name.split(' ')[0]);
@@ -151,6 +180,7 @@ fig.addEventListener('click', e => {
   if (b.dataset.id) { if (b.dataset.id === focus) $('#slip').scrollIntoView({ behavior: 'smooth', block: 'start' }); else setFocus(b.dataset.id); }
   else if (b.dataset.add) openForm(null, { parentOf: b.dataset.child, parentRole: b.dataset.add });
 });
+if (isMobile()) $('#gens').value = '3';
 $('#gens').addEventListener('change', drawChart);
 let rt; addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(drawChart, 150); });
 
@@ -172,7 +202,7 @@ function renderRecord() {
   const kindOf = u => /youtu\.?be/.test(u) ? 'YouTube' : /drive\.google|photos\.google/.test(u) ? 'Google' : /instagram/.test(u) ? 'Instagram' : /facebook|fb\.watch/.test(u) ? 'Facebook' : /vimeo/.test(u) ? 'Vimeo' : /whatsapp/.test(u) ? 'WhatsApp' : 'Link';
   const noteList = list => list.length ? `<ul class="notes">${list.map(n => `<li>${esc(n.text)}<small>${esc(who(n.createdBy))}, ${esc(fmtDate(n.createdAt))}${mine(n) ? ` · <button type="button" class="link" data-rmnote="${n.id}">remover</button>` : ''}</small></li>`).join('')}</ul>` : '';
   slip.innerHTML = `<div class="phead">${p.photoFileId ? `<button type="button" class="pphoto" data-view="${esc(p.photoFileId)}" aria-label="Ver foto"><img src="/api/files/${encodeURIComponent(p.photoFileId)}" alt="Foto de ${esc(p.name)}"></button>` : ''}<div><h3 class="person">${esc(p.name)}</h3><p class="nick">${p.nick ? '“' + esc(p.nick) + '”' : '&nbsp;'}</p></div></div>
-  <dl>${row('Nascimento', p.birth)}${row('Local', p.birthPlace)}${row('Falecimento', p.death)}${row('Local', p.deathPlace)}${row('Histórias', p.notes, 1)}${row('Fontes', p.sources, 1)}</dl>
+  <dl>${row('Nascimento', p.birth)}${row('Local', p.birthPlace)}${row('Falecimento', p.death)}${row('Local', p.deathPlace)}${row('Cor/raça', COLOR[p.color])}${row('Origem/etnia', p.origin)}${row('Histórias', p.notes, 1)}${row('Fontes', p.sources, 1)}</dl>
   ${!p.birth && !p.birthPlace && !p.notes ? '<p class="none">Ainda faltam informações sobre esta pessoa. Se você sabe algo, acrescente.</p>' : ''}
   ${isGuest() ? '' : `<p class="by">Registrado por ${esc(who(p.createdBy))}</p>`}
   ${p.living ? '<p class="none">Dados de pessoas vivas (datas, lugares, fotos e lembranças) ficam visíveis só para quem tem convite.</p>' : ''}
@@ -226,7 +256,7 @@ function renderIndex() {
 const q = $('#q'), res = $('#results');
 function search() {
   const t = norm(q.value.trim()); if (!t) { res.style.display = 'none'; return; }
-  const hits = Object.values(people).filter(p => norm([p.name, p.nick, p.birthPlace, p.deathPlace, p.notes].join(' ')).includes(t)).sort(byName).slice(0, 30);
+  const hits = Object.values(people).filter(p => norm([p.name, p.nick, p.birthPlace, p.deathPlace, p.origin, COLOR[p.color], p.notes].join(' ')).includes(t)).sort(byName).slice(0, 30);
   res.innerHTML = hits.length ? hits.map(p => `<button type="button" data-hit="${esc(p.id)}">${esc(p.name)}<small>${esc([p.nick, yr(p), p.birthPlace].filter(Boolean).join(' · ') || 'sem datas')}</small></button>`).join('') : '<p class="none" style="padding:12px 14px;margin:0">Ninguém encontrado. Você pode adicionar essa pessoa.</p>';
   res.style.display = 'block';
 }
@@ -236,7 +266,8 @@ res.addEventListener('click', e => { const b = e.target.closest('[data-hit]'); i
 document.addEventListener('click', e => { if (!e.target.closest('.searchwrap')) res.style.display = 'none'; });
 
 /* ---------- formulário de pessoa ---------- */
-const FIELDS = ['name', 'nick', 'sex', 'birth', 'birthPlace', 'death', 'deathPlace', 'fatherId', 'motherId', 'spouseId', 'notes', 'sources'];
+const FIELDS = ['name', 'nick', 'sex', 'birth', 'birthPlace', 'death', 'deathPlace', 'fatherId', 'motherId', 'spouseId', 'color', 'origin', 'notes', 'sources'];
+const COLOR = { branca: 'Branca', preta: 'Preta', parda: 'Parda', amarela: 'Amarela', indigena: 'Indígena' };
 const dlg = $('#dlg'), form = $('#form');
 function fillSelect(sel, val, excl) {
   const opts = Object.values(people).filter(p => p.id !== excl).sort(byName);
@@ -247,7 +278,7 @@ function openForm(id, c = {}) {
   if (!canWrite()) return; const p = id ? P(id) : {}; if (id && !canEdit(p)) return;
   editing = id; ctx = c;
   $('#formTitle').textContent = c.confirmDel ? 'Excluir ' + p.name + '?' : id ? 'Editar ' + p.name : c.parentOf ? (c.parentRole === 'father' ? 'Pai de ' : 'Mãe de ') + P(c.parentOf).name : c.childOf ? 'Filho ou filha de ' + P(c.childOf).name : c.spouseOf ? 'Cônjuge de ' + P(c.spouseOf).name : 'Adicionar pessoa';
-  for (const f of FIELDS) { const el = form.elements[f]; if (el.tagName !== 'SELECT' || f === 'sex') el.value = p[f] || ''; }
+  for (const f of FIELDS) { const el = form.elements[f]; if (el.tagName !== 'SELECT' || f === 'sex' || f === 'color') el.value = p[f] || ''; }
   fillSelect(form.elements.fatherId, p.fatherId, id); fillSelect(form.elements.motherId, p.motherId, id); fillSelect(form.elements.spouseId, p.spouseId, id);
   if (c.childOf) { const par = P(c.childOf); form.elements[par.sex === 'f' ? 'motherId' : 'fatherId'].value = par.id; const sp = spousesOf(par.id)[0]; if (sp) form.elements[par.sex === 'f' ? 'fatherId' : 'motherId'].value = sp; }
   if (c.parentOf) { form.elements.sex.value = c.parentRole === 'father' ? 'm' : 'f'; const ch = P(c.parentOf), other = c.parentRole === 'father' ? ch.motherId : ch.fatherId; if (P(other)) form.elements.spouseId.value = other; }

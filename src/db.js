@@ -124,6 +124,7 @@ function openDb(file) {
   const cols = t => db.prepare(`PRAGMA table_info(${t})`).all().map(c => c.name);
   if (!cols('notes').includes('kind')) db.exec(`ALTER TABLE notes ADD COLUMN kind TEXT NOT NULL DEFAULT 'info'`);
   if (!cols('invites').includes('email')) db.exec(`ALTER TABLE invites ADD COLUMN email TEXT`);
+  for (const c of ['color', 'origin']) if (!cols('people').includes(c)) db.exec(`ALTER TABLE people ADD COLUMN ${c} TEXT DEFAULT ''`);
   if (!cols('people').includes('photo_file_id')) db.exec(`ALTER TABLE people ADD COLUMN photo_file_id TEXT DEFAULT ''`);
   db.prepare('DELETE FROM sessions WHERE expires < ?').run(Date.now());
   return db;

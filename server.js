@@ -147,7 +147,8 @@ function log(req, action, target, detail) {
 }
 
 // ---------- utilidades ----------
-const FIELDS = ['name', 'nick', 'sex', 'birth', 'birth_place', 'death', 'death_place', 'father_id', 'mother_id', 'spouse_id', 'notes', 'sources'];
+const FIELDS = ['name', 'nick', 'sex', 'birth', 'birth_place', 'death', 'death_place', 'father_id', 'mother_id', 'spouse_id', 'notes', 'sources', 'color', 'origin'];
+const COLORS = ['', 'branca', 'preta', 'parda', 'amarela', 'indigena'];
 const MAP = { birthPlace: 'birth_place', deathPlace: 'death_place', fatherId: 'father_id', motherId: 'mother_id', spouseId: 'spouse_id' };
 function clean(body) {
   const out = {};
@@ -157,6 +158,7 @@ function clean(body) {
     out[col] = String(v ?? '').trim().slice(0, col === 'notes' ? 5000 : col === 'sources' ? 2000 : 200);
   }
   if ('sex' in out && !['', 'm', 'f'].includes(out.sex)) out.sex = '';
+  if ('color' in out && !COLORS.includes(out.color)) out.color = '';
   return out;
 }
 const slug = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'pessoa';
@@ -166,7 +168,7 @@ function personOut(p) {
   return {
     id: p.id, name: p.name, nick: p.nick, sex: p.sex, birth: p.birth, birthPlace: p.birth_place,
     death: p.death, deathPlace: p.death_place, fatherId: p.father_id, motherId: p.mother_id,
-    spouseId: p.spouse_id, notes: p.notes, sources: p.sources, photoFileId: p.photo_file_id || '', createdBy: p.created_by,
+    spouseId: p.spouse_id, notes: p.notes, sources: p.sources, color: p.color || '', origin: p.origin || '', photoFileId: p.photo_file_id || '', createdBy: p.created_by,
     createdAt: p.created_at, updatedAt: p.updated_at
   };
 }

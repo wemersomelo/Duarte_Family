@@ -129,6 +129,18 @@ function client() {
   for (let i = 0; i < 3; i++) await guest('POST', '/api/access-requests', { name: 'Spam', email: `s${i}@ex.com`, relation: 'x' });
   assert.equal((await guest('POST', '/api/access-requests', { name: 'Spam', email: 's9@ex.com', relation: 'x' })).status, 429, 'limite de pedidos por dia');
 
+  // cor/raça e origem: guardadas; escondidas dos visitantes quando a pessoa é viva
+  await admin('PUT', '/api/people/antigo', { color: 'preta', origin: 'africana' });
+  await admin('PUT', '/api/people/vivo', { color: 'parda', origin: 'brasileira' });
+  assert.equal((await admin('PUT', '/api/people/falecida', { color: 'inventada' })).status, 200);
+  let full = (await admin('GET', '/api/tree')).data.people;
+  assert.equal(full.find(p => p.id === 'antigo').color, 'preta');
+  assert.equal(full.find(p => p.id === 'falecida').color, '', 'valor fora da lista é descartado');
+  gt = (await guest('GET', '/api/tree')).data;
+  assert.equal(gt.people.find(p => p.id === 'antigo').origin, 'africana');
+  assert.equal(gt.people.find(p => p.id === 'vivo').color, undefined, 'cor do vivo escondida');
+  assert.equal(gt.people.find(p => p.id === 'vivo').origin, undefined);
+
   // trocar o link derruba quem entrou pelo antigo
   await admin('POST', '/api/admin/family-link');
   assert.equal((await guest('GET', '/api/tree')).status, 401, 'link antigo para de funcionar');
