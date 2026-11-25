@@ -129,7 +129,7 @@ function drawChart() {
   $('#gensWrap').hidden = mob;
   const G = mob ? 3 : +$('#gens').value, p = P(focus);
   if (!p) { fig.innerHTML = '<p class="none" style="padding:20px 0">Nenhuma pessoa selecionada.</p>'; fig.style.cssText = ''; return; }
-  $('#chartTitle').textContent = 'Antepassados de ' + dn(p, p.nick || p.name.split(' ')[0]);
+  $('#chartTitle').textContent = 'Antepassados de ' + (p.nick || p.name.split(' ')[0]);
   const slots = 2 ** (G - 1), M = mob ? 4 : 8, GX = mob ? 6 : 10;
   const avail = (fig.parentElement.clientWidth || innerWidth) - 2;
   const CW = Math.max(mob ? 78 : 104, Math.min(200, Math.floor((avail - 2 * M) / slots) - GX));
