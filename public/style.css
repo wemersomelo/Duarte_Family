@@ -1,6 +1,6 @@
 /* Ideia: a página "Qualificação civil" de uma carteira de trabalho antiga,
    nomes escritos em tinta azul de cartório, sobre o verde da mata mineira. */
-:root{color-scheme:light dark;
+:root{color-scheme:light dark;--bark:light-dark(#7a4a24,#8a5a30);--leaf:light-dark(#6f9a3e,#6f9a3e);--leaf2:light-dark(#93b85c,#557a2c);--canopy:light-dark(#eef4e2,#16251a);--plaque:light-dark(#fcf5e1,#2a2618);--plaque-line:light-dark(#c9a45c,#8a7440);--ribbon:light-dark(#f6e7b8,#4a3f22);--ribbon2:light-dark(#e3cd8a,#3a3119);
 --bg:light-dark(#fbfbf7,#0e1712);--ink:light-dark(#18201b,#e6ece7);--mute:light-dark(#5d6a61,#9aa89f);
 --green:light-dark(#1f4a33,#163826);--band-ink:#f1f5ef;--paper:light-dark(#ffffff,#16231b);--line:light-dark(#cdd6cf,#2c3d33);
 --ink-blue:light-dark(#2b3aa6,#a9b6ff);--accent:light-dark(#2b3aa6,#a9b6ff);--soft:light-dark(#eef2ec,#1b2b21);--danger:light-dark(#a3271b,#ff9c8f);
@@ -127,3 +127,12 @@ dialog.viewer{width:min(1000px,96vw)}
 .card.v .meta{font-size:11px;line-height:13px}
 .card.v.empty{font-size:13px}
 @media(max-width:699px){.chartbar h2{font-size:20px}.band{padding-left:12px;padding-right:12px}}
+.chartopts{display:flex;gap:12px;flex-wrap:wrap}
+.fig.illus .card.plaque{background:var(--plaque);border:2px solid var(--plaque-line);border-radius:14px;box-shadow:0 2px 0 var(--plaque-line);text-align:center;padding:6px 6px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;background-image:none}
+.fig.illus .card.plaque .nm{color:light-dark(#4a2e14,#f1e4c0);font-size:15px;line-height:17px;white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;text-overflow:clip}
+.fig.illus .card.plaque .meta{font-size:11px;line-height:13px;color:light-dark(#7a5a34,#cbb88a)}
+.fig.illus .card.plaque .av{position:static;transform:none;width:28px;height:28px;flex:none;border-color:var(--plaque-line)}
+.fig.illus .card.plaque.focus{border-color:var(--accent);box-shadow:0 0 0 3px light-dark(#2b3aa633,#a9b6ff44)}
+.fig.illus .card.plaque.empty{background:transparent;border:2px dashed var(--plaque-line);box-shadow:none;color:light-dark(#7a5a34,#cbb88a)}
+.ribbonText{position:absolute;left:0;right:0;text-align:center;font:700 20px/34px var(--serif);color:light-dark(#4a2e14,#f1e4c0);pointer-events:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 60px}
+@media(max-width:699px){.fig.illus .card.plaque .nm{font-size:13px;line-height:15px}.ribbonText{font-size:16px}}

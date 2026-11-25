@@ -119,7 +119,77 @@ function go(id) { setFocus(id); $('#fig').scrollIntoView({ behavior: matchMedia(
 /* ---------- gráfico de antepassados ---------- */
 const fig = $('#fig');
 const isMobile = () => innerWidth < 700;
-function drawChart() { if (isMobile()) return drawVertical(); drawHorizontal(); }
+let viewStyle = 'tree';
+try { viewStyle = localStorage.getItem('viewStyle') || 'tree'; } catch {}
+$('#viewStyle').value = viewStyle;
+$('#viewStyle').addEventListener('change', e => { viewStyle = e.target.value; try { localStorage.setItem('viewStyle', viewStyle); } catch {} drawChart(); });
+function drawChart() {
+  fig.classList.toggle('illus', viewStyle === 'tree');
+  if (viewStyle === 'tree') return drawTree();
+  if (isMobile()) return drawVertical(); drawHorizontal();
+}
+// Número estável a partir de um texto (para as folhas ficarem sempre no mesmo lugar).
+const seed = s => { let h = 2166136261; for (const c of String(s)) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return () => { h ^= h << 13; h ^= h >>> 17; h ^= h << 5; return ((h >>> 0) % 10000) / 10000; }; };
+// Árvore ilustrada: tronco embaixo, galhos subindo em copa redonda, folhas e plaquinhas com os nomes.
+function drawTree() {
+  const G = +$('#gens').value, p = P(focus);
+  if (!p) { fig.innerHTML = '<p class="none" style="padding:20px 0">Nenhuma pessoa selecionada.</p>'; fig.style.cssText = ''; return; }
+  $('#chartTitle').textContent = 'Antepassados de ' + (p.nick || p.name.split(' ')[0]);
+  const mob = isMobile(), slots = 2 ** (G - 1);
+  const CW = mob ? 80 : 128, CH = mob ? 70 : 64, GX = mob ? 6 : 10, RH = mob ? 118 : 120, M = mob ? 6 : 16;
+  const avail = (fig.parentElement.clientWidth || innerWidth) - 2;
+  const W = Math.max(slots * (CW + GX) + 2 * M, Math.min(avail, 1180));
+  const crown = 70, trunkH = mob ? 90 : 110, ribbonH = 64, TOP = 40;
+  const H = TOP + crown + (G - 1) * RH + CH + trunkH + ribbonH;
+  const baseY = H - ribbonH - 26;                    // chão
+  const rowY = g => TOP + crown + (G - 1 - g) * RH;  // topo do cartão da geração g
+  // copa redonda: quanto mais longe do centro, mais baixo
+  const archY = (g, cx) => g < 2 ? 0 : Math.round(RH * 0.55 * (g / (G - 1)) * ((cx - W / 2) / (W / 2)) ** 2);
+  fig.style.cssText = `--cw:${CW}px;width:${W}px;height:${H}px`;
+  let branches = '', leaves = '', cards = '';
+  const rnd = seed(focus);
+  const leaf = (x, y, r, rot, shade) => `<ellipse cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" rx="${(r * 0.45).toFixed(1)}" ry="${r.toFixed(1)}" transform="rotate(${rot.toFixed(0)} ${x.toFixed(1)} ${y.toFixed(1)})" fill="${shade ? 'var(--leaf2)' : 'var(--leaf)'}"/>`;
+  const branch = (x0, y0, x1, y1, w) => {
+    const my = (y0 + y1) / 2;
+    branches += `<path d="M${x0} ${y0}C${x0} ${my},${x1} ${my},${x1} ${y1}" fill="none" stroke="var(--bark)" stroke-width="${w}" stroke-linecap="round"/>`;
+    for (const t of [0.35, 0.6, 0.85]) {
+      const it = 1 - t, x = it ** 3 * x0 + 3 * it * it * t * x0 + 3 * it * t * t * x1 + t ** 3 * x1, y = it ** 3 * y0 + 3 * it * it * t * my + 3 * it * t * t * my + t ** 3 * y1;
+      const side = rnd() > .5 ? 1 : -1, r = (mob ? 7 : 9) + rnd() * 4;
+      leaves += leaf(x + side * (w / 2 + r * 0.6), y, r, side * (35 + rnd() * 30), rnd() > .5);
+    }
+  };
+  const place = (id, g, i, childId, role, cx0, cy0) => {
+    const n = 2 ** g, cx = (i + .5) * (W - 2 * M) / n + M, y = rowY(g) + archY(g, cx), x = cx - CW / 2;
+    const q = P(id); if (!q && !(childId && canWrite())) return;
+    if (g > 0) branch(cx0, cy0, cx, y + CH - 4, Math.max(3, 14 - g * 3.2));
+    // folhinhas em volta de cada plaquinha
+    for (let k = 0; k < (mob ? 3 : 5); k++) { const a = rnd() * Math.PI * 2, rr = CW * .55 + rnd() * 10; leaves += leaf(cx + Math.cos(a) * rr, y + CH / 2 + Math.sin(a) * (CH * .7), 7 + rnd() * 4, rnd() * 180, rnd() > .5); }
+    if (q) {
+      const av = q.photoFileId ? `<img class="av" src="/api/files/${encodeURIComponent(q.photoFileId)}" alt="" loading="lazy">` : '';
+      const meta = q.living ? '' : yr(q);
+      const nm = mob ? (s => { const a = String(s).split(' '); return a.length > 2 ? a[0] + ' ' + a[a.length - 1] : s; })(q.name) : q.name;
+      cards += `<button type="button" class="card plaque${g === 0 ? ' focus' : ''}" data-id="${esc(q.id)}" style="left:${x}px;top:${y}px;height:${CH}px" title="${esc(q.name)}">${av}<span class="nm">${esc(nm)}</span>${meta ? `<span class="meta">${esc(meta)}</span>` : ''}</button>`;
+      if (g < G - 1) { place(q.fatherId, g + 1, i * 2, q.id, 'father', cx, y); place(q.motherId, g + 1, i * 2 + 1, q.id, 'mother', cx, y); }
+    } else {
+      cards += `<button type="button" class="card plaque empty" data-add="${role}" data-child="${esc(childId)}" style="left:${x}px;top:${y}px;height:${CH}px">+ ${role === 'father' ? 'Pai' : 'Mãe'}</button>`;
+    }
+  };
+  // copa de fundo (folhagem suave)
+  const cx = W / 2, crownTop = TOP + 10, crownBottom = rowY(0) - 10;
+  let bg = `<ellipse cx="${cx}" cy="${(crownTop + crownBottom) / 2 + 20}" rx="${W / 2 - 10}" ry="${(crownBottom - crownTop) / 2 + 40}" fill="var(--canopy)"/>`;
+  place(focus, 0, 0, null, null, 0, 0);
+  // tronco: do chão até a plaquinha da pessoa
+  const ty = rowY(0) + CH - 6, tw = mob ? 26 : 34;
+  const trunk = `<path d="M${cx - tw} ${baseY} C${cx - tw * .45} ${baseY - 30},${cx - tw * .35} ${ty + 30},${cx - tw * .3} ${ty} L${cx + tw * .3} ${ty} C${cx + tw * .35} ${ty + 30},${cx + tw * .45} ${baseY - 30},${cx + tw} ${baseY} Z" fill="var(--bark)"/>
+    <path d="M${cx - tw * 1.8} ${baseY + 2}q${tw * .9} -10 ${tw * 1.8} -4M${cx + tw * 1.8} ${baseY + 2}q${-tw * .9} -10 ${-tw * 1.8} -4" stroke="var(--bark)" stroke-width="7" stroke-linecap="round" fill="none"/>`;
+  let grass = ''; for (let gx = cx - W * .32; gx < cx + W * .32; gx += 9) grass += `<path d="M${gx.toFixed(0)} ${baseY + 6}l${(rnd() * 6 - 3).toFixed(1)} ${-(6 + rnd() * 8).toFixed(1)}" stroke="var(--leaf)" stroke-width="2" stroke-linecap="round"/>`;
+  const rw = Math.min(W - 40, mob ? 320 : 520), ry = H - ribbonH - 8;
+  const ribbon = `<path d="M${cx - rw / 2 - 26} ${ry + 14} l26 6 l-10 16 l${rw + 20} 0 l-10 -16 l26 -6 l-20 -10 Z" fill="var(--ribbon2)"/>
+    <path d="M${cx - rw / 2} ${ry} Q${cx} ${ry - 14} ${cx + rw / 2} ${ry} L${cx + rw / 2} ${ry + 38} Q${cx} ${ry + 24} ${cx - rw / 2} ${ry + 38} Z" fill="var(--ribbon)" stroke="var(--plaque-line)" stroke-width="1.5"/>`;
+  const ribbonText = `<div class="ribbonText" style="top:${ry + 2}px">${esc(familyName)}</div>`;
+  fig.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" aria-hidden="true">${bg}${grass}${trunk}${branches}${leaves}${ribbon}</svg>${ribbonText}${cards}`;
+  const sc = fig.parentElement; sc.scrollLeft = (W - sc.clientWidth) / 2;
+}
 // Celular: árvore em pé. A pessoa fica embaixo (o tronco) e os antepassados sobem como galhos.
 function drawVertical() {
   const G = +$('#gens').value, p = P(focus);
