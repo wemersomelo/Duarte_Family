@@ -1,6 +1,6 @@
 /* Ideia: a página "Qualificação civil" de uma carteira de trabalho antiga,
    nomes escritos em tinta azul de cartório, sobre o verde da mata mineira. */
-:root{color-scheme:light dark;--bark:light-dark(#7a4a24,#8a5a30);--leaf:light-dark(#6f9a3e,#6f9a3e);--leaf2:light-dark(#93b85c,#557a2c);--canopy:light-dark(#eef4e2,#16251a);--plaque:light-dark(#fcf5e1,#2a2618);--plaque-line:light-dark(#c9a45c,#8a7440);--ribbon:light-dark(#f6e7b8,#4a3f22);--ribbon2:light-dark(#e3cd8a,#3a3119);
+:root{color-scheme:light dark;--bark:light-dark(#7a4a24,#8a5a30);--leaf:light-dark(#6f9a3e,#6f9a3e);--leaf2:light-dark(#93b85c,#557a2c);--canopy:light-dark(#eef4e2,#16251a);--plaque:light-dark(#fcf5e1,#2a2618);--plaque-line:light-dark(#c9a45c,#8a7440);--ribbon:light-dark(#f6e7b8,#4a3f22);--ribbon2:light-dark(#e3cd8a,#3a3119);--soil1:light-dark(#b98a5a,#3b2a1a);--soil2:light-dark(#8a5f3a,#24180e);--root:light-dark(#5a3518,#c7a27a);--pebble:light-dark(#a07a50,#4a3624);
 --bg:light-dark(#fbfbf7,#0e1712);--ink:light-dark(#18201b,#e6ece7);--mute:light-dark(#5d6a61,#9aa89f);
 --green:light-dark(#1f4a33,#163826);--band-ink:#f1f5ef;--paper:light-dark(#ffffff,#16231b);--line:light-dark(#cdd6cf,#2c3d33);
 --ink-blue:light-dark(#2b3aa6,#a9b6ff);--accent:light-dark(#2b3aa6,#a9b6ff);--soft:light-dark(#eef2ec,#1b2b21);--danger:light-dark(#a3271b,#ff9c8f);
@@ -136,3 +136,7 @@ dialog.viewer{width:min(1000px,96vw)}
 .fig.illus .card.plaque.empty{background:light-dark(#f6faefee,#16251aee);border:2px dashed var(--plaque-line);box-shadow:none;color:light-dark(#7a5a34,#cbb88a)}
 .ribbonText{position:absolute;left:0;right:0;text-align:center;font:700 20px/34px var(--serif);color:light-dark(#4a2e14,#f1e4c0);pointer-events:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 60px}
 @media(max-width:699px){.fig.illus .card.plaque .nm{font-size:13px;line-height:15px}.ribbonText{font-size:16px}}
+.fig.illus .card.plaque.big .nm{font-size:18px;line-height:21px}
+.fig.illus .card.plaque.big .av{width:40px;height:40px}
+.rowLabel{position:absolute;left:10px;font:600 12px system-ui,sans-serif;color:#fff8eccc;letter-spacing:.02em;pointer-events:none}
+@media(max-width:699px){.fig.illus .card.plaque.big .nm{font-size:16px;line-height:19px}}
