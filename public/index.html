@@ -49,7 +49,7 @@
     <button id="addBtn" type="button" hidden>+ Adicionar pessoa</button>
   </div>
   <div class="status" id="status">Carregando…</div>
-  <div class="how" id="how">Clique em uma pessoa para navegar. Use <b>+ Acrescentar informação</b>, <b>Fotos e documentos</b> ou os espaços <b>+ Adicionar pai/mãe</b>. Cada pessoa só altera o que ela mesma adicionou.</div>
+  <div class="how" id="how">Clique em uma pessoa para navegar. Use <b>+ Acrescentar informação</b>, <b>+ Deixar uma lembrança</b>, <b>+ Fotos e documentos</b>, <b>+ Vídeo ou link</b> ou os espaços <b>+ Adicionar pai/mãe</b>. Cada pessoa só altera o que ela mesma adicionou.</div>
 </header>
 
 <section class="band">
@@ -104,9 +104,21 @@
 <dialog id="ndlg">
   <form id="nform">
     <h2 id="nTitle">Acrescentar informação</h2>
-    <p class="note">Escreva o que você sabe: datas, lugares, histórias, correções. Diga de onde veio a informação, se souber.</p>
+    <p class="note" id="nHelp"></p>
     <label class="f">Informação<textarea name="text" required maxlength="5000"></textarea></label>
     <div class="err" id="nErr"></div>
+    <div class="actions"><button class="primary" type="submit">Salvar</button><button type="button" class="closeDlg">Cancelar</button></div>
+  </form>
+</dialog>
+
+<!-- Vídeos e links -->
+<dialog id="ldlg">
+  <form id="lform">
+    <h2 id="lTitle">Vídeo ou link</h2>
+    <p class="note">Cole o link de um vídeo (YouTube, Google Drive, WhatsApp, Facebook) ou de uma página sobre esta pessoa. Dica: no YouTube, um vídeo "não listado" só é visto por quem tem o link.</p>
+    <label class="f">Link<input name="url" type="url" inputmode="url" required maxlength="1000" placeholder="https://"></label>
+    <label class="f">Título (ex.: Festa de 100 anos da vó)<input name="title" maxlength="200"></label>
+    <div class="err" id="lErr"></div>
     <div class="actions"><button class="primary" type="submit">Salvar</button><button type="button" class="closeDlg">Cancelar</button></div>
   </form>
 </dialog>

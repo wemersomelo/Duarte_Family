@@ -78,9 +78,22 @@ function openDb(file) {
       created_by INTEGER,
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS media_links (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      person_id TEXT NOT NULL,
+      url TEXT NOT NULL,
+      title TEXT DEFAULT '',
+      created_by INTEGER,
+      created_at TEXT NOT NULL
+    );
     CREATE INDEX IF NOT EXISTS notes_person ON notes(person_id);
     CREATE INDEX IF NOT EXISTS files_person ON files(person_id);
+    CREATE INDEX IF NOT EXISTS media_person ON media_links(person_id);
   `);
+  // Migrações para bancos criados por versões anteriores.
+  const cols = t => db.prepare(`PRAGMA table_info(${t})`).all().map(c => c.name);
+  if (!cols('notes').includes('kind')) db.exec(`ALTER TABLE notes ADD COLUMN kind TEXT NOT NULL DEFAULT 'info'`);
+  if (!cols('people').includes('photo_file_id')) db.exec(`ALTER TABLE people ADD COLUMN photo_file_id TEXT DEFAULT ''`);
   db.prepare('DELETE FROM sessions WHERE expires < ?').run(Date.now());
   return db;
 }

@@ -4,7 +4,7 @@ const $ = s => document.querySelector(s);
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const norm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
-let me = null, people = {}, notes = [], files = [], userNames = {}, focus = null, editing = null, ctx = {};
+let me = null, people = {}, notes = [], files = [], media = [], userNames = {}, focus = null, editing = null, ctx = {};
 const P = id => (id && people[id]) ? people[id] : null;
 const canWrite = () => me && me.role !== 'viewer';
 const canEdit = p => !!p && canWrite() && (me.role === 'admin' || (p.createdBy != null && p.createdBy === me.id));
@@ -87,7 +87,7 @@ async function load() {
   try {
     const d = await api('/api/tree');
     people = Object.fromEntries(d.people.map(p => [p.id, p]));
-    notes = d.notes; files = d.files;
+    notes = d.notes; files = d.files; media = d.media || [];
     userNames = Object.fromEntries(d.users.map(u => [u.id, u.name]));
     me = d.me;
     const n = d.people.length;
@@ -122,7 +122,8 @@ function drawChart() {
     pos[g][i] = { x, y };
     if (q) {
       const meta = [yr(q), q.birthPlace].filter(Boolean).join(' · ');
-      html += `<button type="button" class="card${g === 0 ? ' focus' : ''}" data-id="${esc(q.id)}" style="left:${x}px;top:${y}px;height:${CH}px" title="${esc(q.name)}"><span class="nm">${esc(q.name)}</span><span class="meta">${esc(meta || 'datas desconhecidas')}</span></button>`;
+      const av = q.photoFileId ? `<img class="av" src="/api/files/${encodeURIComponent(q.photoFileId)}" alt="" loading="lazy">` : '';
+      html += `<button type="button" class="card${g === 0 ? ' focus' : ''}${av ? ' hasav' : ''}" data-id="${esc(q.id)}" style="left:${x}px;top:${y}px;height:${CH}px" title="${esc(q.name)}">${av}<span class="nm">${esc(q.name)}</span><span class="meta">${esc(meta || 'datas desconhecidas')}</span></button>`;
       if (g < G - 1) { place(q.fatherId, g + 1, i * 2, q.id, 'father'); place(q.motherId, g + 1, i * 2 + 1, q.id, 'mother'); }
     } else {
       html += `<button type="button" class="card empty" data-add="${role}" data-child="${esc(childId)}" style="left:${x}px;top:${y}px;height:${CH}px">+ ${role === 'father' ? 'Adicionar pai' : 'Adicionar mãe'}</button>`;
@@ -150,15 +151,26 @@ function renderRecord() {
   const pf = files.filter(f => f.personId === p.id);
   const ed = canEdit(p);
   const mine = x => canWrite() && (me.role === 'admin' || x.createdBy === me.id);
-  slip.innerHTML = `<h3 class="person">${esc(p.name)}</h3><p class="nick">${p.nick ? '“' + esc(p.nick) + '”' : '&nbsp;'}</p>
+  const info = pn.filter(n => n.kind !== 'memory'), mem = pn.filter(n => n.kind === 'memory');
+  const pm = media.filter(m => m.personId === p.id);
+  const isImg = f => /^image\/(jpeg|png|webp)$/.test(f.mime);
+  const host = u => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return ''; } };
+  const kindOf = u => /youtu\.?be/.test(u) ? 'YouTube' : /drive\.google|photos\.google/.test(u) ? 'Google' : /instagram/.test(u) ? 'Instagram' : /facebook|fb\.watch/.test(u) ? 'Facebook' : /vimeo/.test(u) ? 'Vimeo' : /whatsapp/.test(u) ? 'WhatsApp' : 'Link';
+  const noteList = list => list.length ? `<ul class="notes">${list.map(n => `<li>${esc(n.text)}<small>${esc(who(n.createdBy))}, ${esc(fmtDate(n.createdAt))}${mine(n) ? ` · <button type="button" class="link" data-rmnote="${n.id}">remover</button>` : ''}</small></li>`).join('')}</ul>` : '';
+  slip.innerHTML = `<div class="phead">${p.photoFileId ? `<button type="button" class="pphoto" data-view="${esc(p.photoFileId)}" aria-label="Ver foto"><img src="/api/files/${encodeURIComponent(p.photoFileId)}" alt="Foto de ${esc(p.name)}"></button>` : ''}<div><h3 class="person">${esc(p.name)}</h3><p class="nick">${p.nick ? '“' + esc(p.nick) + '”' : '&nbsp;'}</p></div></div>
   <dl>${row('Nascimento', p.birth)}${row('Local', p.birthPlace)}${row('Falecimento', p.death)}${row('Local', p.deathPlace)}${row('Histórias', p.notes, 1)}${row('Fontes', p.sources, 1)}</dl>
   ${!p.birth && !p.birthPlace && !p.notes ? '<p class="none">Ainda faltam informações sobre esta pessoa. Se você sabe algo, acrescente.</p>' : ''}
   <p class="by">Registrado por ${esc(who(p.createdBy))}</p>
-  ${canWrite() ? `<div class="actions"><button type="button" class="primary" data-act="note">+ Acrescentar informação</button><button type="button" data-act="files">Fotos e documentos</button><button type="button" data-act="child">+ Filho ou filha</button><button type="button" data-act="spouse">+ Cônjuge</button>${ed ? '<button type="button" data-act="edit">Editar</button><button type="button" class="danger" data-act="del">Excluir</button>' : ''}</div>` : ''}
+  ${canWrite() ? `<div class="actions"><button type="button" class="primary" data-act="note">+ Acrescentar informação</button><button type="button" data-act="memory">+ Deixar uma lembrança</button><button type="button" data-act="files">+ Fotos e documentos</button><button type="button" data-act="link">+ Vídeo ou link</button></div>
+  <div class="actions small"><button type="button" data-act="child">+ Filho ou filha</button><button type="button" data-act="spouse">+ Cônjuge</button>${ed ? '<button type="button" data-act="edit">Editar</button><button type="button" class="danger" data-act="del">Excluir</button>' : ''}</div>` : ''}
   <h4>Fotos e documentos (${pf.length})</h4>
-  ${pf.length ? `<div class="docs">${pf.map(f => `<div class="doc"><button type="button" class="thumb${f.mime === 'application/pdf' ? ' pdf' : ''}" data-view="${esc(f.id)}" ${f.mime.startsWith('image/') && !/hei[cf]/.test(f.mime) ? `style="background-image:url('/api/files/${encodeURIComponent(f.id)}')"` : ''} aria-label="Abrir ${esc(f.name)}">${f.mime === 'application/pdf' ? 'PDF' : /hei[cf]/.test(f.mime) ? 'HEIC' : ''}</button><small title="${esc(f.caption || f.name)}">${esc(f.caption || f.name)}</small>${mine(f) ? `<button type="button" class="link" data-rmfile="${esc(f.id)}">remover</button>` : ''}</div>`).join('')}</div>` : '<p class="none">Nenhum ainda.</p>'}
-  <h4>Informações da família (${pn.length})</h4>
-  ${pn.length ? `<ul class="notes">${pn.map(n => `<li>${esc(n.text)}<small>${esc(who(n.createdBy))}, ${esc(fmtDate(n.createdAt))}${mine(n) ? ` · <button type="button" class="link" data-rmnote="${n.id}">remover</button>` : ''}</small></li>`).join('')}</ul>` : '<p class="none">Nenhuma ainda.</p>'}`;
+  ${pf.length ? `<div class="docs">${pf.map(f => `<div class="doc${f.id === p.photoFileId ? ' main' : ''}"><button type="button" class="thumb${f.mime === 'application/pdf' ? ' pdf' : ''}" data-view="${esc(f.id)}" ${isImg(f) ? `style="background-image:url('/api/files/${encodeURIComponent(f.id)}')"` : ''} aria-label="Abrir ${esc(f.name)}">${f.mime === 'application/pdf' ? 'PDF' : /hei[cf]/.test(f.mime) ? 'HEIC' : ''}</button><small title="${esc(f.caption || f.name)}">${esc(f.caption || f.name)}</small>${f.id === p.photoFileId ? '<small class="star">foto principal</small>' : ed && isImg(f) ? `<button type="button" class="link" data-mainphoto="${esc(f.id)}">usar como foto principal</button>` : ''}${mine(f) ? `<button type="button" class="link" data-rmfile="${esc(f.id)}">remover</button>` : ''}</div>`).join('')}</div>` : '<p class="none">Nenhum ainda.</p>'}
+  <h4>Vídeos e links (${pm.length})</h4>
+  ${pm.length ? `<ul class="mlinks">${pm.map(m => `<li><a href="${esc(m.url)}" target="_blank" rel="noopener noreferrer"><span class="tag">${esc(kindOf(m.url))}</span>${esc(m.title || host(m.url))}</a><small>${esc(host(m.url))} · ${esc(who(m.createdBy))}, ${esc(fmtDate(m.createdAt))}${mine(m) ? ` · <button type="button" class="link" data-rmlink="${m.id}">remover</button>` : ''}</small></li>`).join('')}</ul>` : '<p class="none">Nenhum ainda.</p>'}
+  <h4>Lembranças da família (${mem.length})</h4>
+  ${mem.length ? noteList(mem) : '<p class="none">Nenhuma ainda. Conte uma história, uma lembrança ou algo que você aprendeu com esta pessoa.</p>'}
+  <h4>Informações da família (${info.length})</h4>
+  ${info.length ? noteList(info) : '<p class="none">Nenhuma ainda.</p>'}`;
   const par = [P(p.fatherId), P(p.motherId)].filter(Boolean);
   kin.innerHTML = `<h4>Pais</h4>${chips(par)}<h4>Cônjuge</h4>${chips(spousesOf(p.id).map(P))}<h4>Filhos</h4>${chips(childrenOf(p.id))}<h4>Irmãos</h4>${chips(siblingsOf(p.id))}`;
 }
@@ -166,6 +178,8 @@ document.addEventListener('click', async e => {
   const g = e.target.closest('[data-go]'); if (g) { closeAll(); go(g.dataset.go); return; }
   const v = e.target.closest('[data-view]'); if (v) { openViewer(v.dataset.view); return; }
   const rn = e.target.closest('[data-rmnote]'); if (rn) { if (await confirmBtn(rn)) { await api('/api/notes/' + rn.dataset.rmnote, { method: 'DELETE' }).catch(err => alertStatus(err)); load(); } return; }
+  const rl = e.target.closest('[data-rmlink]'); if (rl) { if (await confirmBtn(rl)) { await api('/api/media-links/' + rl.dataset.rmlink, { method: 'DELETE' }).catch(err => alertStatus(err)); load(); } return; }
+  const mp = e.target.closest('[data-mainphoto]'); if (mp) { await api(`/api/people/${encodeURIComponent(focus)}/photo`, { method: 'PUT', body: { fileId: mp.dataset.mainphoto } }).catch(err => alertStatus(err)); load(); return; }
   const rf = e.target.closest('[data-rmfile]'); if (rf) { if (await confirmBtn(rf)) { await api('/api/files/' + rf.dataset.rmfile, { method: 'DELETE' }).catch(err => alertStatus(err)); load(); } return; }
   const c = e.target.closest('.closeDlg'); if (c) { c.closest('dialog').close(); return; }
   const a = e.target.closest('[data-act]'); if (!a) return; const p = P(focus); if (!p) return;
@@ -173,7 +187,9 @@ document.addEventListener('click', async e => {
   if (a.dataset.act === 'child') openForm(null, { childOf: p.id });
   if (a.dataset.act === 'spouse') openForm(null, { spouseOf: p.id });
   if (a.dataset.act === 'del') openForm(p.id, { confirmDel: true });
-  if (a.dataset.act === 'note') openNote(p.id);
+  if (a.dataset.act === 'note') openNote(p.id, 'info');
+  if (a.dataset.act === 'memory') openNote(p.id, 'memory');
+  if (a.dataset.act === 'link') openLink(p.id);
   if (a.dataset.act === 'files') openFiles(p.id);
 });
 function closeAll() { document.querySelectorAll('dialog[open]').forEach(d => d.close()); }
@@ -249,12 +265,26 @@ $('#delBtn').addEventListener('click', async () => {
 $('#addBtn').addEventListener('click', () => openForm(null, {}));
 
 /* ---------- informação ---------- */
-const ndlg = $('#ndlg'), nform = $('#nform'); let notePerson = null;
-function openNote(id) { notePerson = id; $('#nTitle').textContent = 'Sobre ' + P(id).name; nform.reset(); $('#nErr').textContent = ''; ndlg.showModal(); nform.elements.text.focus(); }
+const ndlg = $('#ndlg'), nform = $('#nform'); let notePerson = null, noteKind = 'info';
+function openNote(id, kind) {
+  notePerson = id; noteKind = kind;
+  $('#nTitle').textContent = (kind === 'memory' ? 'Lembrança de ' : 'Informação sobre ') + P(id).name;
+  $('#nHelp').textContent = kind === 'memory' ? 'Conte uma lembrança, uma história, um ensinamento ou um recado sobre esta pessoa. Fica com o seu nome.' : 'Escreva o que você sabe: datas, lugares, correções. Diga de onde veio a informação, se souber.';
+  nform.reset(); $('#nErr').textContent = ''; ndlg.showModal(); nform.elements.text.focus();
+}
 nform.addEventListener('submit', async e => {
   e.preventDefault();
-  try { await api(`/api/people/${encodeURIComponent(notePerson)}/notes`, { method: 'POST', body: { text: nform.elements.text.value } }); ndlg.close(); await load(); }
+  try { await api(`/api/people/${encodeURIComponent(notePerson)}/notes`, { method: 'POST', body: { text: nform.elements.text.value, kind: noteKind } }); ndlg.close(); await load(); }
   catch (err) { $('#nErr').textContent = err.message; }
+});
+
+/* ---------- vídeos e links ---------- */
+const ldlg = $('#ldlg'), lform = $('#lform'); let linkPerson = null;
+function openLink(id) { linkPerson = id; $('#lTitle').textContent = 'Vídeo ou link de ' + P(id).name; lform.reset(); $('#lErr').textContent = ''; ldlg.showModal(); lform.elements.url.focus(); }
+lform.addEventListener('submit', async e => {
+  e.preventDefault();
+  try { await api(`/api/people/${encodeURIComponent(linkPerson)}/links`, { method: 'POST', body: { url: lform.elements.url.value, title: lform.elements.title.value } }); ldlg.close(); await load(); }
+  catch (err) { $('#lErr').textContent = err.message; }
 });
 
 /* ---------- documentos ---------- */

@@ -87,6 +87,24 @@ function client() {
   assert.equal((await tia('POST', '/api/people/avo/files', bad, true)).status, 400, 'tipo de arquivo bloqueado');
   assert.equal((await leitor('DELETE', '/api/files/' + tree.files[0].id)).status, 403);
 
+  // lembranças, links e foto principal
+  assert.equal((await tia('POST', '/api/people/avo/notes', { text: 'Fazia o melhor pão de queijo', kind: 'memory' })).status, 200);
+  assert.equal((await tia('POST', '/api/people/avo/links', { url: 'youtu.be/abc123', title: 'Festa' })).status, 200, 'link sem https é aceito e corrigido');
+  assert.equal((await tia('POST', '/api/people/avo/links', { url: 'javascript:alert(1)' })).status, 400, 'link perigoso bloqueado');
+  tree = (await tia('GET', '/api/tree')).data;
+  assert.equal(tree.notes.find(n => n.text.startsWith('Fazia')).kind, 'memory');
+  assert.equal(tree.media[0].url, 'https://youtu.be/abc123');
+  const imgId = tree.files[0].id;
+  assert.equal((await tia('PUT', '/api/people/avo/photo', { fileId: imgId })).status, 403, 'membro não escolhe foto de registro alheio');
+  assert.equal((await tia('PUT', '/api/people/' + bisavo + '/photo', { fileId: imgId })).status, 400, 'foto tem de ser da própria pessoa');
+  assert.equal((await admin('PUT', '/api/people/avo/photo', { fileId: imgId })).status, 200);
+  tree = (await tia('GET', '/api/tree')).data;
+  assert.equal(tree.people.find(p => p.id === 'avo').photoFileId, imgId);
+  assert.equal((await leitor('DELETE', '/api/media-links/' + tree.media[0].id)).status, 403);
+  assert.equal((await tia('DELETE', '/api/media-links/' + tree.media[0].id)).status, 200, 'autor remove o próprio link');
+  const exp = (await admin('GET', '/api/export.json')).data;
+  assert.ok(exp.notes.some(n => n.kind === 'memory'));
+
   // exportação
   assert.equal((await tia('GET', '/api/export.json')).status, 403, 'só admin exporta');
   const ged = await admin('GET', '/api/export.ged');

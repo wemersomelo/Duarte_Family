@@ -108,7 +108,7 @@ function personOut(p) {
   return {
     id: p.id, name: p.name, nick: p.nick, sex: p.sex, birth: p.birth, birthPlace: p.birth_place,
     death: p.death, deathPlace: p.death_place, fatherId: p.father_id, motherId: p.mother_id,
-    spouseId: p.spouse_id, notes: p.notes, sources: p.sources, createdBy: p.created_by,
+    spouseId: p.spouse_id, notes: p.notes, sources: p.sources, photoFileId: p.photo_file_id || '', createdBy: p.created_by,
     createdAt: p.created_at, updatedAt: p.updated_at
   };
 }
@@ -194,10 +194,11 @@ app.get('/api/tree', needUser, (req, res) => {
     const field = l.role === 'father' ? 'fatherId' : 'motherId';
     if (c && byId[l.parent_id] && !(c[field] && byId[c[field]])) c[field] = l.parent_id;
   }
-  const notes = db.prepare('SELECT id,person_id personId,text,created_by createdBy,created_at createdAt FROM notes ORDER BY created_at').all();
+  const notes = db.prepare('SELECT id,person_id personId,kind,text,created_by createdBy,created_at createdAt FROM notes ORDER BY created_at').all();
+  const media = db.prepare('SELECT id,person_id personId,url,title,created_by createdBy,created_at createdAt FROM media_links ORDER BY created_at').all();
   const files = db.prepare('SELECT id,person_id personId,original_name name,mime,size,caption,created_by createdBy,created_at createdAt FROM files ORDER BY created_at').all();
   const users = db.prepare('SELECT id,name FROM users').all();
-  res.json({ people, notes, files, users, me: req.user });
+  res.json({ people, notes, files, media, users, me: req.user });
 });
 
 // ---------- pessoas ----------
@@ -237,6 +238,7 @@ app.delete('/api/people/:id', needWriter, (req, res) => {
   const tx = db.transaction(() => {
     db.prepare('DELETE FROM links WHERE child_id=? OR parent_id=?').run(p.id, p.id);
     db.prepare('DELETE FROM people WHERE id=?').run(p.id);
+    db.prepare('DELETE FROM media_links WHERE person_id=?').run(p.id);
     for (const k of ['father_id', 'mother_id', 'spouse_id']) db.prepare(`UPDATE people SET ${k}='' WHERE ${k}=?`).run(p.id);
   });
   tx();
@@ -248,7 +250,8 @@ app.post('/api/people/:id/notes', needWriter, (req, res) => {
   if (!exists(req.params.id)) return res.status(404).json({ error: 'Pessoa não encontrada.' });
   const text = String(req.body.text || '').trim().slice(0, 5000);
   if (!text) return res.status(400).json({ error: 'Escreva a informação.' });
-  db.prepare('INSERT INTO notes(person_id,text,created_by,created_at) VALUES(?,?,?,?)').run(req.params.id, text, req.user.id, now());
+  const kind = req.body.kind === 'memory' ? 'memory' : 'info';
+  db.prepare('INSERT INTO notes(person_id,kind,text,created_by,created_at) VALUES(?,?,?,?,?)').run(req.params.id, kind, text, req.user.id, now());
   res.json({ ok: true });
 });
 app.delete('/api/notes/:id', needWriter, (req, res) => {
@@ -256,6 +259,44 @@ app.delete('/api/notes/:id', needWriter, (req, res) => {
   if (!n) return res.status(404).json({ error: 'Não encontrada.' });
   if (!owns(req, n.created_by)) return res.status(403).json({ error: 'Você só pode remover o que você escreveu.' });
   db.prepare('DELETE FROM notes WHERE id=?').run(n.id);
+  res.json({ ok: true });
+});
+
+// ---------- links de vídeos e páginas ----------
+function cleanUrl(u) {
+  u = String(u || '').trim();
+  if (!/^https?:\/\//i.test(u)) u = 'https://' + u;
+  try { const x = new URL(u); if (!['http:', 'https:'].includes(x.protocol) || !x.hostname.includes('.')) return null; return x.href.slice(0, 1000); }
+  catch { return null; }
+}
+app.post('/api/people/:id/links', needWriter, (req, res) => {
+  if (!exists(req.params.id)) return res.status(404).json({ error: 'Pessoa não encontrada.' });
+  const url = cleanUrl(req.body.url);
+  if (!url) return res.status(400).json({ error: 'Cole um link válido (começando com https://).' });
+  const title = String(req.body.title || '').trim().slice(0, 200);
+  db.prepare('INSERT INTO media_links(person_id,url,title,created_by,created_at) VALUES(?,?,?,?,?)').run(req.params.id, url, title, req.user.id, now());
+  res.json({ ok: true });
+});
+app.delete('/api/media-links/:id', needWriter, (req, res) => {
+  const l = db.prepare('SELECT * FROM media_links WHERE id=?').get(req.params.id);
+  if (!l) return res.status(404).json({ error: 'Não encontrado.' });
+  if (!owns(req, l.created_by)) return res.status(403).json({ error: 'Você só pode remover o que você adicionou.' });
+  db.prepare('DELETE FROM media_links WHERE id=?').run(l.id);
+  res.json({ ok: true });
+});
+
+// ---------- foto principal ----------
+// Quem criou o registro da pessoa (ou o administrador) escolhe a foto principal.
+app.put('/api/people/:id/photo', needWriter, (req, res) => {
+  const p = db.prepare('SELECT * FROM people WHERE id=?').get(req.params.id);
+  if (!p) return res.status(404).json({ error: 'Pessoa não encontrada.' });
+  if (!owns(req, p.created_by)) return res.status(403).json({ error: 'Só quem adicionou esta pessoa (ou o administrador) escolhe a foto principal.' });
+  const fileId = String(req.body.fileId || '');
+  if (fileId) {
+    const f = db.prepare('SELECT * FROM files WHERE id=? AND person_id=?').get(fileId, p.id);
+    if (!f || !/^image\/(jpeg|png|webp)$/.test(f.mime)) return res.status(400).json({ error: 'Escolha uma foto (JPG, PNG ou WebP) desta pessoa.' });
+  }
+  db.prepare('UPDATE people SET photo_file_id=?, updated_at=?, updated_by=? WHERE id=?').run(fileId, now(), req.user.id, p.id);
   res.json({ ok: true });
 });
 
@@ -294,6 +335,7 @@ app.delete('/api/files/:id', needWriter, (req, res) => {
   if (!f) return res.status(404).json({ error: 'Não encontrado.' });
   if (!owns(req, f.created_by)) return res.status(403).json({ error: 'Você só pode remover o que você enviou.' });
   db.prepare('DELETE FROM files WHERE id=?').run(f.id);
+  db.prepare("UPDATE people SET photo_file_id='' WHERE photo_file_id=?").run(f.id);
   fs.unlink(path.join(UPLOAD_DIR, path.basename(f.stored_name)), () => {});
   res.json({ ok: true });
 });
@@ -329,10 +371,11 @@ app.put('/api/admin/users/:id', needAdmin, (req, res) => {
 app.get('/api/export.json', needAdmin, (req, res) => {
   const people = db.prepare('SELECT * FROM people').all().map(p => { const o = personOut(p); delete o.createdBy; return o; });
   const users = Object.fromEntries(db.prepare('SELECT id,name FROM users').all().map(u => [u.id, u.name]));
-  const notes = db.prepare('SELECT person_id personId,text,created_by,created_at at FROM notes').all().map(n => ({ personId: n.personId, text: n.text, by: users[n.created_by] || '', at: n.at }));
+  const notes = db.prepare('SELECT person_id personId,kind,text,created_by,created_at at FROM notes').all().map(n => ({ personId: n.personId, kind: n.kind, text: n.text, by: users[n.created_by] || '', at: n.at }));
+  const media = db.prepare('SELECT person_id personId,url,title,created_by,created_at at FROM media_links').all().map(m => ({ personId: m.personId, url: m.url, title: m.title, by: users[m.created_by] || '', at: m.at }));
   const links = db.prepare('SELECT child_id child,parent_id parent,role FROM links').all();
   res.set('Content-Disposition', `attachment; filename="arvore-familia-${new Date().toISOString().slice(0, 10)}.json"`);
-  res.json({ format: 'arvore-familia-v1', exportedAt: now(), people, notes, links });
+  res.json({ format: 'arvore-familia-v1', exportedAt: now(), people, notes, links, media });
 });
 app.get('/api/export.ged', needAdmin, (req, res) => {
   const people = db.prepare('SELECT * FROM people').all().map(personOut);
@@ -358,7 +401,12 @@ app.post('/api/admin/import', needAdmin, (req, res) => {
       if (!n || !n.personId || !n.text) continue;
       const text = (n.by ? `${String(n.text)} (por ${String(n.by)})` : String(n.text)).slice(0, 5000);
       if (!db.prepare('SELECT 1 FROM notes WHERE person_id=? AND text=?').get(n.personId, text))
-        db.prepare('INSERT INTO notes(person_id,text,created_by,created_at) VALUES(?,?,NULL,?)').run(n.personId, text, n.at || now());
+        db.prepare('INSERT INTO notes(person_id,kind,text,created_by,created_at) VALUES(?,?,?,NULL,?)').run(n.personId, n.kind === 'memory' ? 'memory' : 'info', text, n.at || now());
+    }
+    for (const m of data.media || []) {
+      const url = m && cleanUrl(m.url);
+      if (url && m.personId && !db.prepare('SELECT 1 FROM media_links WHERE person_id=? AND url=?').get(m.personId, url))
+        db.prepare('INSERT INTO media_links(person_id,url,title,created_by,created_at) VALUES(?,?,?,NULL,?)').run(m.personId, url, String(m.title || '').slice(0, 200), m.at || now());
     }
     for (const l of data.links || []) {
       if (l && l.child && l.parent && ['father', 'mother'].includes(l.role))
