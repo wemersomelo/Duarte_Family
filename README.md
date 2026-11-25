@@ -3,8 +3,9 @@
 Um app privado de árvore genealógica que **você mesmo hospeda**. Os dados da família ficam no seu servidor, não num site comercial.
 
 - Só entra quem recebe um **convite** (link de uso único, vale 30 dias).
-- Todos os convidados **veem** a árvore inteira.
-- Quem tem acesso "Pode adicionar" acrescenta pessoas, pais, filhos, cônjuges, **informações** e **fotos de documentos** (JPG, PNG, HEIC, PDF).
+- Todos os convidados **veem** a árvore inteira e podem deixar **lembranças**, **fotos e documentos** (JPG, PNG, HEIC, PDF) e **links de vídeos** em qualquer pessoa.
+- Quem tem acesso "Pode adicionar" também acrescenta pessoas, pais, filhos, cônjuges e **informações**.
+- Cada pessoa pode ter uma **foto principal**, que aparece na ficha e na árvore.
 - **Cada pessoa só altera ou remove o que ela mesma adicionou.** Para corrigir algo de outra pessoa, usa "Acrescentar informação".
 - O **administrador** altera tudo, convida, bloqueia contas, exporta e importa.
 - Funciona no celular e pode ser instalado na tela inicial ("Adicionar à tela de início").

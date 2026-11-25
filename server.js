@@ -246,8 +246,12 @@ app.delete('/api/people/:id', needWriter, (req, res) => {
 });
 
 // ---------- informações (notas) ----------
-app.post('/api/people/:id/notes', needWriter, (req, res) => {
+// Lembranças, links e fotos: qualquer convidado pode acrescentar (inclusive "Só ver").
+// Informações (dados e correções) continuam exigindo o acesso "Pode adicionar".
+// Remover: só o autor com acesso "Pode adicionar", ou o administrador.
+app.post('/api/people/:id/notes', needUser, (req, res) => {
   if (!exists(req.params.id)) return res.status(404).json({ error: 'Pessoa não encontrada.' });
+  if (req.body.kind !== 'memory' && req.user.role === 'viewer') return res.status(403).json({ error: 'Seu acesso permite deixar lembranças, links e fotos.' });
   const text = String(req.body.text || '').trim().slice(0, 5000);
   if (!text) return res.status(400).json({ error: 'Escreva a informação.' });
   const kind = req.body.kind === 'memory' ? 'memory' : 'info';
@@ -269,7 +273,7 @@ function cleanUrl(u) {
   try { const x = new URL(u); if (!['http:', 'https:'].includes(x.protocol) || !x.hostname.includes('.')) return null; return x.href.slice(0, 1000); }
   catch { return null; }
 }
-app.post('/api/people/:id/links', needWriter, (req, res) => {
+app.post('/api/people/:id/links', needUser, (req, res) => {
   if (!exists(req.params.id)) return res.status(404).json({ error: 'Pessoa não encontrada.' });
   const url = cleanUrl(req.body.url);
   if (!url) return res.status(400).json({ error: 'Cole um link válido (começando com https://).' });
@@ -310,7 +314,7 @@ const upload = multer({
   limits: { fileSize: MAX_UPLOAD_MB * 1024 * 1024, files: 10 },
   fileFilter: (req, file, cb) => cb(null, !!ALLOWED[file.mimetype])
 });
-app.post('/api/people/:id/files', needWriter, (req, res) => {
+app.post('/api/people/:id/files', needUser, (req, res) => {
   upload.array('files', 10)(req, res, err => {
     if (err) return res.status(400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? `Arquivo maior que ${MAX_UPLOAD_MB} MB.` : 'Não foi possível enviar.' });
     if (!exists(req.params.id)) { (req.files || []).forEach(f => fs.unlink(f.path, () => {})); return res.status(404).json({ error: 'Pessoa não encontrada.' }); }

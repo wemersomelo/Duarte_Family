@@ -79,7 +79,6 @@ async function start() {
   $('#whoami').textContent = me.name;
   $('#adminBtn').hidden = me.role !== 'admin';
   $('#addBtn').hidden = !canWrite();
-  $('#how').hidden = !canWrite();
   await load();
 }
 
@@ -91,7 +90,7 @@ async function load() {
     userNames = Object.fromEntries(d.users.map(u => [u.id, u.name]));
     me = d.me;
     const n = d.people.length;
-    $('#status').textContent = `${n} pessoas na árvore. ` + (canWrite() ? 'Você pode adicionar pessoas, informações e documentos; só altera o que você mesmo adicionou.' : 'Seu acesso é só para ver.');
+    $('#status').textContent = `${n} pessoas na árvore. ` + (canWrite() ? 'Você pode adicionar pessoas, informações e documentos; só altera o que você mesmo adicionou.' : 'Você pode ver a árvore e deixar lembranças, fotos, vídeos e links.');
     renderAll();
   } catch (err) {
     if (err.status === 401) return start();
@@ -161,8 +160,8 @@ function renderRecord() {
   <dl>${row('Nascimento', p.birth)}${row('Local', p.birthPlace)}${row('Falecimento', p.death)}${row('Local', p.deathPlace)}${row('Histórias', p.notes, 1)}${row('Fontes', p.sources, 1)}</dl>
   ${!p.birth && !p.birthPlace && !p.notes ? '<p class="none">Ainda faltam informações sobre esta pessoa. Se você sabe algo, acrescente.</p>' : ''}
   <p class="by">Registrado por ${esc(who(p.createdBy))}</p>
-  ${canWrite() ? `<div class="actions"><button type="button" class="primary" data-act="note">+ Acrescentar informação</button><button type="button" data-act="memory">+ Deixar uma lembrança</button><button type="button" data-act="files">+ Fotos e documentos</button><button type="button" data-act="link">+ Vídeo ou link</button></div>
-  <div class="actions small"><button type="button" data-act="child">+ Filho ou filha</button><button type="button" data-act="spouse">+ Cônjuge</button>${ed ? '<button type="button" data-act="edit">Editar</button><button type="button" class="danger" data-act="del">Excluir</button>' : ''}</div>` : ''}
+  <div class="actions">${canWrite() ? '<button type="button" class="primary" data-act="note">+ Acrescentar informação</button>' : ''}<button type="button"${canWrite() ? '' : ' class="primary"'} data-act="memory">+ Deixar uma lembrança</button><button type="button" data-act="files">+ Fotos e documentos</button><button type="button" data-act="link">+ Vídeo ou link</button></div>
+  ${canWrite() ? `<div class="actions small"><button type="button" data-act="child">+ Filho ou filha</button><button type="button" data-act="spouse">+ Cônjuge</button>${ed ? '<button type="button" data-act="edit">Editar</button><button type="button" class="danger" data-act="del">Excluir</button>' : ''}</div>` : ''}
   <h4>Fotos e documentos (${pf.length})</h4>
   ${pf.length ? `<div class="docs">${pf.map(f => `<div class="doc${f.id === p.photoFileId ? ' main' : ''}"><button type="button" class="thumb${f.mime === 'application/pdf' ? ' pdf' : ''}" data-view="${esc(f.id)}" ${isImg(f) ? `style="background-image:url('/api/files/${encodeURIComponent(f.id)}')"` : ''} aria-label="Abrir ${esc(f.name)}">${f.mime === 'application/pdf' ? 'PDF' : /hei[cf]/.test(f.mime) ? 'HEIC' : ''}</button><small title="${esc(f.caption || f.name)}">${esc(f.caption || f.name)}</small>${f.id === p.photoFileId ? '<small class="star">foto principal</small>' : ed && isImg(f) ? `<button type="button" class="link" data-mainphoto="${esc(f.id)}">usar como foto principal</button>` : ''}${mine(f) ? `<button type="button" class="link" data-rmfile="${esc(f.id)}">remover</button>` : ''}</div>`).join('')}</div>` : '<p class="none">Nenhum ainda.</p>'}
   <h4>Vídeos e links (${pm.length})</h4>
@@ -280,7 +279,7 @@ nform.addEventListener('submit', async e => {
 
 /* ---------- vídeos e links ---------- */
 const ldlg = $('#ldlg'), lform = $('#lform'); let linkPerson = null;
-function openLink(id) { linkPerson = id; $('#lTitle').textContent = 'Vídeo ou link de ' + P(id).name; lform.reset(); $('#lErr').textContent = ''; ldlg.showModal(); lform.elements.url.focus(); }
+function openLink(id) { if (!me) return; linkPerson = id; $('#lTitle').textContent = 'Vídeo ou link de ' + P(id).name; lform.reset(); $('#lErr').textContent = ''; ldlg.showModal(); lform.elements.url.focus(); }
 lform.addEventListener('submit', async e => {
   e.preventDefault();
   try { await api(`/api/people/${encodeURIComponent(linkPerson)}/links`, { method: 'POST', body: { url: lform.elements.url.value, title: lform.elements.title.value } }); ldlg.close(); await load(); }
@@ -319,7 +318,7 @@ $('#pform').addEventListener('submit', async e => {
 $('#logoutBtn').addEventListener('click', async () => { await api('/api/logout', { method: 'POST' }).catch(() => {}); me = null; showAuth('login'); });
 
 /* ---------- administração ---------- */
-const ROLE = { admin: 'Administrador', member: 'Pode adicionar', viewer: 'Só ver' };
+const ROLE = { admin: 'Administrador', member: 'Pode adicionar', viewer: 'Ver e deixar lembranças' };
 async function loadAdmin() {
   $('#aErr').textContent = '';
   const d = await api('/api/admin');

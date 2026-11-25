@@ -102,6 +102,15 @@ function client() {
   assert.equal(tree.people.find(p => p.id === 'avo').photoFileId, imgId);
   assert.equal((await leitor('DELETE', '/api/media-links/' + tree.media[0].id)).status, 403);
   assert.equal((await tia('DELETE', '/api/media-links/' + tree.media[0].id)).status, 200, 'autor remove o próprio link');
+  // convidado "Só ver" acrescenta lembranças, links e fotos, mas não remove nem edita dados
+  assert.equal((await leitor('POST', '/api/people/avo/notes', { text: 'Lembrança do leitor', kind: 'memory' })).status, 200);
+  assert.equal((await leitor('POST', '/api/people/avo/links', { url: 'https://youtu.be/zzz' })).status, 200);
+  const fd2 = new FormData(); fd2.append('files', new Blob([png], { type: 'image/png' }), 'foto.png');
+  assert.equal((await leitor('POST', '/api/people/avo/files', fd2, true)).status, 200);
+  tree = (await leitor('GET', '/api/tree')).data;
+  const lemb = tree.notes.find(n => n.text === 'Lembrança do leitor');
+  assert.equal((await leitor('DELETE', '/api/notes/' + lemb.id)).status, 403, 'leitor não remove');
+  assert.equal((await leitor('PUT', '/api/people/avo', { name: 'x' })).status, 403);
   const exp = (await admin('GET', '/api/export.json')).data;
   assert.ok(exp.notes.some(n => n.kind === 'memory'));
 
