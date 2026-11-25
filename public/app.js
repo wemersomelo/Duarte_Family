@@ -149,7 +149,7 @@ function drawChart() {
       const av = q.photoFileId ? `<img class="av" src="/api/files/${encodeURIComponent(q.photoFileId)}" alt="" loading="lazy">` : '';
       const meta = q.living ? '' : [yr(q), g === 0 ? q.birthPlace : ''].filter(Boolean).join(' · ');
       const nm = mob && g > 0 ? short(q.name) : q.name;
-      html += `<button type="button" class="card td${g === 0 ? ' focus top' : ''}" data-id="${esc(q.id)}" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px" title="${esc(q.name)}">${av}<span class="nm">${esc(nm)}</span>${meta ? `<span class="meta">${esc(meta)}</span>` : ''}</button>`;
+      html += `<button type="button" class="card td${g === 0 ? ' focus main' : ''}" data-id="${esc(q.id)}" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px" title="${esc(q.name)}">${av}<span class="nm">${esc(nm)}</span>${meta ? `<span class="meta">${esc(meta)}</span>` : ''}</button>`;
       if (g < G - 1) { place(q.fatherId, g + 1, i * 2, q.id, 'father', cx, y + h); place(q.motherId, g + 1, i * 2 + 1, q.id, 'mother', cx, y + h); }
     } else {
       html += `<button type="button" class="card td empty" data-add="${role}" data-child="${esc(childId)}" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px">+ ${role === 'father' ? 'Pai' : 'Mãe'}</button>`;
