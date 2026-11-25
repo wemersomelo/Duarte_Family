@@ -140,3 +140,11 @@ dialog.viewer{width:min(1000px,96vw)}
 .fig.illus .card.plaque.big .av{width:40px;height:40px}
 .rowLabel{position:absolute;left:10px;font:600 12px system-ui,sans-serif;color:#fff8eccc;letter-spacing:.02em;pointer-events:none}
 @media(max-width:699px){.fig.illus .card.plaque.big .nm{font-size:16px;line-height:19px}}
+.card.td{text-align:center;padding:6px 8px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;background-position:0 4px}
+.card.td .nm{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;text-overflow:clip;font-size:16px;line-height:19px}
+.card.td .meta{line-height:16px}
+.card.td .av{position:static;transform:none;width:30px;height:30px;flex:none}
+.card.td.top .nm{font-size:21px;line-height:24px}
+.card.td.top .av{width:40px;height:40px}
+.card.td.empty{display:grid}
+@media(max-width:699px){.card.td .nm{font-size:14px;line-height:16px}.card.td.top .nm{font-size:18px;line-height:21px}}

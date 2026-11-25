@@ -119,167 +119,51 @@ function go(id) { setFocus(id); $('#fig').scrollIntoView({ behavior: matchMedia(
 /* ---------- gráfico de antepassados ---------- */
 const fig = $('#fig');
 const isMobile = () => innerWidth < 700;
-let viewStyle = 'tree';
-try { viewStyle = localStorage.getItem('viewStyle') || 'tree'; } catch {}
-$('#viewStyle').value = viewStyle;
-$('#viewStyle').addEventListener('change', e => { viewStyle = e.target.value; try { localStorage.setItem('viewStyle', viewStyle); } catch {} drawChart(); });
+// Árvore de cima para baixo: a pessoa procurada no topo e os antepassados descendo.
+// Celular: sempre 3 gerações. Computador: 3, 4 ou 5.
 function drawChart() {
-  fig.classList.toggle('illus', viewStyle === 'tree');
-  if (viewStyle === 'tree') return drawTree();
-  if (isMobile()) return drawVertical(); drawHorizontal();
-}
-// Número estável a partir de um texto (para as folhas ficarem sempre no mesmo lugar).
-const seed = s => { let h = 2166136261; for (const c of String(s)) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return () => { h ^= h << 13; h ^= h >>> 17; h ^= h << 5; return ((h >>> 0) % 10000) / 10000; }; };
-// Árvore ilustrada: a pessoa é a árvore (copa, tronco e o nome na faixa);
-// os antepassados são as raízes, descendo pela terra geração por geração.
-function drawTree() {
-  const G = +$('#gens').value, p = P(focus);
-  if (!p) { fig.innerHTML = '<p class="none" style="padding:20px 0">Nenhuma pessoa selecionada.</p>'; fig.style.cssText = ''; return; }
-  $('#chartTitle').textContent = 'Raízes de ' + (p.nick || p.name.split(' ')[0]);
-  const mob = isMobile(), slots = 2 ** (G - 1);
-  const CW = mob ? 80 : 128, CH = mob ? 70 : 64, GX = mob ? 6 : 10, RH = mob ? 116 : 118, M = mob ? 6 : 16;
-  const avail = (fig.parentElement.clientWidth || innerWidth) - 2;
-  const W = Math.max(slots * (CW + GX) + 2 * M, Math.min(avail, 1180));
-  const cx = W / 2, TOP = 8, crownH = mob ? 230 : 250, crownCy = TOP + crownH / 2;
-  const crownRx = Math.min(W / 2 - 8, mob ? 175 : 290), crownRy = crownH / 2;
-  const groundY = TOP + crownH + (mob ? 95 : 105);
-  const rowTop = g => groundY + 46 + (g - 1) * RH;
-  // raízes se abrem: as das pontas ficam um pouco mais rasas que as do meio
-  const rise = (g, x) => g < 2 ? 0 : Math.round(RH * 0.35 * (g / (G - 1)) * ((x - cx) / (W / 2)) ** 2);
-  const H = rowTop(G - 1) + CH + 30;
-  fig.style.cssText = `--cw:${CW}px;width:${W}px;height:${H}px`;
-  const rnd = seed(focus);
-  const leaf = (x, y, r, rot, shade) => `<ellipse cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" rx="${(r * 0.45).toFixed(1)}" ry="${r.toFixed(1)}" transform="rotate(${rot.toFixed(0)} ${x.toFixed(1)} ${y.toFixed(1)})" fill="${shade ? 'var(--leaf2)' : 'var(--leaf)'}"/>`;
-
-  // ---- céu e copa
-  let sky = `<ellipse cx="${cx}" cy="${crownCy}" rx="${crownRx}" ry="${crownRy}" fill="var(--canopy)"/>`;
-  const tw = mob ? 22 : 30, trunkTop = crownCy + crownRy * 0.35;
-  let trunk = `<path d="M${cx - tw * 1.5} ${groundY + 4} C${cx - tw * .6} ${groundY - 20},${cx - tw * .5} ${trunkTop + 40},${cx - tw * .45} ${trunkTop} L${cx + tw * .45} ${trunkTop} C${cx + tw * .5} ${trunkTop + 40},${cx + tw * .6} ${groundY - 20},${cx + tw * 1.5} ${groundY + 4} Z" fill="var(--bark)"/>`;
-  // galhinhos subindo para a copa
-  for (const s of [-1, 1]) trunk += `<path d="M${cx + s * tw * .2} ${trunkTop + 20} C${cx + s * tw * .6} ${trunkTop - 10},${cx + s * crownRx * .35} ${crownCy},${cx + s * crownRx * .55} ${crownCy - crownRy * .35}" stroke="var(--bark)" stroke-width="${mob ? 7 : 9}" fill="none" stroke-linecap="round"/>`;
-  let crownLeaves = '';
-  const nC = Math.round((crownRx * crownRy) / (mob ? 150 : 210));
-  for (let k = 0; k < nC; k++) {
-    const a = rnd() * Math.PI * 2, d = Math.sqrt(rnd());
-    crownLeaves += leaf(cx + Math.cos(a) * crownRx * d, crownCy + Math.sin(a) * crownRy * d, (mob ? 7 : 9) + rnd() * 5, rnd() * 180, rnd() > .45);
-  }
-  for (let k = 0, n = mob ? 60 : 90; k < n; k++) {
-    const a = (k / n) * Math.PI * 2, j2 = 0.93 + rnd() * 0.1;
-    crownLeaves += leaf(cx + Math.cos(a) * crownRx * j2, crownCy + Math.sin(a) * crownRy * j2, (mob ? 8 : 11) + rnd() * 5, a * 180 / Math.PI + 90 + rnd() * 30, rnd() > .5);
-  }
-
-  // ---- terra
-  let soil = `<defs><linearGradient id="soilg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--soil1)"/><stop offset="1" stop-color="var(--soil2)"/></linearGradient></defs>
-    <rect x="0" y="${groundY}" width="${W}" height="${H - groundY}" fill="url(#soilg)"/>`;
-  for (let k = 0, n = Math.round(W * (H - groundY) / 2600); k < n; k++)
-    soil += `<ellipse cx="${(rnd() * W).toFixed(0)}" cy="${(groundY + 8 + rnd() * (H - groundY - 12)).toFixed(0)}" rx="${(1.5 + rnd() * 3).toFixed(1)}" ry="${(1 + rnd() * 2).toFixed(1)}" fill="var(--pebble)"/>`;
-  let grass = '';
-  for (let gx = 4; gx < W; gx += 8) grass += `<path d="M${gx} ${groundY + 2}l${(rnd() * 6 - 3).toFixed(1)} ${-(5 + rnd() * 9).toFixed(1)}" stroke="var(--leaf)" stroke-width="2" stroke-linecap="round"/>`;
-
-  // ---- raízes e plaquinhas dos antepassados
-  let roots = '', cards = '', labels = '';
-  const names = ['', 'Pais', 'Avós', 'Bisavós', 'Tataravós'];
-  for (let g = 1; g < G; g++) labels += `<div class="rowLabel" style="top:${Math.max(groundY + 6, rowTop(g) - rise(g, M + CW / 2) - 19)}px">${names[g]}</div>`;
-  const root = (x0, y0, x1, y1, w) => {
-    const my = (y0 + y1) / 2;
-    roots += `<path d="M${x0} ${y0}C${x0} ${my},${x1} ${my},${x1} ${y1}" fill="none" stroke="var(--root)" stroke-width="${w}" stroke-linecap="round"/>`;
-    for (const t of [0.3, 0.55, 0.8]) { // radicelas
-      const it = 1 - t, x = it ** 3 * x0 + 3 * it * it * t * x0 + 3 * it * t * t * x1 + t ** 3 * x1, y = it ** 3 * y0 + 3 * it * it * t * my + 3 * it * t * t * my + t ** 3 * y1;
-      const s = rnd() > .5 ? 1 : -1, L = 8 + rnd() * 12;
-      roots += `<path d="M${x.toFixed(1)} ${y.toFixed(1)}q${(s * L * .6).toFixed(1)} ${(L * .3).toFixed(1)} ${(s * L).toFixed(1)} ${(L * .9).toFixed(1)}" stroke="var(--root)" stroke-width="1.5" fill="none" stroke-linecap="round"/>`;
-    }
-  };
-  const plaque = (q, x, y, w, h, extra = '') => {
-    const av = q.photoFileId ? `<img class="av" src="/api/files/${encodeURIComponent(q.photoFileId)}" alt="" loading="lazy">` : '';
-    const meta = q.living ? '' : yr(q);
-    const nm = mob && w < 100 ? (s => { const a = String(s).split(' '); return a.length > 2 ? a[0] + ' ' + a[a.length - 1] : s; })(q.name) : q.name;
-    return `<button type="button" class="card plaque${extra}" data-id="${esc(q.id)}" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px" title="${esc(q.name)}">${av}<span class="nm">${esc(nm)}</span>${meta ? `<span class="meta">${esc(meta)}</span>` : ''}</button>`;
-  };
-  const place = (id, g, i, childId, role, x0, y0) => {
-    const n = 2 ** g, xc = (i + .5) * (W - 2 * M) / n + M, y = Math.max(groundY + 30, rowTop(g) - rise(g, xc)), x = xc - CW / 2;
-    const q = P(id); if (!q && !(childId && canWrite())) return;
-    root(x0, y0, xc, y + 2, Math.max(3, (mob ? 13 : 17) - g * 3.4));
-    if (q) {
-      cards += plaque(q, x, y, CW, CH);
-      if (g < G - 1) { place(q.fatherId, g + 1, i * 2, q.id, 'father', xc, y + CH - 2); place(q.motherId, g + 1, i * 2 + 1, q.id, 'mother', xc, y + CH - 2); }
-    } else {
-      cards += `<button type="button" class="card plaque empty" data-add="${role}" data-child="${esc(childId)}" style="left:${x}px;top:${y}px;height:${CH}px">+ ${role === 'father' ? 'Pai' : 'Mãe'}</button>`;
-    }
-  };
-  if (G > 1) { place(p.fatherId, 1, 0, p.id, 'father', cx - tw * .7, groundY); place(p.motherId, 1, 1, p.id, 'mother', cx + tw * .7, groundY); }
-
-  // ---- a pessoa: plaquinha na copa e o nome na faixa sobre o tronco
-  const PW = mob ? 150 : 190, PH = mob ? 84 : 86;
-  cards += plaque(p, cx - PW / 2, crownCy - PH / 2 - 10, PW, PH, ' focus big');
-  const rw = Math.min(W - 24, mob ? 300 : 440), ry = groundY - (mob ? 58 : 62);
-  const ribbon = `<path d="M${cx - rw / 2 - 24} ${ry + 12} l24 6 l-9 15 l${rw + 18} 0 l-9 -15 l24 -6 l-18 -9 Z" fill="var(--ribbon2)"/>
-    <path d="M${cx - rw / 2} ${ry} Q${cx} ${ry - 12} ${cx + rw / 2} ${ry} L${cx + rw / 2} ${ry + 36} Q${cx} ${ry + 23} ${cx - rw / 2} ${ry + 36} Z" fill="var(--ribbon)" stroke="var(--plaque-line)" stroke-width="1.5"/>`;
-  const ribbonText = `<div class="ribbonText" style="top:${ry + 1}px">${esc(p.name)}</div>`;
-
-  fig.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" aria-hidden="true">${soil}${roots}${sky}${trunk}${crownLeaves}${grass}${ribbon}</svg>${labels}${ribbonText}${cards}`;
-  const sc = fig.parentElement; sc.scrollLeft = (W - sc.clientWidth) / 2;
-}
-// Celular: árvore em pé. A pessoa fica embaixo (o tronco) e os antepassados sobem como galhos.
-function drawVertical() {
-  const G = +$('#gens').value, p = P(focus);
+  const mob = isMobile();
+  $('#gensWrap').hidden = mob;
+  const G = mob ? 3 : +$('#gens').value, p = P(focus);
   if (!p) { fig.innerHTML = '<p class="none" style="padding:20px 0">Nenhuma pessoa selecionada.</p>'; fig.style.cssText = ''; return; }
   $('#chartTitle').textContent = 'Antepassados de ' + (p.nick || p.name.split(' ')[0]);
-  const slots = 2 ** (G - 1), CW = 92, GX = 6, CH = 78, RH = 112, TOP = 10;
-  const W = Math.max(slots * (CW + GX), innerWidth - 32), H = TOP + G * RH;
+  const slots = 2 ** (G - 1), M = mob ? 4 : 8, GX = mob ? 6 : 10;
+  const avail = (fig.parentElement.clientWidth || innerWidth) - 2;
+  const CW = Math.max(mob ? 78 : 104, Math.min(200, Math.floor((avail - 2 * M) / slots) - GX));
+  const CH = mob ? 72 : 66, RH = CH + (mob ? 46 : 54), TOP = mob ? 4 : 22;
+  const PW = Math.min(avail - 2 * M, mob ? 230 : 300), PH = mob ? 78 : 80;
+  const W = Math.max(slots * (CW + GX) + 2 * M, avail);
+  const rowY = g => g === 0 ? TOP : TOP + PH + (mob ? 46 : 54) + (g - 1) * RH;
+  const H = rowY(G - 1) + CH + 12;
   fig.style.cssText = `--cw:${CW}px;width:${W}px;height:${H}px`;
+  const labels = ['', 'Pais', 'Avós', 'Bisavós', 'Tataravós'];
   let html = '', lines = '';
-  const short = n => { const parts = String(n).split(' '); return parts.length > 2 ? parts[0] + ' ' + parts[parts.length - 1] : n; };
+  if (!mob) for (let g = 1; g < G; g++) html += `<div class="gen" style="left:${M}px;top:${rowY(g) - 20}px">${labels[g]}</div>`;
+  const short = n => { const a = String(n).split(' '); return a.length > 2 ? a[0] + ' ' + a[a.length - 1] : n; };
   const place = (id, g, i, childId, role, cx0, cy0) => {
-    const n = 2 ** g, cx = (i + .5) * W / n, y = TOP + (G - 1 - g) * RH, x = cx - CW / 2;
+    const n = 2 ** g, w = g === 0 ? PW : CW, h = g === 0 ? PH : CH;
+    const cx = g === 0 ? W / 2 : (i + .5) * (W - 2 * M) / n + M, y = rowY(g), x = cx - w / 2;
     const q = P(id); if (!q && !(childId && canWrite())) return;
-    if (g > 0) { const mid = y + CH + (cy0 - y - CH) / 2; lines += `<path d="M${cx0} ${cy0}V${mid}H${cx}V${y + CH}" fill="none" stroke="currentColor" stroke-opacity=".35" stroke-width="1.5"/>`; }
+    if (g > 0) { const mid = cy0 + (y - cy0) / 2; lines += `<path d="M${cx0} ${cy0}V${mid}H${cx}V${y}" fill="none" stroke="currentColor" stroke-opacity=".35" stroke-width="1.5"/>`; }
     if (q) {
       const av = q.photoFileId ? `<img class="av" src="/api/files/${encodeURIComponent(q.photoFileId)}" alt="" loading="lazy">` : '';
-      const meta = q.living ? '' : yr(q);
-      html += `<button type="button" class="card v${g === 0 ? ' focus' : ''}" data-id="${esc(q.id)}" style="left:${x}px;top:${y}px;height:${CH}px" title="${esc(q.name)}">${av}<span class="nm">${esc(short(q.name))}</span>${meta ? `<span class="meta">${esc(meta)}</span>` : ''}</button>`;
-      if (g < G - 1) { place(q.fatherId, g + 1, i * 2, q.id, 'father', cx, y); place(q.motherId, g + 1, i * 2 + 1, q.id, 'mother', cx, y); }
+      const meta = q.living ? '' : [yr(q), g === 0 ? q.birthPlace : ''].filter(Boolean).join(' · ');
+      const nm = mob && g > 0 ? short(q.name) : q.name;
+      html += `<button type="button" class="card td${g === 0 ? ' focus top' : ''}" data-id="${esc(q.id)}" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px" title="${esc(q.name)}">${av}<span class="nm">${esc(nm)}</span>${meta ? `<span class="meta">${esc(meta)}</span>` : ''}</button>`;
+      if (g < G - 1) { place(q.fatherId, g + 1, i * 2, q.id, 'father', cx, y + h); place(q.motherId, g + 1, i * 2 + 1, q.id, 'mother', cx, y + h); }
     } else {
-      html += `<button type="button" class="card v empty" data-add="${role}" data-child="${esc(childId)}" style="left:${x}px;top:${y}px;height:${CH}px">+ ${role === 'father' ? 'Pai' : 'Mãe'}</button>`;
+      html += `<button type="button" class="card td empty" data-add="${role}" data-child="${esc(childId)}" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px">+ ${role === 'father' ? 'Pai' : 'Mãe'}</button>`;
     }
   };
   place(focus, 0, 0, null, null, 0, 0);
   fig.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" aria-hidden="true" style="color:var(--ink)">${lines}</svg>` + html;
   const sc = fig.parentElement; sc.scrollLeft = (W - sc.clientWidth) / 2;
 }
-function drawHorizontal() {
-  const G = +$('#gens').value, p = P(focus);
-  if (!p) { fig.innerHTML = '<p class="none" style="padding:20px 0">Nenhuma pessoa selecionada.</p>'; fig.style.cssText = ''; return; }
-  $('#chartTitle').textContent = 'Antepassados de ' + (p.nick || p.name.split(' ')[0]);
-  const narrow = innerWidth < 600, CW = narrow ? 170 : 210, GAP = narrow ? 26 : 42, SH = narrow ? 62 : 66, CH = 52, TOP = 24;
-  const slots = 2 ** (G - 1), H = TOP + slots * SH, W = G * CW + (G - 1) * GAP;
-  fig.style.cssText = `--cw:${CW}px;width:${W}px;height:${H}px`;
-  const labels = ['Pessoa', 'Pais', 'Avós', 'Bisavós', 'Tataravós'];
-  let html = '', lines = ''; const pos = [];
-  for (let g = 0; g < G; g++) html += `<div class="gen" style="left:${g * (CW + GAP)}px">${labels[g]}</div>`;
-  const place = (id, g, i, childId, role) => {
-    const n = 2 ** g, y = TOP + (i + .5) * (slots * SH / n) - CH / 2, x = g * (CW + GAP);
-    (pos[g] = pos[g] || [])[i] = null;
-    const q = P(id); if (!q && !(childId && canWrite())) return;
-    if (g > 0) { const pc = pos[g - 1][i >> 1]; if (pc) { const x1 = pc.x + CW, y1 = pc.y + CH / 2, y2 = y + CH / 2, mx = x1 + GAP / 2; lines += `<path d="M${x1} ${y1}H${mx}V${y2}H${x}" fill="none" stroke="currentColor" stroke-opacity=".35" stroke-width="1.5"/>`; } }
-    pos[g][i] = { x, y };
-    if (q) {
-      const meta = q.living ? 'dados privados' : [yr(q), q.birthPlace].filter(Boolean).join(' · ');
-      const av = q.photoFileId ? `<img class="av" src="/api/files/${encodeURIComponent(q.photoFileId)}" alt="" loading="lazy">` : '';
-      html += `<button type="button" class="card${g === 0 ? ' focus' : ''}${av ? ' hasav' : ''}" data-id="${esc(q.id)}" style="left:${x}px;top:${y}px;height:${CH}px" title="${esc(q.name)}">${av}<span class="nm">${esc(q.name)}</span><span class="meta">${esc(meta || 'datas desconhecidas')}</span></button>`;
-      if (g < G - 1) { place(q.fatherId, g + 1, i * 2, q.id, 'father'); place(q.motherId, g + 1, i * 2 + 1, q.id, 'mother'); }
-    } else {
-      html += `<button type="button" class="card empty" data-add="${role}" data-child="${esc(childId)}" style="left:${x}px;top:${y}px;height:${CH}px">+ ${role === 'father' ? 'Adicionar pai' : 'Adicionar mãe'}</button>`;
-    }
-  };
-  place(focus, 0, 0, null, null);
-  fig.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" aria-hidden="true" style="color:var(--ink)">${lines}</svg>` + html;
-}
 fig.addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
   if (b.dataset.id) { if (b.dataset.id === focus) $('#slip').scrollIntoView({ behavior: 'smooth', block: 'start' }); else setFocus(b.dataset.id); }
   else if (b.dataset.add) openForm(null, { parentOf: b.dataset.child, parentRole: b.dataset.add });
 });
-if (isMobile()) $('#gens').value = '3';
 $('#gens').addEventListener('change', drawChart);
 let rt; addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(drawChart, 150); });
 
