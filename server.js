@@ -422,7 +422,8 @@ app.post('/api/admin/import', needAdmin, (req, res) => {
 });
 
 // ---------- páginas ----------
-app.use(express.static(path.join(__dirname, 'public'), { index: 'index.html', maxAge: '1h' }));
+// 'no-cache': o navegador sempre confere se há versão nova (rápido, usa ETag), então atualizações aparecem na hora.
+app.use(express.static(path.join(__dirname, 'public'), { index: 'index.html', setHeaders: res => res.set('Cache-Control', 'no-cache') }));
 app.get(/^\/(convite\/[\w-]+)?$/, (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 app.use('/api', (req, res) => res.status(404).json({ error: 'Não encontrado.' }));
 
