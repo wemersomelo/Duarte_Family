@@ -6,7 +6,7 @@
   "private": true,
   "scripts": {
     "start": "node server.js",
-    "test": "node test/migration.js && node test/smoke.js"
+    "test": "node test/migration.js && node test/smoke.js && node test/security.js"
   },
   "engines": {
     "node": ">=20"
@@ -15,6 +15,7 @@
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^11.8.1",
     "express": "^4.21.2",
-    "multer": "^2.5.0"
+    "multer": "^2.5.0",
+    "sharp": "^0.33.5"
   }
 }

@@ -1,8 +1,7 @@
-FROM node:22-alpine
-RUN apk add --no-cache python3 make g++
+FROM node:22-bookworm-slim
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev && apk del python3 make g++
+RUN npm ci --omit=dev && npm cache clean --force
 COPY . .
 ENV NODE_ENV=production DATA_DIR=/data PORT=3000
 VOLUME /data

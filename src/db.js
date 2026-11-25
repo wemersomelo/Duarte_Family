@@ -86,6 +86,19 @@ function openDb(file) {
       created_by INTEGER,
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS resets (
+      token TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      expires INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS activity (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER,
+      action TEXT NOT NULL,
+      target TEXT,
+      detail TEXT,
+      at TEXT NOT NULL
+    );
     CREATE INDEX IF NOT EXISTS notes_person ON notes(person_id);
     CREATE INDEX IF NOT EXISTS files_person ON files(person_id);
     CREATE INDEX IF NOT EXISTS media_person ON media_links(person_id);

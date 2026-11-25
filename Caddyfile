@@ -3,5 +3,6 @@
 	request_body {
 		max_size 220MB
 	}
+	header -Server
 	reverse_proxy arvore:3000
 }

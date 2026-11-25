@@ -15,9 +15,12 @@ const { toGedcom } = require('./src/gedcom');
 const PORT = Number(process.env.PORT || 3000);
 const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(__dirname, 'data'));
 const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
+const TRASH_DIR = path.join(UPLOAD_DIR, 'lixeira');
 const COOKIE_SECURE = process.env.COOKIE_SECURE === '1';
 const SESSION_DAYS = 60;
 const MAX_UPLOAD_MB = Number(process.env.MAX_UPLOAD_MB || 20);
+const MAX_USER_STORAGE_MB = Number(process.env.MAX_USER_STORAGE_MB || 2000);
+let sharp = null; try { sharp = require('sharp'); } catch { /* sem sharp: fotos guardadas como vieram */ }
 
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 const db = openDb(path.join(DATA_DIR, 'arvore.db'));
@@ -32,8 +35,12 @@ app.use((req, res, next) => {
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
     'Referrer-Policy': 'same-origin',
-    'Content-Security-Policy': "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self'; frame-ancestors 'none'; form-action 'self'"
+    'X-Robots-Tag': 'noindex, nofollow',
+    'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=()',
+    'Cross-Origin-Opener-Policy': 'same-origin',
+    'Content-Security-Policy': "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
   });
+  if (COOKIE_SECURE) res.set('Strict-Transport-Security', 'max-age=31536000');
   next();
 });
 app.use(express.json({ limit: '5mb' }));
@@ -55,7 +62,7 @@ function parseCookies(req) {
   const out = {};
   (req.headers.cookie || '').split(';').forEach(c => {
     const i = c.indexOf('=');
-    if (i > 0) out[c.slice(0, i).trim()] = decodeURIComponent(c.slice(i + 1).trim());
+    if (i > 0) { try { out[c.slice(0, i).trim()] = decodeURIComponent(c.slice(i + 1).trim()); } catch { /* cookie inválido: ignora */ } }
   });
   return out;
 }
@@ -87,6 +94,31 @@ function tooMany(key) {
   return a.length >= 10;
 }
 function noteAttempt(key) { const a = attempts.get(key) || []; a.push(Date.now()); attempts.set(key, a); }
+function tooManyIp(ip) {
+  const now = Date.now(), k = 'ip|' + ip, a = (attempts.get(k) || []).filter(t => now - t < 15 * 60e3);
+  attempts.set(k, a);
+  return a.length >= 30;
+}
+// Limite de alterações por pessoa (evita abuso ou um robô enchendo a árvore).
+const writes = new Map();
+app.use((req, res, next) => {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method) || !req.user) return next();
+  const now = Date.now(), a = (writes.get(req.user.id) || []).filter(t => now - t < 3600e3);
+  if (a.length >= 300) return res.status(429).json({ error: 'Muitas alterações em pouco tempo. Espere um pouco.' });
+  a.push(now); writes.set(req.user.id, a); next();
+});
+setInterval(() => {
+  const now = Date.now();
+  for (const m of [attempts, writes]) for (const [k, a] of m) if (!a.some(t => now - t < 3600e3)) m.delete(k);
+  db.prepare('DELETE FROM sessions WHERE expires < ?').run(now);
+  db.prepare('DELETE FROM resets WHERE expires < ?').run(now);
+}, 3600e3).unref();
+
+// Histórico: quem fez o quê. Exclusões guardam uma cópia para poder recuperar.
+function log(req, action, target, detail) {
+  db.prepare('INSERT INTO activity(user_id,action,target,detail,at) VALUES(?,?,?,?,?)')
+    .run(req.user ? req.user.id : null, action, String(target || '').slice(0, 200), detail ? JSON.stringify(detail).slice(0, 20000) : null, new Date().toISOString());
+}
 
 // ---------- utilidades ----------
 const FIELDS = ['name', 'nick', 'sex', 'birth', 'birth_place', 'death', 'death_place', 'father_id', 'mother_id', 'spouse_id', 'notes', 'sources'];
@@ -143,9 +175,9 @@ function checkAccount(name, email, password) {
 app.post('/api/login', (req, res) => {
   const email = String(req.body.email || '').trim().toLowerCase();
   const key = (req.ip || '') + '|' + email;
-  if (tooMany(key)) return res.status(429).json({ error: 'Muitas tentativas. Espere 15 minutos.' });
+  if (tooMany(key) || tooManyIp(req.ip || '')) return res.status(429).json({ error: 'Muitas tentativas. Espere 15 minutos.' });
   const u = db.prepare('SELECT * FROM users WHERE email=? AND active=1').get(email);
-  if (!u || !bcrypt.compareSync(String(req.body.password || ''), u.pass_hash)) { noteAttempt(key); return res.status(401).json({ error: 'E-mail ou senha incorretos.' }); }
+  if (!u || !bcrypt.compareSync(String(req.body.password || ''), u.pass_hash)) { noteAttempt(key); noteAttempt('ip|' + (req.ip || '')); return res.status(401).json({ error: 'E-mail ou senha incorretos.' }); }
   setSession(res, u.id);
   res.json({ ok: true });
 });
@@ -162,6 +194,23 @@ app.post('/api/password', needUser, (req, res) => {
   if (String(req.body.password || '').length < 8) return res.status(400).json({ error: 'A nova senha precisa ter pelo menos 8 caracteres.' });
   db.prepare('UPDATE users SET pass_hash=? WHERE id=?').run(bcrypt.hashSync(req.body.password, 10), u.id);
   db.prepare('DELETE FROM sessions WHERE user_id=? AND token<>?').run(u.id, req.sid);
+  res.json({ ok: true });
+});
+
+// ---------- nova senha (link criado pelo administrador) ----------
+app.get('/api/reset/:token', (req, res) => {
+  const r = db.prepare('SELECT r.*,u.name FROM resets r JOIN users u ON u.id=r.user_id WHERE token=?').get(req.params.token);
+  if (!r || r.expires < Date.now()) return res.status(404).json({ error: 'Link inválido ou vencido. Peça outro ao administrador.' });
+  res.json({ name: r.name });
+});
+app.post('/api/reset/:token', (req, res) => {
+  const r = db.prepare('SELECT * FROM resets WHERE token=?').get(req.params.token);
+  if (!r || r.expires < Date.now()) return res.status(404).json({ error: 'Link inválido ou vencido. Peça outro ao administrador.' });
+  if (String(req.body.password || '').length < 8) return res.status(400).json({ error: 'A senha precisa ter pelo menos 8 caracteres.' });
+  db.prepare('UPDATE users SET pass_hash=? WHERE id=?').run(bcrypt.hashSync(req.body.password, 10), r.user_id);
+  db.prepare('DELETE FROM resets WHERE user_id=?').run(r.user_id);
+  db.prepare('DELETE FROM sessions WHERE user_id=?').run(r.user_id);
+  setSession(res, r.user_id);
   res.json({ ok: true });
 });
 
@@ -215,6 +264,7 @@ app.post('/api/people', needWriter, (req, res) => {
   if (parentOf && exists(parentOf) && ['father', 'mother'].includes(parentRole)) {
     db.prepare('INSERT INTO links(child_id,parent_id,role,created_by,created_at) VALUES(?,?,?,?,?)').run(parentOf, id, parentRole, req.user.id, t);
   }
+  log(req, 'adicionou pessoa', id, { name: d.name, parentOf });
   res.json({ id });
 });
 
@@ -228,6 +278,7 @@ app.put('/api/people/:id', needWriter, (req, res) => {
   const cols = Object.keys(d);
   if (cols.length) db.prepare(`UPDATE people SET ${cols.map(c => c + '=?').join(',')}, updated_at=?, updated_by=? WHERE id=?`)
     .run(...cols.map(c => d[c]), now(), req.user.id, p.id);
+  log(req, 'editou pessoa', p.id, { antes: Object.fromEntries(cols.map(c => [c, p[c]])), depois: d });
   res.json({ ok: true });
 });
 
@@ -235,6 +286,7 @@ app.delete('/api/people/:id', needWriter, (req, res) => {
   const p = db.prepare('SELECT * FROM people WHERE id=?').get(req.params.id);
   if (!p) return res.status(404).json({ error: 'Pessoa não encontrada.' });
   if (!owns(req, p.created_by)) return res.status(403).json({ error: 'Você só pode excluir o que você mesmo adicionou.' });
+  log(req, 'excluiu pessoa', p.id, p);
   const tx = db.transaction(() => {
     db.prepare('DELETE FROM links WHERE child_id=? OR parent_id=?').run(p.id, p.id);
     db.prepare('DELETE FROM people WHERE id=?').run(p.id);
@@ -256,12 +308,14 @@ app.post('/api/people/:id/notes', needUser, (req, res) => {
   if (!text) return res.status(400).json({ error: 'Escreva a informação.' });
   const kind = req.body.kind === 'memory' ? 'memory' : 'info';
   db.prepare('INSERT INTO notes(person_id,kind,text,created_by,created_at) VALUES(?,?,?,?,?)').run(req.params.id, kind, text, req.user.id, now());
+  log(req, kind === 'memory' ? 'deixou lembrança' : 'acrescentou informação', req.params.id);
   res.json({ ok: true });
 });
 app.delete('/api/notes/:id', needWriter, (req, res) => {
   const n = db.prepare('SELECT * FROM notes WHERE id=?').get(req.params.id);
   if (!n) return res.status(404).json({ error: 'Não encontrada.' });
   if (!owns(req, n.created_by)) return res.status(403).json({ error: 'Você só pode remover o que você escreveu.' });
+  log(req, 'removeu informação', n.person_id, n);
   db.prepare('DELETE FROM notes WHERE id=?').run(n.id);
   res.json({ ok: true });
 });
@@ -279,12 +333,14 @@ app.post('/api/people/:id/links', needUser, (req, res) => {
   if (!url) return res.status(400).json({ error: 'Cole um link válido (começando com https://).' });
   const title = String(req.body.title || '').trim().slice(0, 200);
   db.prepare('INSERT INTO media_links(person_id,url,title,created_by,created_at) VALUES(?,?,?,?,?)').run(req.params.id, url, title, req.user.id, now());
+  log(req, 'adicionou link', req.params.id, { url });
   res.json({ ok: true });
 });
 app.delete('/api/media-links/:id', needWriter, (req, res) => {
   const l = db.prepare('SELECT * FROM media_links WHERE id=?').get(req.params.id);
   if (!l) return res.status(404).json({ error: 'Não encontrado.' });
   if (!owns(req, l.created_by)) return res.status(403).json({ error: 'Você só pode remover o que você adicionou.' });
+  log(req, 'removeu link', l.person_id, l);
   db.prepare('DELETE FROM media_links WHERE id=?').run(l.id);
   res.json({ ok: true });
 });
@@ -315,21 +371,55 @@ const upload = multer({
   fileFilter: (req, file, cb) => cb(null, !!ALLOWED[file.mimetype])
 });
 app.post('/api/people/:id/files', needUser, (req, res) => {
-  upload.array('files', 10)(req, res, err => {
+  const used = db.prepare('SELECT COALESCE(SUM(size),0) n FROM files WHERE created_by=?').get(req.user.id).n;
+  if (used > MAX_USER_STORAGE_MB * 1024 * 1024) return res.status(400).json({ error: `Você já enviou ${Math.round(used / 1048576)} MB, o limite por pessoa. Fale com o administrador.` });
+  upload.array('files', 10)(req, res, async err => {
     if (err) return res.status(400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? `Arquivo maior que ${MAX_UPLOAD_MB} MB.` : 'Não foi possível enviar.' });
     if (!exists(req.params.id)) { (req.files || []).forEach(f => fs.unlink(f.path, () => {})); return res.status(404).json({ error: 'Pessoa não encontrada.' }); }
     if (!req.files || !req.files.length) return res.status(400).json({ error: 'Envie fotos (JPG, PNG, HEIC) ou PDF.' });
     const caption = String(req.body.caption || '').trim().slice(0, 500);
     const ins = db.prepare('INSERT INTO files(id,person_id,stored_name,original_name,mime,size,caption,created_by,created_at) VALUES(?,?,?,?,?,?,?,?,?)');
-    for (const f of req.files) ins.run(crypto.randomBytes(8).toString('hex'), req.params.id, f.filename, String(f.originalname).slice(0, 200), f.mimetype, f.size, caption, req.user.id, now());
+    for (const f of req.files) {
+      const info = await cleanImage(f);
+      if (!info) { fs.unlink(f.path, () => {}); continue; }
+      ins.run(crypto.randomBytes(8).toString('hex'), req.params.id, info.filename, String(f.originalname).slice(0, 200), info.mime, info.size, caption, req.user.id, now());
+    }
+    log(req, 'enviou arquivos', req.params.id, { count: req.files.length });
     res.json({ ok: true, count: req.files.length });
   });
 });
+// Fotos: confere que é mesmo imagem, gira conforme o celular e remove os dados escondidos
+// (localização GPS, modelo do aparelho). Fotos HEIC do iPhone viram JPG quando possível.
+// PDF: confere a assinatura do arquivo.
+async function cleanImage(f) {
+  if (f.mimetype === 'application/pdf') {
+    const fd = fs.openSync(f.path, 'r'), b = Buffer.alloc(5); fs.readSync(fd, b, 0, 5, 0); fs.closeSync(fd);
+    return b.toString() === '%PDF-' ? { filename: f.filename, mime: f.mimetype, size: f.size } : null;
+  }
+  if (!sharp) return { filename: f.filename, mime: f.mimetype, size: f.size };
+  const toJpeg = /hei[cf]/.test(f.mimetype);
+  const outName = toJpeg ? f.filename.replace(/\.[a-z]+$/, '') + '.jpg' : f.filename;
+  const tmp = path.join(UPLOAD_DIR, 'tmp-' + outName);
+  try {
+    let img = sharp(f.path, { failOn: 'error' }).rotate();
+    if (toJpeg) img = img.jpeg({ quality: 88 });
+    await img.toFile(tmp);
+    if (outName !== f.filename) fs.unlinkSync(f.path);
+    fs.renameSync(tmp, path.join(UPLOAD_DIR, outName));
+    return { filename: outName, mime: toJpeg ? 'image/jpeg' : f.mimetype, size: fs.statSync(path.join(UPLOAD_DIR, outName)).size };
+  } catch {
+    try { fs.unlinkSync(tmp); } catch {}
+    // HEIC que não pôde ser convertido fica como veio; outros formatos inválidos são recusados.
+    return toJpeg ? { filename: f.filename, mime: f.mimetype, size: f.size } : null;
+  }
+}
 app.get('/api/files/:id', needUser, (req, res) => {
   const f = db.prepare('SELECT * FROM files WHERE id=?').get(req.params.id);
   if (!f) return res.status(404).end();
   const file = path.join(UPLOAD_DIR, path.basename(f.stored_name));
   res.set('Content-Type', f.mime);
+  res.set('X-Frame-Options', 'SAMEORIGIN');
+  res.set('Content-Security-Policy', "frame-ancestors 'self'");
   res.set('Content-Disposition', `${req.query.download ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(f.original_name)}`);
   res.set('Cache-Control', 'private, max-age=86400');
   res.sendFile(file);
@@ -338,9 +428,12 @@ app.delete('/api/files/:id', needWriter, (req, res) => {
   const f = db.prepare('SELECT * FROM files WHERE id=?').get(req.params.id);
   if (!f) return res.status(404).json({ error: 'Não encontrado.' });
   if (!owns(req, f.created_by)) return res.status(403).json({ error: 'Você só pode remover o que você enviou.' });
+  log(req, 'removeu arquivo', f.person_id, f);
   db.prepare('DELETE FROM files WHERE id=?').run(f.id);
   db.prepare("UPDATE people SET photo_file_id='' WHERE photo_file_id=?").run(f.id);
-  fs.unlink(path.join(UPLOAD_DIR, path.basename(f.stored_name)), () => {});
+  // Vai para a lixeira (data/uploads/lixeira) em vez de sumir: o administrador pode recuperar.
+  fs.mkdirSync(TRASH_DIR, { recursive: true });
+  fs.rename(path.join(UPLOAD_DIR, path.basename(f.stored_name)), path.join(TRASH_DIR, path.basename(f.stored_name)), () => {});
   res.json({ ok: true });
 });
 
@@ -370,6 +463,20 @@ app.put('/api/admin/users/:id', needAdmin, (req, res) => {
     if (!req.body.active) db.prepare('DELETE FROM sessions WHERE user_id=?').run(id);
   }
   res.json({ ok: true });
+});
+
+app.post('/api/admin/users/:id/reset', needAdmin, (req, res) => {
+  const u = db.prepare('SELECT id FROM users WHERE id=?').get(Number(req.params.id));
+  if (!u) return res.status(404).json({ error: 'Conta não encontrada.' });
+  const token = crypto.randomBytes(18).toString('base64url');
+  db.prepare('DELETE FROM resets WHERE user_id=?').run(u.id);
+  db.prepare('INSERT INTO resets(token,user_id,expires) VALUES(?,?,?)').run(token, u.id, Date.now() + 3 * 864e5);
+  log(req, 'criou link de nova senha', 'usuário ' + u.id);
+  res.json({ token });
+});
+app.get('/api/admin/activity', needAdmin, (req, res) => {
+  const rows = db.prepare('SELECT a.id,a.action,a.target,a.detail,a.at,u.name FROM activity a LEFT JOIN users u ON u.id=a.user_id ORDER BY a.id DESC LIMIT 300').all();
+  res.json({ activity: rows });
 });
 
 app.get('/api/export.json', needAdmin, (req, res) => {
@@ -424,8 +531,16 @@ app.post('/api/admin/import', needAdmin, (req, res) => {
 // ---------- páginas ----------
 // 'no-cache': o navegador sempre confere se há versão nova (rápido, usa ETag), então atualizações aparecem na hora.
 app.use(express.static(path.join(__dirname, 'public'), { index: 'index.html', setHeaders: res => res.set('Cache-Control', 'no-cache') }));
-app.get(/^\/(convite\/[\w-]+)?$/, (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+app.get('/robots.txt', (req, res) => res.type('text/plain').send('User-agent: *\nDisallow: /\n'));
+app.get(/^\/((convite|senha)\/[\w-]+)?$/, (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 app.use('/api', (req, res) => res.status(404).json({ error: 'Não encontrado.' }));
+// Erros: resposta simples, sem detalhes internos.
+app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
+  if (err && err.type === 'entity.too.large') return res.status(413).json({ error: 'Dados grandes demais.' });
+  if (err && err.type === 'entity.parse.failed') return res.status(400).json({ error: 'Pedido inválido.' });
+  console.error(err);
+  res.status(500).json({ error: 'Erro no servidor. Tente de novo.' });
+});
 
 if (require.main === module) {
   app.listen(PORT, () => console.log(`Árvore da Família rodando em http://localhost:${PORT} (dados em ${DATA_DIR})`));

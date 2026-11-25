@@ -31,18 +31,20 @@ async function api(path, opts = {}) {
 }
 
 /* ---------- entrar / convite / instalação ---------- */
-let authMode = 'login', inviteToken = null, familyName = 'Árvore da Família', defaultPerson = '';
+let authMode = 'login', inviteToken = null, resetToken = null, familyName = 'Árvore da Família', defaultPerson = '';
 function showAuth(mode, info = {}) {
   authMode = mode;
   $('#main').hidden = true; $('#auth').hidden = false;
   $('#authTitle').textContent = familyName;
   const f = $('#authForm');
-  $('#fName').hidden = mode === 'login';
+  $('#fName').hidden = mode === 'login' || mode === 'reset';
+  f.querySelector('input[name=email]').closest('label').hidden = mode === 'reset';
+  f.elements.email.required = mode !== 'reset';
   $('#fKey').hidden = mode !== 'setup';
-  f.elements.name.required = mode !== 'login';
+  f.elements.name.required = mode !== 'login' && mode !== 'reset';
   f.elements.password.autocomplete = mode === 'login' ? 'current-password' : 'new-password';
-  $('#authBtn').textContent = mode === 'login' ? 'Entrar' : 'Criar conta';
-  $('#authSub').textContent = mode === 'setup' ? 'Primeira vez: crie a conta do administrador.' :
+  $('#authBtn').textContent = mode === 'login' ? 'Entrar' : mode === 'reset' ? 'Salvar nova senha' : 'Criar conta';
+  $('#authSub').textContent = mode === 'reset' ? `Olá, ${info.name || ''}. Escolha uma senha nova (mínimo 8 caracteres).` : mode === 'setup' ? 'Primeira vez: crie a conta do administrador.' :
     mode === 'invite' ? `Você foi convidado${info.label ? ' (' + info.label + ')' : ''}. Crie sua conta para ${info.role === 'viewer' ? 'ver' : 'ver e completar'} a árvore da família.` :
     'Entre com seu e-mail e senha.';
   $('#authHelp').hidden = mode !== 'login';
@@ -55,8 +57,9 @@ $('#authForm').addEventListener('submit', async e => {
   try {
     if (authMode === 'login') await api('/api/login', { method: 'POST', body });
     else if (authMode === 'setup') await api('/api/setup', { method: 'POST', body });
+    else if (authMode === 'reset') await api('/api/reset/' + encodeURIComponent(resetToken), { method: 'POST', body: { password: body.password } });
     else await api('/api/invites/' + encodeURIComponent(inviteToken), { method: 'POST', body });
-    if (authMode === 'invite') history.replaceState(null, '', '/');
+    if (authMode === 'invite' || authMode === 'reset') history.replaceState(null, '', '/');
     start();
   } catch (err) { $('#authErr').textContent = err.message; }
 });
@@ -65,6 +68,12 @@ async function start() {
   const st = await api('/api/status');
   familyName = st.familyName || familyName; defaultPerson = st.defaultPerson || '';
   document.title = familyName; $('#title').textContent = familyName;
+  const rm = location.pathname.match(/^\/senha\/([\w-]+)/);
+  if (rm) {
+    resetToken = rm[1];
+    try { const info = await api('/api/reset/' + encodeURIComponent(resetToken)); return showAuth('reset', info); }
+    catch (err) { history.replaceState(null, '', '/'); showAuth('login'); $('#authErr').textContent = err.message; return; }
+  }
   const m = location.pathname.match(/^\/convite\/([\w-]+)/);
   if (m && !st.user) {
     inviteToken = m[1];
@@ -318,11 +327,18 @@ $('#pform').addEventListener('submit', async e => {
 $('#logoutBtn').addEventListener('click', async () => { await api('/api/logout', { method: 'POST' }).catch(() => {}); me = null; showAuth('login'); });
 
 /* ---------- administração ---------- */
+async function loadActivity() {
+  const box = $('#activity');
+  try {
+    const d = await api('/api/admin/activity');
+    box.innerHTML = d.activity.length ? `<table class="tbl"><tbody>${d.activity.map(a => `<tr><td>${esc(new Date(a.at).toLocaleString('pt-BR'))}</td><td>${esc(a.name || 'sistema')}</td><td>${esc(a.action)}</td><td>${P(a.target) ? `<button type="button" class="link" data-go="${esc(a.target)}">${esc(P(a.target).name)}</button>` : esc(a.target || '')}</td></tr>`).join('')}</tbody></table>` : '<p class="none">Nada registrado ainda.</p>';
+  } catch (err) { box.textContent = err.message; }
+}
 const ROLE = { admin: 'Administrador', member: 'Pode adicionar', viewer: 'Ver e deixar lembranças' };
 async function loadAdmin() {
   $('#aErr').textContent = '';
   const d = await api('/api/admin');
-  $('#users').innerHTML = `<table class="tbl"><thead><tr><th>Nome</th><th>E-mail</th><th>Acesso</th><th></th></tr></thead><tbody>${d.users.map(u => `<tr><td>${esc(u.name)}</td><td>${esc(u.email)}</td><td>${u.id === me.id ? ROLE[u.role] : `<select data-role="${u.id}">${Object.entries(ROLE).map(([k, v]) => `<option value="${k}"${k === u.role ? ' selected' : ''}>${v}</option>`).join('')}</select>`}</td><td>${u.id === me.id ? 'você' : `<button type="button" class="link" data-active="${u.id}" data-to="${u.active ? 0 : 1}">${u.active ? 'bloquear' : 'desbloquear'}</button>`}</td></tr>`).join('')}</tbody></table>`;
+  $('#users').innerHTML = `<table class="tbl"><thead><tr><th>Nome</th><th>E-mail</th><th>Acesso</th><th></th></tr></thead><tbody>${d.users.map(u => `<tr><td>${esc(u.name)}</td><td>${esc(u.email)}</td><td>${u.id === me.id ? ROLE[u.role] : `<select data-role="${u.id}">${Object.entries(ROLE).map(([k, v]) => `<option value="${k}"${k === u.role ? ' selected' : ''}>${v}</option>`).join('')}</select>`}</td><td>${u.id === me.id ? 'você' : `<button type="button" class="link" data-reset="${u.id}">link de nova senha</button> <button type="button" class="link" data-active="${u.id}" data-to="${u.active ? 0 : 1}">${u.active ? 'bloquear' : 'desbloquear'}</button>`}</td></tr>`).join('')}</tbody></table>`;
   const open = d.invites.filter(i => !i.usedBy && i.expires > Date.now());
   $('#invites').innerHTML = open.length ? `<p class="note">Convites ainda não usados (valem 30 dias):</p><table class="tbl"><tbody>${open.map(i => `<tr><td>${esc(i.label || 'sem nome')}</td><td>${ROLE[i.role]}</td><td><button type="button" class="link" data-copy="${esc(i.token)}">copiar link</button> <button type="button" class="link" data-revoke="${esc(i.token)}">cancelar</button></td></tr>`).join('')}</tbody></table>` : '';
 }
@@ -342,6 +358,12 @@ $('#iform').addEventListener('submit', async e => {
 $('#adlg').addEventListener('click', async e => {
   const c = e.target.closest('[data-copy]'); if (c) { copy(inviteUrl(c.dataset.copy), c); return; }
   const r = e.target.closest('[data-revoke]'); if (r) { await api('/api/admin/invites/' + encodeURIComponent(r.dataset.revoke), { method: 'DELETE' }); loadAdmin(); return; }
+  const rs = e.target.closest('[data-reset]'); if (rs) {
+    try { const r = await api('/api/admin/users/' + rs.dataset.reset + '/reset', { method: 'POST' }); const url = `${location.origin}/senha/${r.token}`, box = $('#newInvite'); box.hidden = false;
+      box.innerHTML = `<b>Link de nova senha</b> (vale 3 dias; mande só para a própria pessoa):<br><span>${esc(url)}</span><br><button type="button" class="primary" data-copyurl="${esc(url)}">Copiar link</button>`; box.scrollIntoView({ block: 'nearest' }); }
+    catch (err) { $('#aErr').textContent = err.message; } return; }
+  const cu = e.target.closest('[data-copyurl]'); if (cu) { copy(cu.dataset.copyurl, cu); return; }
+  const sh = e.target.closest('#showActivity'); if (sh) { loadActivity(); return; }
   const a = e.target.closest('[data-active]'); if (a) { await api('/api/admin/users/' + a.dataset.active, { method: 'PUT', body: { active: a.dataset.to === '1' } }).catch(err => $('#aErr').textContent = err.message); loadAdmin(); }
 });
 $('#adlg').addEventListener('change', async e => {

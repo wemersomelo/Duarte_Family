@@ -52,6 +52,12 @@ Depois:
 cd arvore && git pull && sudo docker compose up -d --build
 ```
 
+### Proteger o servidor (uma vez)
+```bash
+cd ~/arvore && sudo bash scripts/proteger-servidor.sh
+```
+Liga o firewall, bloqueia tentativas de adivinhar a senha do SSH (fail2ban), ativa atualizações de segurança automáticas e agenda uma cópia diária da árvore em `/root/backups-arvore` (guarda 30 dias).
+
 ### Cópias de segurança
 Tudo fica na pasta `data/` (o banco `arvore.db` e a pasta `uploads/` com os documentos). Para guardar uma cópia:
 ```bash
@@ -71,7 +77,7 @@ npm start          # abre em http://localhost:3000
 npm test           # testa as regras de acesso
 ```
 
-Variáveis úteis: `DATA_DIR` (onde guardar os dados), `PORT`, `FAMILY_NAME`, `DEFAULT_PERSON`, `SETUP_KEY`, `MAX_UPLOAD_MB`, `COOKIE_SECURE=1` (use atrás de HTTPS).
+Variáveis úteis: `DATA_DIR` (onde guardar os dados), `PORT`, `FAMILY_NAME`, `DEFAULT_PERSON`, `SETUP_KEY`, `MAX_UPLOAD_MB`, `MAX_USER_STORAGE_MB` (limite de envio por pessoa, padrão 2000), `COOKIE_SECURE=1` (use atrás de HTTPS).
 
 ## Como funciona por dentro
 
@@ -79,4 +85,8 @@ Variáveis úteis: `DATA_DIR` (onde guardar os dados), `PORT`, `FAMILY_NAME`, `D
 - `src/db.js`: banco SQLite (um único arquivo, fácil de copiar).
 - `src/gedcom.js`: exportação GEDCOM.
 - `public/`: a página (HTML, CSS e JavaScript, sem dependências externas).
-- Senhas guardadas com bcrypt; sessão por cookie HttpOnly; limite de tentativas de login; documentos só abrem para quem está logado.
+- Senhas guardadas com bcrypt; sessão por cookie HttpOnly e Secure; limite de tentativas de login por conta e por endereço; limite de alterações por hora.
+- Documentos só abrem para quem está logado. Fotos passam por verificação e têm os dados escondidos removidos (localização GPS, modelo do celular). Arquivos disfarçados são recusados.
+- Cabeçalhos de proteção (CSP, HSTS, anti-iframe) e aviso para buscadores não indexarem o site.
+- Histórico de ações para o administrador; itens removidos ficam guardados no histórico e fotos removidas vão para `data/uploads/lixeira`.
+- O administrador cria links de nova senha para quem esqueceu a sua.
