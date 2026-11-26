@@ -142,3 +142,8 @@ dialog.viewer{width:min(1000px,96vw)}
 .card.td.empty{background:transparent;border:1.5px dashed var(--line);box-shadow:none}
 .card .nm .x{font-size:.8em}
 @media(max-width:699px){.card.td:not(.main) .nm{font-size:13px;line-height:15px}}
+.btn.small,button.small{min-height:36px;font-size:14px;padding:0 12px}
+#homeBtn{margin-right:auto;border-color:var(--accent);color:var(--accent)}
+.hint{background:var(--soft);border-left:3px solid var(--accent);padding:10px 14px;border-radius:6px;font-size:14px;margin:0 0 12px}
+.mine{color:var(--green);font-weight:600;font-size:14px}
+.index button.me{font-weight:700;color:var(--accent)}

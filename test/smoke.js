@@ -120,6 +120,16 @@ function client() {
   assert.ok(String(ged.data).includes('1 NAME Avo Teste da /Silva/'));
   assert.ok(String(ged.data).includes('2 DATE 1 FEB 1930'));
 
+  // cada conta diz quem é na árvore; visitantes começam pela pessoa do administrador
+  assert.equal((await tia('PUT', '/api/me/person', { personId: 'neto' })).status, 200);
+  assert.equal((await tia('GET', '/api/tree')).data.me.personId, 'neto');
+  assert.equal((await leitor('PUT', '/api/me/person', { personId: 'neto' })).status, 409, 'pessoa já ligada a outra conta');
+  assert.equal((await leitor('PUT', '/api/me/person', { personId: 'nao-existe' })).status, 404);
+  assert.equal((await anon('PUT', '/api/me/person', { personId: 'avo' })).status, 401);
+  const adminId = (await admin('GET', '/api/admin')).data.users.find(u => u.email === 'admin@ex.com').id;
+  assert.equal((await admin('PUT', '/api/admin/users/' + adminId, { personId: 'avo' })).status, 200);
+  assert.equal((await anon('GET', '/api/status')).data.defaultPerson, 'avo', 'visitante começa pela pessoa do admin');
+
   // bloqueio de conta
   const tiaId = (await admin('GET', '/api/admin')).data.users.find(u => u.email === 'tia@ex.com').id;
   await admin('PUT', '/api/admin/users/' + tiaId, { active: false });

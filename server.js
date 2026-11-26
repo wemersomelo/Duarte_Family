@@ -76,8 +76,8 @@ app.use((req, res, next) => {
   const sid = parseCookies(req).sid;
   req.user = null;
   if (sid) {
-    const row = db.prepare('SELECT u.id,u.name,u.email,u.role,s.expires FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=? AND u.active=1').get(sid);
-    if (row && row.expires > Date.now()) { req.user = { id: row.id, name: row.name, email: row.email, role: row.role }; req.sid = sid; }
+    const row = db.prepare('SELECT u.id,u.name,u.email,u.role,u.person_id,s.expires FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=? AND u.active=1').get(sid);
+    if (row && row.expires > Date.now()) { req.user = { id: row.id, name: row.name, email: row.email, role: row.role, personId: row.person_id || '' }; req.sid = sid; }
   }
   next();
 });
@@ -88,6 +88,11 @@ const needUserOrGuest = (req, res, next) => (req.user || req.guest) ? next() : r
 // Um link único que o administrador cria, troca ou desliga. Quem entra por ele só vê:
 // dos falecidos, tudo; dos vivos, só nome, apelido e ligações de família.
 const getSetting = k => (db.prepare('SELECT value FROM settings WHERE key=?').get(k) || {}).value || '';
+// Pessoa inicial de quem não tem pessoa ligada (visitantes): a pessoa do primeiro administrador.
+function startPerson() {
+  const a = db.prepare("SELECT person_id FROM users WHERE role='admin' AND active=1 AND person_id<>'' ORDER BY id LIMIT 1").get();
+  return (a && exists(a.person_id) ? a.person_id : '') || process.env.DEFAULT_PERSON || '';
+}
 const setSetting = (k, v) => db.prepare('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(k, v);
 const GUEST_DAYS = 30;
 app.use((req, res, next) => {
@@ -178,7 +183,7 @@ function exists(id) { return !!db.prepare('SELECT 1 FROM people WHERE id=?').get
 app.get('/api/status', (req, res) => {
   const users = db.prepare('SELECT COUNT(*) n FROM users').get().n;
   const pending = req.user && req.user.role === 'admin' ? db.prepare("SELECT COUNT(*) n FROM access_requests WHERE status='pending'").get().n : 0;
-  res.json({ needsSetup: users === 0, pendingRequests: pending, user: req.user || (req.guest ? { id: null, name: 'Visitante', role: 'guest' } : null), familyName: process.env.FAMILY_NAME || 'Árvore da Família', defaultPerson: process.env.DEFAULT_PERSON || '' });
+  res.json({ needsSetup: users === 0, pendingRequests: pending, user: req.user || (req.guest ? { id: null, name: 'Visitante', role: 'guest' } : null), familyName: process.env.FAMILY_NAME || 'Árvore da Família', defaultPerson: startPerson() });
 });
 
 app.post('/api/setup', (req, res) => {
@@ -313,6 +318,19 @@ app.get('/api/tree', needUserOrGuest, (req, res) => {
     });
   }
   res.json({ people, notes, files, media, users, me: req.user });
+});
+
+// Cada conta pode dizer quem ela é na árvore.
+app.put('/api/me/person', needUser, (req, res) => {
+  const pid = String(req.body.personId || '');
+  if (pid && !exists(pid)) return res.status(404).json({ error: 'Pessoa não encontrada.' });
+  if (pid && req.user.role !== 'admin') {
+    const other = db.prepare('SELECT name FROM users WHERE person_id=? AND id<>?').get(pid, req.user.id);
+    if (other) return res.status(409).json({ error: `Esta pessoa já está ligada à conta de ${other.name}. Fale com o administrador.` });
+  }
+  db.prepare('UPDATE users SET person_id=? WHERE id=?').run(pid, req.user.id);
+  log(req, pid ? 'se identificou na árvore' : 'desfez a identificação na árvore', pid || null);
+  res.json({ ok: true, personId: pid });
 });
 
 // ---------- pessoas ----------
@@ -508,7 +526,7 @@ app.delete('/api/files/:id', needWriter, (req, res) => {
 
 // ---------- administração ----------
 app.get('/api/admin', needAdmin, (req, res) => {
-  const users = db.prepare('SELECT id,name,email,role,active,created_at createdAt FROM users ORDER BY created_at').all();
+  const users = db.prepare('SELECT id,name,email,role,active,person_id personId,created_at createdAt FROM users ORDER BY created_at').all();
   const invites = db.prepare('SELECT token,role,label,created_at createdAt,expires,used_by usedBy FROM invites ORDER BY created_at DESC LIMIT 100').all();
   res.json({ users, invites });
 });
@@ -525,6 +543,11 @@ app.delete('/api/admin/invites/:token', needAdmin, (req, res) => {
 });
 app.put('/api/admin/users/:id', needAdmin, (req, res) => {
   const id = Number(req.params.id);
+  if (typeof req.body.personId === 'string') {
+    if (req.body.personId && !exists(req.body.personId)) return res.status(404).json({ error: 'Pessoa não encontrada.' });
+    db.prepare('UPDATE users SET person_id=? WHERE id=?').run(req.body.personId, id);
+    if (req.body.role === undefined && req.body.active === undefined) return res.json({ ok: true });
+  }
   if (id === req.user.id) return res.status(400).json({ error: 'Você não pode mudar a sua própria conta aqui.' });
   if (req.body.role && ['member', 'viewer', 'admin'].includes(req.body.role)) db.prepare('UPDATE users SET role=? WHERE id=?').run(req.body.role, id);
   if (typeof req.body.active === 'boolean') {

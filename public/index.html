@@ -56,10 +56,12 @@
 <section class="band">
   <div class="chartbar">
     <h2 id="chartTitle">Antepassados</h2>
+    <button type="button" id="homeBtn" class="btn small" hidden>Voltar para mim</button>
     <div class="chartopts" id="gensWrap">
       <label>Gerações <select id="gens"><option>3</option><option selected>4</option><option>5</option></select></label>
     </div>
   </div>
+  <p class="hint" id="whoHint" hidden>Você ainda não está ligado a ninguém na árvore. Procure o seu nome acima, abra a sua ficha e toque em <b>Esta pessoa sou eu</b>. Depois disso, a árvore sempre começa por você.</p>
   <div class="scroll"><div class="fig" id="fig"></div></div>
 </section>
 
@@ -71,7 +73,7 @@
 </section>
 
 <section class="band nopad">
-  <h2>Todas as pessoas <span id="count" class="note"></span></h2>
+  <div class="chartbar"><h2><span id="indexTitle">Todas as pessoas</span> <span id="count" class="note"></span></h2><button type="button" id="allBtn" class="btn small" hidden></button></div>
   <ul class="index" id="index"></ul>
 </section>
 </div>

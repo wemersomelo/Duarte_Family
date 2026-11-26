@@ -22,6 +22,22 @@ const spousesOf = id => {
   for (const c of childrenOf(id)) { const o = c.fatherId === id ? c.motherId : c.fatherId; if (o && P(o)) s.add(o); }
   s.delete(id); return [...s];
 };
+// Pessoa de quem está vendo: a ligada à conta; visitantes e contas sem ligação começam pela pessoa do administrador.
+const myPerson = () => (me && P(me.personId)) ? me.personId : '';
+const rootPerson = () => myPerson() || (P(defaultPerson) ? defaultPerson : '');
+// Família de alguém: antepassados, todos os descendentes deles (irmãos, tios, primos, filhos, netos) e os cônjuges.
+function familyOf(root) {
+  if (!P(root)) return null;
+  const kids = {};
+  for (const q of Object.values(people)) for (const par of [q.fatherId, q.motherId]) if (par) (kids[par] ||= []).push(q.id);
+  const anc = new Set(), st = [root];
+  while (st.length) { const id = st.pop(); if (!id || anc.has(id) || !P(id)) continue; anc.add(id); st.push(P(id).fatherId, P(id).motherId); }
+  const fam = new Set(), q = [...anc];
+  while (q.length) { const id = q.pop(); if (fam.has(id)) continue; fam.add(id); q.push(...(kids[id] || [])); }
+  for (const id of [...fam]) for (const sp of spousesOf(id)) fam.add(sp);
+  return fam;
+}
+let showAll = false;
 const siblingsOf = id => { const p = P(id); if (!p) return []; return Object.values(people).filter(q => q.id !== id && ((p.fatherId && q.fatherId === p.fatherId) || (p.motherId && q.motherId === p.motherId))); };
 const who = id => id == null ? 'Registro inicial' : (userNames[id] || 'alguém da família');
 const fmtDate = s => { try { return new Date(s).toLocaleDateString('pt-BR'); } catch { return ''; } };
@@ -190,6 +206,7 @@ function renderRecord() {
   const noteList = list => list.length ? `<ul class="notes">${list.map(n => `<li>${esc(n.text)}<small>${esc(who(n.createdBy))}, ${esc(fmtDate(n.createdAt))}${mine(n) ? ` · <button type="button" class="link" data-rmnote="${n.id}">remover</button>` : ''}</small></li>`).join('')}</ul>` : '';
   slip.innerHTML = `<div class="phead">${p.photoFileId ? `<button type="button" class="pphoto" data-view="${esc(p.photoFileId)}" aria-label="Ver foto"><img src="/api/files/${encodeURIComponent(p.photoFileId)}" alt="Foto de ${esc(p.name)}"></button>` : ''}<div><h3 class="person">${esc(dn(p))}</h3><p class="nick">${p.nick ? '“' + esc(p.nick) + '”' : '&nbsp;'}</p></div></div>
   <dl>${row('Nascimento', p.birth)}${row('Local', p.birthPlace)}${row('Falecimento', p.death)}${row('Local', p.deathPlace)}${row('Cor/raça', COLOR[p.color])}${row('Origem/etnia', p.origin)}${row('Histórias', p.notes, 1)}${row('Fontes', p.sources, 1)}</dl>
+  ${me && !isGuest() ? (myPerson() === p.id ? '<p class="mine">Esta pessoa é você. <button type="button" class="link" data-act="notme">não sou eu</button></p>' : !myPerson() ? '<div class="actions small"><button type="button" class="primary" data-act="isme">Esta pessoa sou eu</button></div>' : '') : ''}
   ${!p.birth && !p.birthPlace && !p.notes ? '<p class="none">Ainda faltam informações sobre esta pessoa. Se você sabe algo, acrescente.</p>' : ''}
   ${isGuest() ? '' : `<p class="by">Registrado por ${esc(who(p.createdBy))}</p>`}
   ${p.living ? '<p class="none">Dados de pessoas vivas (datas, lugares, fotos e lembranças) ficam visíveis só para quem tem convite.</p>' : ''}
@@ -223,6 +240,10 @@ document.addEventListener('click', async e => {
   if (a.dataset.act === 'memory') openNote(p.id, 'memory');
   if (a.dataset.act === 'link') openLink(p.id);
   if (a.dataset.act === 'files') openFiles(p.id);
+  if (a.dataset.act === 'isme' || a.dataset.act === 'notme') {
+    const pid = a.dataset.act === 'isme' ? p.id : '';
+    api('/api/me/person', { method: 'PUT', body: { personId: pid } }).then(() => { me.personId = pid; renderAll(); }).catch(err => alertStatus(err));
+  }
 });
 function closeAll() { document.querySelectorAll('dialog[open]').forEach(d => d.close()); }
 function alertStatus(err) { $('#status').textContent = err.message; }
@@ -236,10 +257,21 @@ function confirmBtn(btn) {
 
 /* ---------- índice e busca ---------- */
 function renderIndex() {
-  const list = Object.values(people).sort(byName);
+  const all = Object.values(people), root = rootPerson(), fam = familyOf(root);
+  const list = (fam && !showAll ? all.filter(p => fam.has(p.id)) : all).sort(byName);
+  const first = root ? (P(root).nick || P(root).name.split(' ')[0]) : '';
+  $('#indexTitle').textContent = fam && !showAll ? (root === myPerson() ? 'Sua família' : 'Família de ' + first) : 'Todas as pessoas';
   $('#count').textContent = list.length ? `(${list.length})` : '';
-  $('#index').innerHTML = list.length ? list.map(p => `<li><button type="button" data-go="${esc(p.id)}">${esc(dn(p))} <span>${esc(yr(p))}</span></button></li>`).join('') : '<li class="none">A árvore ainda está vazia. Comece adicionando alguém.</li>';
+  $('#allBtn').hidden = !fam || fam.size >= all.length;
+  $('#allBtn').textContent = showAll ? (root === myPerson() ? 'Ver só a sua família' : 'Ver só a família de ' + first) : `Ver todas as pessoas (${all.length})`;
+  $('#index').innerHTML = list.length ? list.map(p => `<li><button type="button" data-go="${esc(p.id)}"${p.id === root ? ' class="me"' : ''}>${esc(dn(p))} <span>${esc(yr(p))}</span></button></li>`).join('') : '<li class="none">A árvore ainda está vazia. Comece adicionando alguém.</li>';
+  const home = $('#homeBtn'), r = rootPerson();
+  home.hidden = !r || r === focus;
+  home.textContent = r && r === myPerson() ? 'Voltar para mim' : 'Voltar ao início';
+  $('#whoHint').hidden = !(me && !isGuest() && !myPerson());
 }
+$('#allBtn').addEventListener('click', () => { showAll = !showAll; renderIndex(); });
+$('#homeBtn').addEventListener('click', () => { const r = rootPerson(); if (r) { setFocus(r); scrollTo({ top: $('#chartTitle').offsetTop - 10, behavior: 'smooth' }); } });
 const q = $('#q'), res = $('#results');
 function search() {
   const t = norm(q.value.trim()); if (!t) { res.style.display = 'none'; return; }
@@ -393,7 +425,7 @@ async function loadAdmin() {
   loadFamilyLink().catch(err => $('#aErr').textContent = err.message);
   loadRequests().catch(err => $('#aErr').textContent = err.message);
   const d = await api('/api/admin');
-  $('#users').innerHTML = `<table class="tbl"><thead><tr><th>Nome</th><th>E-mail</th><th>Acesso</th><th></th></tr></thead><tbody>${d.users.map(u => `<tr><td>${esc(u.name)}</td><td>${esc(u.email)}</td><td>${u.id === me.id ? ROLE[u.role] : `<select data-role="${u.id}">${Object.entries(ROLE).map(([k, v]) => `<option value="${k}"${k === u.role ? ' selected' : ''}>${v}</option>`).join('')}</select>`}</td><td>${u.id === me.id ? 'você' : `<button type="button" class="link" data-reset="${u.id}">link de nova senha</button> <button type="button" class="link" data-active="${u.id}" data-to="${u.active ? 0 : 1}">${u.active ? 'bloquear' : 'desbloquear'}</button>`}</td></tr>`).join('')}</tbody></table>`;
+  $('#users').innerHTML = `<table class="tbl"><thead><tr><th>Nome</th><th>E-mail</th><th>Acesso</th><th>Na árvore</th><th></th></tr></thead><tbody>${d.users.map(u => `<tr><td>${esc(u.name)}</td><td>${esc(u.email)}</td><td>${u.id === me.id ? ROLE[u.role] : `<select data-role="${u.id}">${Object.entries(ROLE).map(([k, v]) => `<option value="${k}"${k === u.role ? ' selected' : ''}>${v}</option>`).join('')}</select>`}</td><td><select data-person="${u.id}"><option value="">—</option>${Object.values(people).sort(byName).map(p => `<option value="${esc(p.id)}"${p.id === u.personId ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</select></td><td>${u.id === me.id ? 'você' : `<button type="button" class="link" data-reset="${u.id}">link de nova senha</button> <button type="button" class="link" data-active="${u.id}" data-to="${u.active ? 0 : 1}">${u.active ? 'bloquear' : 'desbloquear'}</button>`}</td></tr>`).join('')}</tbody></table>`;
   const open = d.invites.filter(i => !i.usedBy && i.expires > Date.now());
   $('#invites').innerHTML = open.length ? `<p class="note">Convites ainda não usados (valem 30 dias):</p><table class="tbl"><tbody>${open.map(i => `<tr><td>${esc(i.label || 'sem nome')}</td><td>${ROLE[i.role]}</td><td><button type="button" class="link" data-copy="${esc(i.token)}">copiar link</button> <button type="button" class="link" data-revoke="${esc(i.token)}">cancelar</button></td></tr>`).join('')}</tbody></table>` : '';
 }
@@ -435,6 +467,8 @@ $('#adlg').addEventListener('click', async e => {
   const a = e.target.closest('[data-active]'); if (a) { await api('/api/admin/users/' + a.dataset.active, { method: 'PUT', body: { active: a.dataset.to === '1' } }).catch(err => $('#aErr').textContent = err.message); loadAdmin(); }
 });
 $('#adlg').addEventListener('change', async e => {
+  const pp = e.target.closest('[data-person]');
+  if (pp) { try { await api('/api/admin/users/' + pp.dataset.person, { method: 'PUT', body: { personId: pp.value } }); if (+pp.dataset.person === me.id) { me.personId = pp.value; await load(); } } catch (err) { $('#aErr').textContent = err.message; } return; }
   const s = e.target.closest('[data-role]'); if (!s) return;
   try { await api('/api/admin/users/' + s.dataset.role, { method: 'PUT', body: { role: s.value } }); } catch (err) { $('#aErr').textContent = err.message; }
 });
@@ -449,7 +483,7 @@ $('#impform').addEventListener('submit', async e => {
 });
 
 function renderAll() {
-  if (!P(focus)) { const h = decodeURIComponent(location.hash.slice(1)); focus = P(h) ? h : P(defaultPerson) ? defaultPerson : (Object.values(people).find(p => p.createdBy === me?.id)?.id || Object.keys(people)[0] || null); }
+  if (!P(focus)) { const h = decodeURIComponent(location.hash.slice(1)); focus = P(h) ? h : rootPerson() || (Object.values(people).find(p => p.createdBy === me?.id)?.id || Object.keys(people)[0] || null); }
   drawChart(); renderRecord(); renderIndex();
 }
 addEventListener('hashchange', () => { const h = decodeURIComponent(location.hash.slice(1)); if (P(h) && h !== focus) setFocus(h); });
