@@ -335,11 +335,50 @@ function fillSelect(sel, val, excl) {
   sel.innerHTML = '<option value="">Não informado</option>' + opts.map(p => `<option value="${esc(p.id)}">${esc(dn(p))}${yr(p) !== '—' ? ' (' + esc(yr(p)) + ')' : ''}</option>`).join('');
   sel.value = val || '';
 }
+/* ---------- datas: dia, mês e ano em listas (no celular abrem como rolagem) ---------- */
+const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+const pad2 = n => String(n).padStart(2, '0');
+function parseDate(v) {
+  v = String(v || '').trim(); if (!v) return { d: '', m: '', y: '', c: false };
+  const c = /^c\.\s*/i.test(v), r = v.replace(/^c\.\s*/i, '');
+  let x;
+  if ((x = r.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4}|\?{4})$/))) return { d: +x[1], m: +x[2], y: x[3] === '????' ? '' : x[3], c };
+  if ((x = r.match(/^(\d{1,2})\/(\d{4}|\?{4})$/))) return { d: '', m: +x[1], y: x[2] === '????' ? '' : x[2], c };
+  if ((x = r.match(/^(\d{4})$/))) return { d: '', m: '', y: x[1], c };
+  return null; // texto livre: fica no modo "escrever"
+}
+function formatDate({ d, m, y, c }) {
+  if (!d && !m && !y) return '';
+  const yy = y || '????';
+  const s = d && m ? `${pad2(d)}/${pad2(m)}/${yy}` : m ? `${pad2(m)}/${yy}` : y; if (!s) return '';
+  return (c ? 'c. ' : '') + s;
+}
+function setupDatePickers() {
+  const years = []; for (let y = new Date().getFullYear(); y >= 1700; y--) years.push(y);
+  for (const box of document.querySelectorAll('.datef')) {
+    const inp = box.querySelector('input');
+    const w = document.createElement('div'); w.className = 'dsel';
+    w.innerHTML = `<select data-p="d" aria-label="Dia"><option value="">Dia</option>${Array.from({ length: 31 }, (_, i) => `<option value="${i + 1}">${i + 1}</option>`).join('')}</select>
+      <select data-p="m" aria-label="Mês"><option value="">Mês</option>${MESES.map((n, i) => `<option value="${i + 1}">${n}</option>`).join('')}</select>
+      <select data-p="y" aria-label="Ano"><option value="">Ano</option>${years.map(y => `<option>${y}</option>`).join('')}</select>
+      <label class="aprox"><input type="checkbox" data-p="c"> aproximada</label>`;
+    const tog = document.createElement('button'); tog.type = 'button'; tog.className = 'link dtog';
+    box.insertBefore(w, inp); box.appendChild(tog);
+    const sel = k => w.querySelector(`[data-p="${k}"]`);
+    const sync = () => { inp.value = formatDate({ d: sel('d').value, m: sel('m').value, y: sel('y').value, c: sel('c').checked }); };
+    w.addEventListener('change', sync);
+    box.setMode = manual => { box.classList.toggle('manual', manual); tog.textContent = manual ? 'escolher na lista' : 'escrever de outro jeito'; };
+    box.load = () => { const p = parseDate(inp.value); box.setMode(!p); const q = p || { d: '', m: '', y: '', c: false }; sel('d').value = q.d; sel('m').value = q.m; sel('y').value = q.y; sel('c').checked = q.c; };
+    tog.addEventListener('click', () => { const manual = !box.classList.contains('manual'); if (!manual) { const p = parseDate(inp.value); if (!p) inp.value = ''; } box.load(); box.setMode(manual); if (manual) inp.focus(); });
+  }
+}
+setupDatePickers();
 function openForm(id, c = {}) {
   const p = id ? P(id) : {}; if (id ? !canEdit(p) : !canWrite()) return; if (c.confirmDel && !ownsP(p)) return;
   editing = id; ctx = c;
   $('#formTitle').textContent = c.confirmDel ? 'Excluir ' + p.name + '?' : id ? 'Editar ' + p.name : c.parentOf ? (c.parentRole === 'father' ? 'Pai de ' : 'Mãe de ') + P(c.parentOf).name : c.childOf ? 'Filho ou filha de ' + P(c.childOf).name : c.spouseOf ? 'Cônjuge de ' + P(c.spouseOf).name : 'Adicionar pessoa';
   for (const f of FIELDS) { const el = form.elements[f]; if (el.tagName !== 'SELECT' || f === 'sex' || f === 'color') el.value = p[f] || ''; }
+  document.querySelectorAll('.datef').forEach(b => b.load());
   fillSelect(form.elements.fatherId, p.fatherId, id); fillSelect(form.elements.motherId, p.motherId, id); fillSelect(form.elements.spouseId, p.spouseId, id);
   if (c.childOf) { const par = P(c.childOf); form.elements[par.sex === 'f' ? 'motherId' : 'fatherId'].value = par.id; const sp = spousesOf(par.id)[0]; if (sp) form.elements[par.sex === 'f' ? 'fatherId' : 'motherId'].value = sp; }
   if (c.parentOf) { form.elements.sex.value = c.parentRole === 'father' ? 'm' : 'f'; const ch = P(c.parentOf), other = c.parentRole === 'father' ? ch.motherId : ch.fatherId; if (P(other)) form.elements.spouseId.value = other; }

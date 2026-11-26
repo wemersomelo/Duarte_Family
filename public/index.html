@@ -89,9 +89,9 @@
       <label class="f">Primeiro nome (como aparece na árvore, ex.: Maria Wilsa)<input name="given" maxlength="100"></label>
       <label class="f">Como gosta de ser chamado(a) ou é conhecido(a) na família<input name="nick" maxlength="200" placeholder="ex.: Gabiru, Tia Branca, Padrinho Belo"></label>
       <label class="f">Sexo<select name="sex"><option value="">Não informado</option><option value="m">Masculino</option><option value="f">Feminino</option></select></label>
-      <label class="f">Nascimento (data ou ano)<input name="birth" maxlength="60" placeholder="01/01/1950"></label>
+      <div class="f datef"><span>Nascimento</span><input name="birth" maxlength="60" placeholder="ex.: 01/01/1950, 1950, c. 1950"></div>
       <label class="f">Local de nascimento<input name="birthPlace" maxlength="200" placeholder="Cidade, UF"></label>
-      <label class="f">Falecimento<input name="death" maxlength="60"></label>
+      <div class="f datef"><span>Falecimento</span><input name="death" maxlength="60" placeholder="ex.: 01/01/2010, 2010, falecido"></div>
       <label class="f">Local de falecimento<input name="deathPlace" maxlength="200"></label>
       <label class="f">Cor/raça (IBGE)<select name="color"><option value="">Não informado</option><option value="branca">Branca</option><option value="preta">Preta</option><option value="parda">Parda</option><option value="amarela">Amarela</option><option value="indigena">Indígena</option></select></label>
       <label class="f">Origem/etnia (ex.: Krenak, africana, portuguesa)<input name="origin" maxlength="200"></label>
@@ -100,7 +100,7 @@
     </div>
     <label class="f">Cônjuge<select name="spouseId"></select></label>
     <div class="grid2">
-      <label class="f">Data do casamento<input name="marriage" maxlength="60" placeholder="01/01/1980"></label>
+      <div class="f datef"><span>Data do casamento</span><input name="marriage" maxlength="60" placeholder="ex.: 01/01/1980"></div>
       <label class="f">Local do casamento<input name="marriagePlace" maxlength="200" placeholder="Cidade, UF"></label>
     </div>
     <label class="f">Histórias e observações<textarea name="notes" maxlength="5000"></textarea></label>
