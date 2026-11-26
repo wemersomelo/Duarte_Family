@@ -136,6 +136,18 @@ function client() {
   assert.equal((await client()('GET', '/api/invites/' + apr.token)).data.name, 'Prima Nova');
   assert.equal((await client()('POST', '/api/invites/' + apr.token, { name: 'Outra', email: 'outra@ex.com', password: 'senha-forte-7' })).status, 400, 'convite preso ao e-mail do pedido');
   assert.equal((await client()('POST', '/api/invites/' + apr.token, { name: 'Prima Nova', email: 'nova@ex.com', password: 'senha-forte-7' })).status, 200);
+
+  // convite já ligado a uma pessoa da árvore: a pessoa entra e a árvore começa por ela
+  const pViva = (await admin('POST', '/api/people', { name: 'Bisavó Viva', birth: '1940' })).data.id;
+  const pVelha = (await admin('POST', '/api/people', { name: 'Falecida Antiga', death: '1990' })).data.id;
+  assert.equal((await admin('POST', '/api/admin/invites', { role: 'viewer', personId: pVelha })).status, 400, 'não convida quem faleceu');
+  const invP = (await admin('POST', '/api/admin/invites', { role: 'viewer', personId: pViva })).data.token;
+  const infoP = (await client()('GET', '/api/invites/' + invP)).data;
+  assert.equal(infoP.personName, 'Bisavó Viva'); assert.equal(infoP.name, 'Bisavó Viva');
+  const vovo = client();
+  assert.equal((await vovo('POST', '/api/invites/' + invP, { name: 'Bisavó Viva', email: 'vovo@ex.com', password: 'senha-forte-8' })).status, 200);
+  assert.equal((await vovo('GET', '/api/tree')).data.me.personId, pViva, 'entra já ligada à sua ficha');
+  assert.equal((await admin('POST', '/api/admin/invites', { role: 'viewer', personId: pViva })).status, 400, 'pessoa já tem conta');
   assert.equal((await admin('GET', '/api/admin/access-requests')).data.requests[0].status, 'joined');
   // cancelar convite aprovado: o link deixa de funcionar; depois pode apagar da lista
   const g2 = client(); await g2('GET', '/familia/' + famTok);

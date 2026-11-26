@@ -89,7 +89,7 @@ function showAuth(mode, info = {}) {
   f.elements.password.autocomplete = mode === 'login' ? 'current-password' : 'new-password';
   $('#authBtn').textContent = mode === 'login' ? 'Entrar' : mode === 'reset' ? 'Salvar nova senha' : 'Criar conta';
   $('#authSub').textContent = mode === 'reset' ? `Olá, ${info.name || ''}. Escolha uma senha nova (mínimo 8 caracteres).` : mode === 'setup' ? 'Primeira vez: crie a conta do administrador.' :
-    mode === 'invite' ? `Você foi convidado${info.label ? ' (' + info.label + ')' : ''}. Crie sua conta para ${info.role === 'viewer' ? 'ver' : 'ver e completar'} a árvore da família.` :
+    mode === 'invite' ? (info.personName ? `Olá! Você já está na árvore como ${info.personName}. Só falta criar uma senha para ${info.role === 'viewer' ? 'ver' : 'ver e completar'} a árvore da família.` : `Você foi convidado${info.label ? ' (' + info.label + ')' : ''}. Crie sua conta para ${info.role === 'viewer' ? 'ver' : 'ver e completar'} a árvore da família.`) :
     'Entre com seu e-mail e senha.';
   $('#authHelp').hidden = mode !== 'login';
   $('#authErr').textContent = '';
@@ -439,6 +439,14 @@ $('#rform').addEventListener('submit', async e => {
 });
 
 /* ---------- administração ---------- */
+// Pessoas que ainda podem receber conta: vivas e sem conta ligada. "guess" pré-seleciona quem tem o nome igual.
+let linkedIds = new Set();
+function personOptions(guess) {
+  const g = norm(guess || '').trim();
+  const list = Object.values(people).filter(p => !isDead(p) && !linkedIds.has(p.id)).sort(byName);
+  const pick = g && (list.find(p => norm(p.name) === g) || list.find(p => { const w = g.split(/\s+/); return w.length > 1 && w.every(x => norm(p.name).split(/\s+/).includes(x)); }));
+  return `<option value="">Quem é na árvore? (opcional)</option>` + list.map(p => `<option value="${esc(p.id)}"${pick && pick.id === p.id ? ' selected' : ''}>${esc(p.name)}${nickOf(p) ? ' (' + esc(nickOf(p)) + ')' : ''}</option>`).join('');
+}
 const REQ_STATUS = { pending: 'aguardando', approved: 'aprovado, falta criar a senha', rejected: 'recusado', joined: 'entrou', cancelled: 'cancelado' };
 async function loadRequests() {
   const d = await api('/api/admin/access-requests'), box = $('#requests');
@@ -446,7 +454,7 @@ async function loadRequests() {
   $('#reqCount').textContent = pend.length ? `(${pend.length} aguardando)` : '';
   $('#adminBtn').textContent = pend.length ? `Administrar (${pend.length})` : 'Administrar';
   box.innerHTML = d.requests.length ? `<table class="tbl"><tbody>${d.requests.map(r => `<tr><td><b>${esc(r.name)}</b><br><span class="note">${esc(r.email)}</span></td><td>${esc(r.relation)}${r.message ? `<br><span class="note">${esc(r.message)}</span>` : ''}</td><td class="note">${esc(fmtDate(r.createdAt))}</td><td>${r.status === 'pending'
-    ? `<select data-reqrole="${r.id}"><option value="member">Pode adicionar</option><option value="viewer">Ver e deixar lembranças</option></select> <button type="button" class="primary" data-approve="${r.id}">Aprovar</button> <button type="button" class="link" data-reject="${r.id}">recusar</button>`
+    ? `<select data-reqperson="${r.id}">${personOptions(r.name)}</select> <select data-reqrole="${r.id}"><option value="member">Pode adicionar</option><option value="viewer">Ver e deixar lembranças</option></select> <button type="button" class="primary" data-approve="${r.id}">Aprovar</button> <button type="button" class="link" data-reject="${r.id}">recusar</button>`
     : `${esc(REQ_STATUS[r.status] || r.status)}${r.status === 'approved' && r.inviteToken ? ` <button type="button" class="link" data-copyurl="${esc(inviteUrl(r.inviteToken))}">copiar convite</button> <button type="button" class="link" data-reqcancel="${r.id}">cancelar convite</button>` : ''}${['rejected', 'cancelled', 'joined'].includes(r.status) ? ` <button type="button" class="link" data-reqdel="${r.id}">apagar da lista</button>` : ''}`}</td></tr>`).join('')}</tbody></table>` : '<p class="none">Nenhum pedido. Quem entra pelo link da família pode pedir para participar.</p>';
 }
 async function loadActivity() {
@@ -467,8 +475,10 @@ async function loadFamilyLink() {
 async function loadAdmin() {
   $('#aErr').textContent = '';
   loadFamilyLink().catch(err => $('#aErr').textContent = err.message);
-  loadRequests().catch(err => $('#aErr').textContent = err.message);
   const d = await api('/api/admin');
+  linkedIds = new Set([...d.users.map(u => u.personId), ...d.invites.filter(i => !i.usedBy && i.expires > Date.now()).map(i => i.personId)].filter(Boolean));
+  $('#iform').elements.personId.innerHTML = personOptions();
+  loadRequests().catch(err => $('#aErr').textContent = err.message);
   $('#users').innerHTML = `<table class="tbl"><thead><tr><th>Nome</th><th>E-mail</th><th>Acesso</th><th>Na árvore</th><th></th></tr></thead><tbody>${d.users.map(u => `<tr><td>${esc(u.name)}</td><td>${esc(u.email)}</td><td>${u.id === me.id ? ROLE[u.role] : `<select data-role="${u.id}">${Object.entries(ROLE).map(([k, v]) => `<option value="${k}"${k === u.role ? ' selected' : ''}>${v}</option>`).join('')}</select>`}</td><td><select data-person="${u.id}"><option value="">—</option>${Object.values(people).sort(byName).map(p => `<option value="${esc(p.id)}"${p.id === u.personId ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</select></td><td>${u.id === me.id ? 'você' : `<button type="button" class="link" data-reset="${u.id}">link de nova senha</button> <button type="button" class="link" data-active="${u.id}" data-to="${u.active ? 0 : 1}">${u.active ? 'bloquear' : 'desbloquear'}</button>`}</td></tr>`).join('')}</tbody></table>`;
   const open = d.invites.filter(i => !i.usedBy && i.expires > Date.now());
   $('#invites').innerHTML = open.length ? `<p class="note">Convites ainda não usados (valem 30 dias):</p><table class="tbl"><tbody>${open.map(i => `<tr><td>${esc(i.label || 'sem nome')}</td><td>${ROLE[i.role]}</td><td><button type="button" class="link" data-copy="${esc(i.token)}">copiar link</button> <button type="button" class="link" data-revoke="${esc(i.token)}">cancelar</button></td></tr>`).join('')}</tbody></table>` : '';
@@ -479,7 +489,7 @@ async function copy(text, btn) { try { await navigator.clipboard.writeText(text)
 $('#iform').addEventListener('submit', async e => {
   e.preventDefault(); const f = e.target;
   try {
-    const r = await api('/api/admin/invites', { method: 'POST', body: { label: f.elements.label.value, role: f.elements.role.value } });
+    const r = await api('/api/admin/invites', { method: 'POST', body: { label: f.elements.label.value, role: f.elements.role.value, personId: f.elements.personId.value } });
     const url = inviteUrl(r.token), box = $('#newInvite');
     box.hidden = false;
     box.innerHTML = `<b>Link do convite</b> (mande por WhatsApp ou e-mail; vale 30 dias e serve para uma pessoa):<br><span>${esc(url)}</span><br><button type="button" class="primary" data-copy="${esc(r.token)}">Copiar link</button>`;
@@ -497,8 +507,8 @@ $('#adlg').addEventListener('click', async e => {
   const sh = e.target.closest('#showActivity'); if (sh) { loadActivity(); return; }
   const ap = e.target.closest('[data-approve]'); if (ap) {
     try {
-      const role = $(`[data-reqrole="${ap.dataset.approve}"]`).value;
-      const r = await api(`/api/admin/access-requests/${ap.dataset.approve}/approve`, { method: 'POST', body: { role } });
+      const role = $(`[data-reqrole="${ap.dataset.approve}"]`).value, personId = $(`[data-reqperson="${ap.dataset.approve}"]`).value;
+      const r = await api(`/api/admin/access-requests/${ap.dataset.approve}/approve`, { method: 'POST', body: { role, personId } });
       const url = inviteUrl(r.token), box = $('#newInvite'); box.hidden = false;
       const msg = `Oi, ${r.name}! Seu acesso à árvore da família foi aprovado. Crie sua conta com o e-mail ${r.email} neste link (vale 30 dias): ${url}`;
       box.innerHTML = r.mailed ? `<b>Aprovado.</b> Enviamos um e-mail para <b>${esc(r.email)}</b> com o link para ${esc(r.name)} criar a senha. Se a pessoa não receber, mande você mesmo:<br><span>${esc(url)}</span><br><div class="actions"><button type="button" data-copyurl="${esc(msg)}">Copiar mensagem pronta</button></div>` : `<b>Aprovado.</b> O e-mail automático não está configurado. Mande este convite para ${esc(r.name)} (só funciona com o e-mail <b>${esc(r.email)}</b>):<br><span>${esc(url)}</span><br><div class="actions"><button type="button" class="primary" data-copyurl="${esc(msg)}">Copiar mensagem pronta</button><a class="btn" href="mailto:${encodeURIComponent(r.email)}?subject=${encodeURIComponent('Convite: árvore da família')}&body=${encodeURIComponent(msg)}">Abrir e-mail</a></div>`;

@@ -127,6 +127,7 @@ function openDb(file) {
   for (const c of ['color', 'origin']) if (!cols('people').includes(c)) db.exec(`ALTER TABLE people ADD COLUMN ${c} TEXT DEFAULT ''`);
   if (!cols('people').includes('given')) db.exec(`ALTER TABLE people ADD COLUMN given TEXT DEFAULT ''`);
   for (const c of ['marriage', 'marriage_place']) if (!cols('people').includes(c)) db.exec(`ALTER TABLE people ADD COLUMN ${c} TEXT DEFAULT ''`);
+  if (!cols('invites').includes('person_id')) db.exec(`ALTER TABLE invites ADD COLUMN person_id TEXT NOT NULL DEFAULT ''`);
   if (!cols('access_requests').includes('claim')) db.exec(`ALTER TABLE access_requests ADD COLUMN claim TEXT`);
   if (!cols('users').includes('person_id')) db.exec(`ALTER TABLE users ADD COLUMN person_id TEXT NOT NULL DEFAULT ''`);
   if (!cols('people').includes('photo_file_id')) db.exec(`ALTER TABLE people ADD COLUMN photo_file_id TEXT DEFAULT ''`);

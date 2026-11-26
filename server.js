@@ -89,6 +89,16 @@ const needUserOrGuest = (req, res, next) => (req.user || req.guest) ? next() : r
 // Um link único que o administrador cria, troca ou desliga. Quem entra por ele só vê:
 // dos falecidos, tudo; dos vivos, só nome, apelido e ligações de família.
 const getSetting = k => (db.prepare('SELECT value FROM settings WHERE key=?').get(k) || {}).value || '';
+// Pessoa da árvore escolhida pelo administrador ao convidar: tem de existir, estar viva e ainda não ter conta.
+function inviteePerson(pid) {
+  pid = String(pid || ''); if (!pid) return { pid: '' };
+  const row = db.prepare('SELECT * FROM people WHERE id=?').get(pid);
+  if (!row) return { error: 'Pessoa não encontrada na árvore.' };
+  if (isDeceased(personOut(row))) return { error: 'Esta pessoa já faleceu.' };
+  const u = db.prepare('SELECT name FROM users WHERE person_id=?').get(pid);
+  if (u) return { error: `Esta pessoa já está ligada à conta de ${u.name}.` };
+  return { pid, name: row.name };
+}
 const baseUrl = req => process.env.DOMAIN ? 'https://' + process.env.DOMAIN : `${req.protocol}://${req.get('host')}`;
 // Mostra só o começo do e-mail (ex.: ma***@gmail.com) para quem pediu acesso neste aparelho.
 const maskEmail = e => { const [u, d] = String(e).split('@'); return (u.length <= 2 ? u[0] : u.slice(0, 2)) + '***@' + d; };
@@ -263,10 +273,11 @@ app.post('/api/reset/:token', (req, res) => {
 
 // ---------- convites ----------
 app.get('/api/invites/:token', (req, res) => {
-  const inv = db.prepare('SELECT role,label,email,used_by,expires FROM invites WHERE token=?').get(req.params.token);
+  const inv = db.prepare('SELECT role,label,email,used_by,expires,person_id FROM invites WHERE token=?').get(req.params.token);
   if (!inv || inv.used_by || inv.expires < Date.now()) return res.status(404).json({ error: 'Convite inválido ou já usado.' });
   const r = db.prepare('SELECT name FROM access_requests WHERE invite_token=?').get(req.params.token);
-  res.json({ role: inv.role, label: inv.label, email: inv.email || '', name: r ? r.name : '' });
+  const pp = inv.person_id ? db.prepare('SELECT name FROM people WHERE id=?').get(inv.person_id) : null;
+  res.json({ role: inv.role, label: inv.label, email: inv.email || '', name: r ? r.name : pp ? pp.name : '', personName: pp ? pp.name : '' });
 });
 app.post('/api/invites/:token', (req, res) => {
   const inv = db.prepare('SELECT * FROM invites WHERE token=?').get(req.params.token);
@@ -279,6 +290,9 @@ app.post('/api/invites/:token', (req, res) => {
     .run(name.trim(), email.trim().toLowerCase(), bcrypt.hashSync(password, 10), inv.role, now()).lastInsertRowid;
   db.prepare('UPDATE invites SET used_by=?, used_at=? WHERE token=?').run(id, now(), inv.token);
   db.prepare("UPDATE access_requests SET status='joined' WHERE invite_token=?").run(inv.token);
+  // Já entra ligado à sua ficha na árvore, se o administrador escolheu ao convidar.
+  if (inv.person_id && exists(inv.person_id) && !db.prepare('SELECT 1 FROM users WHERE person_id=?').get(inv.person_id))
+    db.prepare('UPDATE users SET person_id=? WHERE id=?').run(inv.person_id, id);
   setSession(res, id);
   res.json({ ok: true });
 });
@@ -549,14 +563,15 @@ app.delete('/api/files/:id', needWriter, (req, res) => {
 // ---------- administração ----------
 app.get('/api/admin', needAdmin, (req, res) => {
   const users = db.prepare('SELECT id,name,email,role,active,person_id personId,created_at createdAt FROM users ORDER BY created_at').all();
-  const invites = db.prepare('SELECT token,role,label,created_at createdAt,expires,used_by usedBy FROM invites ORDER BY created_at DESC LIMIT 100').all();
+  const invites = db.prepare('SELECT token,role,label,created_at createdAt,expires,used_by usedBy,person_id personId FROM invites ORDER BY created_at DESC LIMIT 100').all();
   res.json({ users, invites });
 });
 app.post('/api/admin/invites', needAdmin, (req, res) => {
   const role = ['member', 'viewer', 'admin'].includes(req.body.role) ? req.body.role : 'member';
+  const who = inviteePerson(req.body.personId); if (who.error) return res.status(400).json({ error: who.error });
   const token = crypto.randomBytes(18).toString('base64url');
-  db.prepare('INSERT INTO invites(token,role,label,created_by,created_at,expires) VALUES(?,?,?,?,?,?)')
-    .run(token, role, String(req.body.label || '').slice(0, 100), req.user.id, now(), Date.now() + 30 * 864e5);
+  db.prepare('INSERT INTO invites(token,role,label,created_by,created_at,expires,person_id) VALUES(?,?,?,?,?,?,?)')
+    .run(token, role, String(req.body.label || who.name || '').slice(0, 100), req.user.id, now(), Date.now() + 30 * 864e5, who.pid);
   res.json({ token });
 });
 app.delete('/api/admin/invites/:token', needAdmin, (req, res) => {
@@ -598,14 +613,15 @@ app.post('/api/admin/access-requests/:id/approve', needAdmin, (req, res) => {
   if (!r) return res.status(404).json({ error: 'Pedido não encontrado.' });
   if (db.prepare('SELECT 1 FROM users WHERE email=?').get(r.email)) return res.status(400).json({ error: 'Já existe uma conta com esse e-mail.' });
   const role = ['member', 'viewer'].includes(req.body.role) ? req.body.role : 'member';
+  const who = inviteePerson(req.body.personId); if (who.error) return res.status(400).json({ error: who.error });
   const token = crypto.randomBytes(18).toString('base64url');
-  db.prepare('INSERT INTO invites(token,role,label,email,created_by,created_at,expires) VALUES(?,?,?,?,?,?,?)')
-    .run(token, role, `${r.name} (${r.relation})`.slice(0, 100), r.email, req.user.id, now(), Date.now() + 30 * 864e5);
+  db.prepare('INSERT INTO invites(token,role,label,email,created_by,created_at,expires,person_id) VALUES(?,?,?,?,?,?,?,?)')
+    .run(token, role, `${r.name} (${r.relation})`.slice(0, 100), r.email, req.user.id, now(), Date.now() + 30 * 864e5, who.pid);
   db.prepare("UPDATE access_requests SET status='approved', decided_by=?, decided_at=?, invite_token=? WHERE id=?").run(req.user.id, now(), token, r.id);
   log(req, 'aprovou pedido de acesso', r.email, { name: r.name, relation: r.relation, role });
   const family = process.env.FAMILY_NAME || 'Árvore da Família';
   mail.send(r.email, `Seu acesso à ${family} foi aprovado`,
-    `Olá, ${r.name}!\n\nSeu pedido para participar da ${family} foi aprovado.\n\nToque no link abaixo para criar a sua senha. Ele confirma o seu e-mail e vale 30 dias:\n${baseUrl(req)}/convite/${token}\n\nDepois, é só entrar em ${baseUrl(req)} com o e-mail ${r.email} e a sua senha.\n\nSe você não pediu este acesso, ignore este e-mail.`)
+    `Olá, ${r.name}!\n\nSeu pedido para participar da ${family} foi aprovado.\n\n${who.name ? `Você já está na árvore como ${who.name}. ` : ''}Toque no link abaixo para criar a sua senha. Ele confirma o seu e-mail e vale 30 dias:\n${baseUrl(req)}/convite/${token}\n\nDepois, é só entrar em ${baseUrl(req)} com o e-mail ${r.email} e a sua senha.\n\nSe você não pediu este acesso, ignore este e-mail.`)
     .then(mailed => res.json({ token, email: r.email, name: r.name, mailed }));
 });
 app.post('/api/admin/access-requests/:id/reject', needAdmin, (req, res) => {
