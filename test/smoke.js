@@ -177,6 +177,22 @@ function client() {
   const ir5 = (await admin('GET', '/api/tree')).data.people.find(x => x.name === 'Irmã Cinco');
   assert.equal(ir5.fatherId, pai); assert.equal(ir5.motherId, mae);
 
+  // ligações sugeridas pelas notas
+  const tiaN = (await admin('POST', '/api/people', { name: 'Tia Nota Teste', notes: 'Irmã do Irmão Um, casada com tio Sugestão.' })).data.id;
+  const tioS = (await admin('POST', '/api/people', { name: 'Tio Sugestão Teste' })).data.id;
+  let sg = (await admin('GET', '/api/admin/suggestions')).data.suggestions;
+  const sSib = sg.find(x => x.person.id === tiaN && x.kind === 'sibling'), sSp = sg.find(x => x.person.id === tiaN && x.kind === 'spouse');
+  assert.ok(sSib, 'sugere irmãos pela nota'); assert.equal(sSib.target.id, ir1);
+  assert.ok(sSp && sSp.target.id === tioS, 'sugere cônjuge pela nota');
+  assert.equal((await tia('GET', '/api/admin/suggestions')).status, 403);
+  assert.ok((await admin('GET', '/api/status')).data.suggestions >= 2);
+  let tN = (await admin('GET', '/api/tree')).data.people.find(x => x.id === tiaN); assert.ok(!tN.fatherId, 'nada muda antes de confirmar');
+  await admin('POST', '/api/admin/suggestions/apply', { key: sSib.key });
+  tN = (await admin('GET', '/api/tree')).data.people.find(x => x.id === tiaN); assert.equal(tN.fatherId, pai); assert.equal(tN.motherId, mae);
+  await admin('POST', '/api/admin/suggestions/dismiss', { key: sSp.key });
+  sg = (await admin('GET', '/api/admin/suggestions')).data.suggestions;
+  assert.ok(!sg.some(x => x.key === sSp.key || x.key === sSib.key), 'aplicada e dispensada não voltam');
+
   // relatos: pasta enviada pelo navegador (com caminhos), .zip e pasta de entrada no servidor
   const { zipSync, strToU8 } = require('fflate');
   const lote2 = 'Ação,Pessoa,Campo,Valor,Fonte,Confiança\nATUALIZAR,Tia Lote,nascimento,1947,Prima X 02/02,Relato direto\nNOVA,Bisavô Novo Teste,nome completo,Bisavô Novo Teste,Prima X,Relato indireto\nVÍNCULO,Bisavô Novo Teste,filho,Tia Lote Teste,Prima X,Relato indireto\nATUALIZAR,Bisavô Novo Teste,sexo,masculino,Prima X,Relato indireto\n';

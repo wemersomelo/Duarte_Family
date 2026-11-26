@@ -14,6 +14,7 @@ const { toGedcom } = require('./src/gedcom');
 const mail = require('./src/mail');
 const { runLote } = require('./src/lote');
 const relatos = require('./src/relatos');
+const sugestoes = require('./src/sugestoes');
 
 const PORT = Number(process.env.PORT || 3000);
 const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(__dirname, 'data'));
@@ -209,7 +210,8 @@ app.get('/api/status', (req, res) => {
     if (r) request = { status: r.status, email: maskEmail(r.email), mailed: r.status === 'approved' && mail.configured() };
   }
   const inboxNew = req.user && req.user.role === 'admin' ? inboxState().filter(x => x.state !== 'importado').length : 0;
-  res.json({ request, inboxNew, needsSetup: users === 0, pendingRequests: pending, user: req.user || (req.guest ? { id: null, name: 'Visitante', role: 'guest' } : null), familyName: process.env.FAMILY_NAME || 'Árvore da Família', defaultPerson: startPerson() });
+  let suggestionsN = 0; if (req.user && req.user.role === 'admin') try { suggestionsN = sugestoes.suggest(db, effectiveParents).length; } catch (e) { console.error(e); }
+  res.json({ request, inboxNew, suggestions: suggestionsN, needsSetup: users === 0, pendingRequests: pending, user: req.user || (req.guest ? { id: null, name: 'Visitante', role: 'guest' } : null), familyName: process.env.FAMILY_NAME || 'Árvore da Família', defaultPerson: startPerson() });
 });
 
 app.post('/api/setup', (req, res) => {
@@ -876,6 +878,30 @@ app.get('/api/admin/pending', needAdmin, (req, res) => {
 app.post('/api/admin/pending/:id/close', needAdmin, (req, res) => {
   db.prepare("UPDATE pending SET status='closed' WHERE id=?").run(Number(req.params.id)); res.json({ ok: true });
 });
+// Ligações sugeridas a partir das notas ("Irmã do Clemente", "casada com tio Joaquim")
+app.get('/api/admin/suggestions', needAdmin, (req, res) => res.json({ suggestions: sugestoes.suggest(db, effectiveParents) }));
+app.post('/api/admin/suggestions/apply', needAdmin, (req, res) => {
+  const keys = new Set([].concat(req.body.keys || req.body.key || []).map(String));
+  const list = sugestoes.suggest(db, effectiveParents).filter(x => keys.has(x.key));
+  if (!list.length) return res.status(404).json({ error: 'Sugestão não encontrada (talvez já tenha sido aplicada).' });
+  const applied = [];
+  db.transaction(() => {
+    for (const sg of list) for (const c of sg.changes) {
+      if (c.spouse) {
+        const [a, b] = c.spouse.map(id => db.prepare('SELECT id,spouse_id FROM people WHERE id=?').get(id));
+        if (a && b && !a.spouse_id && !b.spouse_id) { db.prepare('UPDATE people SET spouse_id=?, updated_at=? WHERE id=?').run(b.id, now(), a.id); db.prepare('UPDATE people SET spouse_id=?, updated_at=? WHERE id=?').run(a.id, now(), b.id); }
+      } else {
+        const cur = effectiveParents()[c.child] || {};
+        if (!cur[c.role === 'father' ? 'f' : 'm']) db.prepare('INSERT INTO links(child_id,parent_id,role,created_by,created_at) VALUES(?,?,?,?,?)').run(c.child, c.parent, c.role, req.user.id, now());
+      }
+      applied.push(sg.describe);
+    }
+  })();
+  log(req, 'ligou pessoas a partir das notas', null, { sugestoes: list.map(x => ({ nota: x.quote, mudancas: x.describe })) });
+  const extra = alignSiblings(req).length;
+  res.json({ ok: true, applied: list.length, aligned: extra });
+});
+app.post('/api/admin/suggestions/dismiss', needAdmin, (req, res) => { setSetting('nosug:' + String(req.body.key || '').slice(0, 40), '1'); res.json({ ok: true }); });
 app.get('/api/admin/duplicates', needAdmin, (req, res) => res.json({ pairs: relatos.scanDuplicates(db) }));
 app.post('/api/admin/duplicates/not', needAdmin, (req, res) => {
   const a = String(req.body.a || ''), b = String(req.body.b || '');

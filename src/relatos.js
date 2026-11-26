@@ -69,10 +69,10 @@ function similar(a, p, aliases, strict) {
   if (!wa.length || !wp.length) return '';
   const full = wp.join(' '), short = wa.join(' ');
   if (short === full) return 'mesmo nome';
-  if (Math.min(short.length, full.length) >= 8 && lev(short, full) <= 2 && (!strict || wa[0] === wp[0])) return 'nome quase igual';
+  const tol = n => n > 6 ? 3 : n > 5 ? 2 : 1;
+  if (Math.min(short.length, full.length) >= 8 && lev(short, full) <= 2 && (strict ? wa[0] === wp[0] : lev(wa[0], wp[0]) <= tol(Math.min(wa[0].length, wp[0].length)))) return 'nome quase igual';
   if (p.nick && (norm(p.nick) === norm(a) || norm(p.nick).replace(PREFIX, '') === A)) return 'mesmo apelido';
   if ((aliases || []).some(x => x === norm(a))) return 'nome alternativo';
-  const tol = n => n > 6 ? 3 : n > 5 ? 2 : 1;
   const firstOk = strict ? wa[0] === wp[0] : lev(wa[0], wp[0]) <= tol(Math.min(wa[0].length, wp[0].length));
   // palavra igual ou com uma letra trocada (Milson/Nilson); na varredura geral, só igual
   const has = (list, x) => list.some(y => y === x || (!strict && x.length > 4 && lev(x, y) <= 1));

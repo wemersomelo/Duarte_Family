@@ -143,7 +143,7 @@ async function start() {
   $('#adminBtn').hidden = me.role !== 'admin';
   $('#pwBtn').hidden = isGuest();
   $('#askBtn').hidden = !isGuest();
-  { const n = (st.pendingRequests || 0) + (st.inboxNew || 0); $('#adminBtn').textContent = n ? `Administrar (${n})` : 'Administrar'; }
+  { const n = (st.pendingRequests || 0) + (st.inboxNew || 0) + (st.suggestions || 0); $('#adminBtn').textContent = n ? `Administrar (${n})` : 'Administrar'; }
   $('#how').hidden = isGuest();
   $('#addBtn').hidden = !canWrite();
   await load();
@@ -525,6 +525,7 @@ async function loadAdmin() {
   $('#iform').elements.personId.innerHTML = personOptions();
   loadRequests().catch(err => $('#aErr').textContent = err.message);
   loadRelatos().catch(err => $('#aErr').textContent = err.message);
+  loadSuggestions().catch(err => $('#aErr').textContent = err.message);
   $('#users').innerHTML = `<table class="tbl"><thead><tr><th>Nome</th><th>E-mail</th><th>Acesso</th><th>Na árvore</th><th></th></tr></thead><tbody>${d.users.map(u => `<tr><td>${esc(u.name)}</td><td>${esc(u.email)}</td><td>${u.id === me.id ? ROLE[u.role] : `<select data-role="${u.id}">${Object.entries(ROLE).map(([k, v]) => `<option value="${k}"${k === u.role ? ' selected' : ''}>${v}</option>`).join('')}</select>`}</td><td><select data-person="${u.id}"><option value="">—</option>${Object.values(people).sort(byName).map(p => `<option value="${esc(p.id)}"${p.id === u.personId ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</select></td><td>${u.id === me.id ? 'você' : `<button type="button" class="link" data-reset="${u.id}">link de nova senha</button> <button type="button" class="link" data-active="${u.id}" data-to="${u.active ? 0 : 1}">${u.active ? 'bloquear' : 'desbloquear'}</button>`}</td></tr>`).join('')}</tbody></table>`;
   const open = d.invites.filter(i => !i.usedBy && i.expires > Date.now());
   $('#invites').innerHTML = open.length ? `<p class="note">Convites ainda não usados (valem 30 dias):</p><table class="tbl"><tbody>${open.map(i => `<tr><td>${esc(i.label || 'sem nome')}</td><td>${ROLE[i.role]}</td><td><button type="button" class="link" data-copy="${esc(i.token)}">copiar link</button> <button type="button" class="link" data-revoke="${esc(i.token)}">cancelar</button></td></tr>`).join('')}</tbody></table>` : '';
@@ -640,6 +641,16 @@ async function loadRelatos() {
   const pd = await api('/api/admin/pending');
   $('#pendList').innerHTML = pd.pending.length ? `<table class="tbl"><tbody>${pd.pending.map(x => `<tr><td>${esc(x.title)}<br><span class="note">relato ${esc(x.relatoId || '')} · ${esc(fmtDate(x.createdAt))}. Para resolver, abra o relato de novo.</span></td><td><button type="button" class="link" data-pendclose="${x.id}">resolvido</button></td></tr>`).join('')}</tbody></table>` : '<p class="none">Nenhuma pendência.</p>';
 }
+const SUG_KIND = { sibling: 'irmãos', child: 'filho(a)', parent: 'pai/mãe', spouse: 'cônjuges' };
+async function loadSuggestions() {
+  const d = await api('/api/admin/suggestions');
+  $('#sugCount').textContent = d.suggestions.length ? `(${d.suggestions.length})` : '';
+  $('#sugList').innerHTML = d.suggestions.length ? d.suggestions.map(x => `<div class="alert"><p><b>${esc(x.person.name)}</b> <span class="tag">${SUG_KIND[x.kind]}</span><br><span class="note">Nota: "${esc(x.quote)}" → ${esc(x.target.name)}</span></p>
+      <ul>${x.describe.map(t => `<li>${esc(t)}</li>`).join('')}</ul>
+      <div class="actions small"><button type="button" class="primary" data-sugok="${esc(x.key)}">Ligar</button><button type="button" class="link" data-sugno="${esc(x.key)}">Não é isso</button></div></div>`).join('')
+    + (d.suggestions.length > 1 ? `<div class="actions"><button type="button" id="sugAll" data-keys="${esc(d.suggestions.map(x => x.key).join(','))}">Ligar todas (${d.suggestions.length})</button></div>` : '')
+    : '<p class="none">Nenhuma sugestão: as notas já batem com as ligações da árvore.</p>';
+}
 const cand = c => `<div class="cand"><b>${esc(c.name)}</b>${c.nick ? ` (${esc(c.nick)})` : ''}${c.why ? ` <span class="tag">${esc(c.why)}</span>` : ''}
   <div class="note">${[c.birth && '★ ' + c.birth, c.death && '✝ ' + c.death, c.father && 'pai: ' + c.father, c.mother && 'mãe: ' + c.mother, c.spouse && 'cônjuge: ' + c.spouse, c.relatos && c.relatos.length && 'relatos: ' + c.relatos.join(', ')].filter(Boolean).map(esc).join(' · ') || 'sem outros dados'}</div>`;
 function renderRel() {
@@ -691,6 +702,9 @@ $('#adlg').addEventListener('click', async e => {
   const un = e.target.closest('[data-undo]'); if (un) { delete rel.decisions[un.dataset.undo]; relRun(false); return; }
   if (e.target.closest('#relApply')) { relRun(true); return; }
   if (e.target.closest('#relClose')) { rel = null; $('#relWork').innerHTML = ''; return; }
+  const so = e.target.closest('[data-sugok]'); if (so) { try { await api('/api/admin/suggestions/apply', { method: 'POST', body: { key: so.dataset.sugok } }); await load(); loadSuggestions(); } catch (err) { $('#aErr').textContent = err.message; } return; }
+  const sn = e.target.closest('[data-sugno]'); if (sn) { await api('/api/admin/suggestions/dismiss', { method: 'POST', body: { key: sn.dataset.sugno } }); loadSuggestions(); return; }
+  const sa = e.target.closest('#sugAll'); if (sa) { if (!(await confirmBtn(sa))) return; try { await api('/api/admin/suggestions/apply', { method: 'POST', body: { keys: sa.dataset.keys.split(',') } }); await load(); loadSuggestions(); } catch (err) { $('#aErr').textContent = err.message; } return; }
   const pc = e.target.closest('[data-pendclose]'); if (pc) { await api(`/api/admin/pending/${pc.dataset.pendclose}/close`, { method: 'POST' }); loadRelatos(); return; }
   if (e.target.closest('#dupBtn')) {
     $('#dupList').innerHTML = '<p class="note">Procurando…</p>';
