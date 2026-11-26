@@ -372,6 +372,41 @@ app.put('/api/me/person', needUser, (req, res) => {
   res.json({ ok: true, personId: pid });
 });
 
+// ---------- irmãos: por padrão têm os mesmos pais ----------
+// Se todos os filhos de alguém que têm o outro pai/mãe registrado concordam (um só valor),
+// os filhos sem esse dado recebem o mesmo. Nunca troca um pai/mãe já registrado: meio-irmãos
+// continuam como estão, e cada pessoa pode corrigir a própria ficha.
+// A ligação vai na tabela links (não altera o registro de quem o criou).
+function effectiveParents() {
+  const ps = db.prepare('SELECT id,father_id,mother_id FROM people').all(), by = {};
+  for (const p of ps) by[p.id] = { f: p.father_id || '', m: p.mother_id || '' };
+  for (const l of db.prepare('SELECT child_id,parent_id,role FROM links ORDER BY id').all()) {
+    const c = by[l.child_id]; if (!c || !by[l.parent_id]) continue;
+    const k = l.role === 'father' ? 'f' : 'm'; if (!c[k] || !by[c[k]]) c[k] = l.parent_id;
+  }
+  for (const c of Object.values(by)) { if (c.f && !by[c.f]) c.f = ''; if (c.m && !by[c.m]) c.m = ''; }
+  return by;
+}
+function alignSiblings(req, onlyParents) {
+  const by = effectiveParents(), fills = [];
+  const parents = onlyParents ? onlyParents.filter(Boolean) : [...new Set(Object.values(by).flatMap(c => [c.f, c.m]).filter(Boolean))];
+  for (const X of parents) for (const [slot, other] of [['f', 'm'], ['m', 'f']]) {
+    const kids = Object.entries(by).filter(([, c]) => c[slot] === X);
+    const vals = [...new Set(kids.map(([, c]) => c[other]).filter(Boolean))];
+    if (vals.length !== 1) continue;
+    for (const [kid, c] of kids) if (!c[other] && vals[0] !== kid) {
+      c[other] = vals[0];
+      db.prepare('INSERT INTO links(child_id,parent_id,role,created_by,created_at) VALUES(?,?,?,NULL,?)').run(kid, vals[0], other === 'f' ? 'father' : 'mother', now());
+      fills.push({ kid, parent: vals[0], role: other === 'f' ? 'pai' : 'mãe' });
+    }
+  }
+  if (fills.length) log(req, 'alinhou pais de irmãos', null, { ligacoes: fills });
+  return fills;
+}
+// Uma vez só, para os dados que já existiam antes desta regra.
+if (!getSetting('irmaos_alinhados_v1')) { try { const n = alignSiblings({ user: null }).length; setSetting('irmaos_alinhados_v1', new Date().toISOString()); if (n) console.log(`Irmãos: ${n} ligação(ões) de pai/mãe completada(s).`); } catch (e) { console.error(e); } }
+const parentsOf = id => { const c = effectiveParents()[id] || {}; return [c.f, c.m]; };
+
 // ---------- pessoas ----------
 app.post('/api/people', needWriter, (req, res) => {
   const d = clean(req.body);
@@ -387,6 +422,7 @@ app.post('/api/people', needWriter, (req, res) => {
     db.prepare('INSERT INTO links(child_id,parent_id,role,created_by,created_at) VALUES(?,?,?,?,?)').run(parentOf, id, parentRole, req.user.id, t);
   }
   log(req, 'adicionou pessoa', id, { name: d.name, parentOf });
+  alignSiblings(req, [d.father_id, d.mother_id, parentOf && exists(parentOf) ? id : '', ...parentsOf(id)]);
   res.json({ id });
 });
 
@@ -402,6 +438,7 @@ app.put('/api/people/:id', needUser, (req, res) => {
   if (cols.length) db.prepare(`UPDATE people SET ${cols.map(c => c + '=?').join(',')}, updated_at=?, updated_by=? WHERE id=?`)
     .run(...cols.map(c => d[c]), now(), req.user.id, p.id);
   log(req, 'editou pessoa', p.id, { antes: Object.fromEntries(cols.map(c => [c, p[c]])), depois: d });
+  if ('father_id' in d || 'mother_id' in d) alignSiblings(req, [p.father_id, p.mother_id, ...parentsOf(p.id)]);
   res.json({ ok: true });
 });
 
@@ -718,6 +755,7 @@ app.post('/api/admin/import', needAdmin, (req, res) => {
     }
   });
   tx();
+  alignSiblings(req);
   res.json({ added, updated });
 });
 
@@ -729,7 +767,7 @@ app.post('/api/admin/import-lote', needAdmin, (req, res) => {
   const apply = !!req.body.apply;
   const r = runLote(db, text, { apply, userId: req.user.id, newId, now });
   if (r.error) return res.status(400).json({ error: r.error });
-  if (apply) log(req, 'importou lote', null, { linhas: r.rows.length, ok: r.ok, erros: r.erros });
+  if (apply) { log(req, 'importou lote', null, { linhas: r.rows.length, ok: r.ok, erros: r.erros }); r.aligned = alignSiblings(req).length; }
   res.json(r);
 });
 
@@ -803,6 +841,7 @@ app.post('/api/admin/relatos/run', needAdmin, (req, res) => {
       if (st.inbox) setSetting('inbox:' + st.inbox.folder, st.inbox.sig);
       staging.delete(String(req.body.token));
       log(req, 'importou relato', st.staged.meta.id, { linhas: r.rows.length, aplicadas: r.rows.filter(x => x.ok).length });
+      r.aligned = alignSiblings(req).length;
     }
     res.json(r);
   } catch (e) { res.status(e.status || 500).json({ error: e.status ? e.message : 'Erro ao importar o relato.' }); if (!e.status) console.error(e); }

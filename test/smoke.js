@@ -159,6 +159,24 @@ function client() {
   assert.equal((await admin('POST', '/api/admin/import-lote', { text: csv, apply: true })).data.ok, 1, 'CSV com ;');
   assert.equal((await admin('GET', '/api/tree')).data.people.find(x => x.name === 'Tia Lote Teste').birthPlace, 'Catuji; MG');
 
+  // irmãos: por padrão os mesmos pais (só preenche o que falta, nunca troca)
+  const pai = (await admin('POST', '/api/people', { name: 'Pai Irmãos', sex: 'm' })).data.id;
+  const mae = (await admin('POST', '/api/people', { name: 'Mãe Irmãos', sex: 'f' })).data.id;
+  const ir1 = (await admin('POST', '/api/people', { name: 'Irmão Um', fatherId: pai, motherId: mae })).data.id;
+  const ir2 = (await tia('POST', '/api/people', { name: 'Irmã Dois', fatherId: pai })).data.id;
+  let tI = (await admin('GET', '/api/tree')).data.people;
+  assert.equal(tI.find(x => x.id === ir2).motherId, mae, 'irmã sem mãe recebe a mesma mãe do irmão');
+  const mae2 = (await admin('POST', '/api/people', { name: 'Outra Mãe', sex: 'f' })).data.id;
+  await admin('POST', '/api/people', { name: 'Meio Irmão', fatherId: pai, motherId: mae2 });
+  const ir4 = (await admin('POST', '/api/people', { name: 'Irmão Quatro', fatherId: pai })).data.id;
+  tI = (await admin('GET', '/api/tree')).data.people;
+  assert.ok(!tI.find(x => x.id === ir4).motherId, 'com duas mães diferentes, não adivinha');
+  assert.equal(tI.find(x => x.id === ir2).motherId, mae, 'meio-irmão não muda quem já tinha mãe');
+  const irLote = '| Ação | Pessoa | Campo | Valor | Fonte | Confiança |\n| NOVA | Irmã Cinco | nome completo | Irmã Cinco | Teste | Relato direto |\n| VÍNCULO | Irmã Cinco | irmã | Irmão Um | Teste | Relato direto |';
+  assert.equal((await admin('POST', '/api/admin/import-lote', { text: irLote, apply: true })).data.ok, 2);
+  const ir5 = (await admin('GET', '/api/tree')).data.people.find(x => x.name === 'Irmã Cinco');
+  assert.equal(ir5.fatherId, pai); assert.equal(ir5.motherId, mae);
+
   // relatos: pasta enviada pelo navegador (com caminhos), .zip e pasta de entrada no servidor
   const { zipSync, strToU8 } = require('fflate');
   const lote2 = 'Ação,Pessoa,Campo,Valor,Fonte,Confiança\nATUALIZAR,Tia Lote,nascimento,1947,Prima X 02/02,Relato direto\nNOVA,Bisavô Novo Teste,nome completo,Bisavô Novo Teste,Prima X,Relato indireto\nVÍNCULO,Bisavô Novo Teste,filho,Tia Lote Teste,Prima X,Relato indireto\nATUALIZAR,Bisavô Novo Teste,sexo,masculino,Prima X,Relato indireto\n';

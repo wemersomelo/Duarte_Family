@@ -49,6 +49,7 @@ const FIELD = [
   [/^(cor|cor\/raca|raca)$/, 'color'], [/^(origem|etnia|origem\/etnia)$/, 'origin'],
   [/^pai$/, 'father_id'], [/^(mae)$/, 'mother_id'], [/^pais$/, 'parents'],
   [/^(conjuge|esposa|esposo|marido|mulher|casou com)$/, 'spouse_id'], [/^(filh[oa]s?|filho\/filha)$/, 'child'],
+  [/^(irmao|irma|irmaos|irmas|irmao\/irma|gemeo|gemea)$/, 'sibling'],
   [/^(nota|notas|observacao|informacao|info)$/, 'note'], [/^(lembranca|memoria|historia|causo)$/, 'memory']
 ];
 const fieldOf = campo => { const c = norm(campo); for (const [re, f] of FIELD) if (re.test(c)) return f; return null; };
@@ -170,6 +171,21 @@ function runLote(db, text, { apply, userId, newId, now, resolver, divergence, sk
           const slot = p.sex === 'f' ? 'mother_id' : p.sex === 'm' ? 'father_id' : null;
           if (!slot) throw new Error(`não sei se ${p.name} é pai ou mãe (sexo não informado)`);
           out.ok = `${t.p.name}: ` + setField(t.p, slot, p.id, row).replace(p.id, p.name); addSource(t.p.id, LABEL[slot] + ' ' + p.name, row);
+        }
+        else if (f === 'sibling') {
+          // Irmãos têm os mesmos pais: copia o que falta de um para o outro; nunca troca um pai/mãe já registrado.
+          const t = target(v); if (t.p.id === p.id) throw new Error('a pessoa não pode ser irmã dela mesma');
+          const done = [];
+          for (const slot of ['father_id', 'mother_id']) {
+            const a = p[slot] || '', b = t.p[slot] || '';
+            if (a && b && a !== b) throw new Error(`${p.name} e ${t.p.name} têm ${LABEL[slot]} diferente no site (meio-irmãos?). Confira e ligue à mão.`);
+            if (!a && b) { setField(p, slot, b, row); done.push(`${p.name}: ${LABEL[slot]} ${nameOf(b)}`); }
+            if (a && !b) { setField(t.p, slot, a, row); done.push(`${t.p.name}: ${LABEL[slot]} ${nameOf(a)}`); }
+          }
+          if (!p.father_id && !p.mother_id) throw new Error(`nem ${p.name} nem ${t.p.name} têm pai ou mãe na árvore. Registre os pais primeiro (irmãos se ligam pelos pais).`);
+          if (/^gem/.test(norm(row.campo))) addNote(p.id, 'info', `Gêmeo(a) de ${t.p.name}${src(row)}.`);
+          addSource(p.id, 'irmão(ã) ' + t.p.name, row);
+          out.ok = done.length ? 'mesmos pais · ' + done.join('; ') : `irmãos: já têm os mesmos pais`;
         }
         else if (f === 'color') { const c = COLOR[norm(v)]; if (!c) throw new Error('cor/raça deve ser branca, preta, parda, amarela ou indígena'); out.ok = setField(p, 'color', c, row); addSource(p.id, 'cor/raça', row); }
         else if (f === 'sex') { const s = /^f|^mulher/.test(norm(v)) ? 'f' : /^m|^homem/.test(norm(v)) ? 'm' : ''; out.ok = setField(p, 'sex', s, row); }
