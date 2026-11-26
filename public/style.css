@@ -164,3 +164,18 @@ dialog.viewer{width:min(1000px,96vw)}
 .datef.manual>input{display:block}
 .datef.manual .dsel{display:none}
 .datef .dtog{font-size:13px;margin-top:4px;padding:0}
+.relbox{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin:10px 0;background:var(--paper)}
+.alert{border-left:3px solid var(--accent);background:var(--soft);border-radius:6px;padding:10px 12px;margin:10px 0}
+.alert>p{margin:0 0 8px}
+.cand{background:var(--paper);border:1px solid var(--line);border-radius:6px;padding:8px 10px;margin:6px 0}
+.cand .actions{margin:6px 0 0}
+.tag{display:inline-block;font-size:12px;background:var(--soft);border-radius:999px;padding:1px 8px;color:var(--mute)}
+button[disabled]{opacity:.5;cursor:not-allowed}
+.relmore{margin:12px 0}.relmore summary{cursor:pointer;color:var(--accent);font-weight:600}
+dialog.wide{max-width:min(860px,96vw)}
+.mdtext p{margin:0 0 6px}.mdtext h3,.mdtext h4,.mdtext h5{margin:12px 0 6px}
+label.btn{cursor:pointer}
+.relfiles{display:flex;flex-wrap:wrap;gap:10px}
+.relfile{display:flex;flex-direction:column;align-items:center;gap:4px;width:110px;font-size:12px;color:var(--ink);text-decoration:none;word-break:break-all;text-align:center}
+.relfile img{width:110px;height:90px;object-fit:cover;border-radius:6px;border:1px solid var(--line)}
+.relicon{display:flex;align-items:center;justify-content:center;width:110px;height:90px;border-radius:6px;border:1px solid var(--line);background:var(--soft);font-size:28px}

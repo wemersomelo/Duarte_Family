@@ -116,6 +116,37 @@ function openDb(file) {
       detail TEXT,
       at TEXT NOT NULL
     );
+    -- Relatos de entrevista importados (pasta com ficha.md, relato.md, lote.csv, material/)
+    CREATE TABLE IF NOT EXISTS relatos (
+      id TEXT PRIMARY KEY,
+      fonte TEXT, data TEXT, ficha TEXT, relato TEXT,
+      imported_at TEXT, imported_by INTEGER, applied INTEGER DEFAULT 0, skipped INTEGER DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS relato_rows (
+      relato_id TEXT NOT NULL, row_key TEXT NOT NULL, status TEXT NOT NULL, at TEXT,
+      PRIMARY KEY (relato_id, row_key)
+    );
+    CREATE TABLE IF NOT EXISTS relato_people (
+      relato_id TEXT NOT NULL, person_id TEXT NOT NULL, PRIMARY KEY (relato_id, person_id)
+    );
+    CREATE TABLE IF NOT EXISTS relato_files (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, relato_id TEXT NOT NULL, name TEXT NOT NULL,
+      stored TEXT NOT NULL, mime TEXT, size INTEGER, created_at TEXT
+    );
+    -- Nomes alternativos confirmados pelo administrador ("Donaldo" = pessoa X)
+    CREATE TABLE IF NOT EXISTS person_aliases (
+      alias TEXT PRIMARY KEY, person_id TEXT NOT NULL, created_at TEXT
+    );
+    -- Alertas pulados e possíveis duplicados ainda abertos
+    CREATE TABLE IF NOT EXISTS pending (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, relato_id TEXT, title TEXT, data TEXT,
+      status TEXT NOT NULL DEFAULT 'open', created_at TEXT
+    );
+    -- Pares que o administrador disse que NÃO são a mesma pessoa
+    CREATE TABLE IF NOT EXISTS not_duplicates (
+      a TEXT NOT NULL, b TEXT NOT NULL, PRIMARY KEY (a, b)
+    );
+    CREATE INDEX IF NOT EXISTS relato_people_person ON relato_people(person_id);
     CREATE INDEX IF NOT EXISTS notes_person ON notes(person_id);
     CREATE INDEX IF NOT EXISTS files_person ON files(person_id);
     CREATE INDEX IF NOT EXISTS media_person ON media_links(person_id);

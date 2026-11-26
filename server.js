@@ -13,6 +13,7 @@ const { openDb } = require('./src/db');
 const { toGedcom } = require('./src/gedcom');
 const mail = require('./src/mail');
 const { runLote } = require('./src/lote');
+const relatos = require('./src/relatos');
 
 const PORT = Number(process.env.PORT || 3000);
 const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(__dirname, 'data'));
@@ -207,7 +208,8 @@ app.get('/api/status', (req, res) => {
     const r = db.prepare('SELECT status,email FROM access_requests WHERE claim=?').get(String(claim));
     if (r) request = { status: r.status, email: maskEmail(r.email), mailed: r.status === 'approved' && mail.configured() };
   }
-  res.json({ request, needsSetup: users === 0, pendingRequests: pending, user: req.user || (req.guest ? { id: null, name: 'Visitante', role: 'guest' } : null), familyName: process.env.FAMILY_NAME || 'Árvore da Família', defaultPerson: startPerson() });
+  const inboxNew = req.user && req.user.role === 'admin' ? inboxState().filter(x => x.state !== 'importado').length : 0;
+  res.json({ request, inboxNew, needsSetup: users === 0, pendingRequests: pending, user: req.user || (req.guest ? { id: null, name: 'Visitante', role: 'guest' } : null), familyName: process.env.FAMILY_NAME || 'Árvore da Família', defaultPerson: startPerson() });
 });
 
 app.post('/api/setup', (req, res) => {
@@ -337,6 +339,8 @@ app.get('/api/tree', needUserOrGuest, (req, res) => {
   const media = db.prepare('SELECT id,person_id personId,url,title,created_by createdBy,created_at createdAt FROM media_links ORDER BY created_at').all();
   const files = db.prepare('SELECT id,person_id personId,original_name name,mime,size,caption,created_by createdBy,created_at createdAt FROM files ORDER BY created_at').all();
   const users = db.prepare('SELECT id,name FROM users').all();
+  // Relatos que citam cada pessoa (só para quem pode editar; os relatos são privados).
+  const relatoLinks = req.user && req.user.role !== 'viewer' ? db.prepare('SELECT rp.person_id personId, r.id relatoId, r.fonte, r.data FROM relato_people rp JOIN relatos r ON r.id=rp.relato_id ORDER BY r.data').all() : [];
   if (req.guest) {
     // Ligações primeiro (já aplicadas acima); depois esconde os dados dos vivos.
     const dead = new Set(people.filter(isDeceased).map(p => p.id));
@@ -351,7 +355,7 @@ app.get('/api/tree', needUserOrGuest, (req, res) => {
       me: { id: null, name: 'Visitante', role: 'guest' }
     });
   }
-  res.json({ people, notes, files, media, users, me: req.user });
+  res.json({ people, notes, files, media, users, relatoLinks, me: req.user });
 });
 
 // Cada conta pode dizer quem ela é na árvore.
@@ -727,6 +731,120 @@ app.post('/api/admin/import-lote', needAdmin, (req, res) => {
   if (r.error) return res.status(400).json({ error: r.error });
   if (apply) log(req, 'importou lote', null, { linhas: r.rows.length, ok: r.ok, erros: r.erros });
   res.json(r);
+});
+
+// ---------- relatos (pasta com ficha.md, relato.md, lote.csv e material/) ----------
+const RELATO_DIR = path.join(UPLOAD_DIR, 'relatos');
+const INBOX_DIR = path.resolve(process.env.RELATOS_INBOX || path.join(DATA_DIR, 'relatos-entrada'));
+fs.mkdirSync(RELATO_DIR, { recursive: true });
+fs.mkdirSync(INBOX_DIR, { recursive: true });
+const staging = new Map(); // token -> { staged, at, inbox }
+const stage = (staged, inbox) => {
+  for (const [k, v] of staging) if (Date.now() - v.at > 3600e3) staging.delete(k);
+  const token = crypto.randomBytes(16).toString('hex'); staging.set(token, { staged, at: Date.now(), inbox, user: null }); return token;
+};
+// Assinatura barata de uma pasta da entrada: nomes, tamanhos e datas dos arquivos.
+function folderSig(dir) {
+  const parts = [];
+  const walk = (d, rel) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { if (e.name.startsWith('.')) continue; const p = path.join(d, e.name), r = rel + '/' + e.name; if (e.isDirectory()) walk(p, r); else { const st = fs.statSync(p); parts.push(r + ':' + st.size + ':' + Math.floor(st.mtimeMs)); } } };
+  walk(dir, ''); return crypto.createHash('sha1').update(parts.sort().join('|')).digest('hex');
+}
+function inboxState() {
+  try {
+    return relatos.listInbox(INBOX_DIR).map(dir => {
+      const rel = path.relative(INBOX_DIR, dir).split(path.sep).join('/'), sig = folderSig(dir), seen = getSetting('inbox:' + rel);
+      return { folder: rel, state: !seen ? 'novo' : seen === sig ? 'importado' : 'mudou', sig };
+    });
+  } catch (e) { console.error('Entrada de relatos:', e.message); return []; }
+}
+function saveRelatoFile(f) {
+  const stored = crypto.randomBytes(16).toString('hex') + path.extname(f.name).toLowerCase().replace(/[^.a-z0-9]/g, '');
+  fs.writeFileSync(path.join(RELATO_DIR, stored), f.data);
+  return stored;
+}
+const relatoOpts = (req, extra) => ({ userId: req.user.id, newId, now, saveFile: saveRelatoFile, ...extra });
+const relatoUpload = multer({ storage: multer.memoryStorage(), preservePath: true, limits: { fileSize: 100 * 1024 * 1024, files: 200 } });
+
+app.post('/api/admin/relatos/upload', needAdmin, (req, res) => {
+  relatoUpload.array('files', 200)(req, res, err => {
+    if (err) return res.status(400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'Arquivo grande demais (máx. 100 MB cada).' : 'Não foi possível enviar a pasta.' });
+    try {
+      const files = (req.files || []).map(f => ({ name: Buffer.from(f.originalname, 'latin1').toString('utf8'), data: f.buffer }));
+      if (!files.length) return res.status(400).json({ error: 'Escolha a pasta do relato ou o .zip.' });
+      const staged = relatos.readFolder(files);
+      const token = stage(staged, null);
+      res.json({ token, ...relatos.runRelato(db, staged, relatoOpts(req)) });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+  });
+});
+app.get('/api/admin/relatos', needAdmin, (req, res) => {
+  res.json({
+    relatos: db.prepare('SELECT id,fonte,data,imported_at importedAt,applied,skipped FROM relatos ORDER BY imported_at DESC').all(),
+    inbox: inboxState().map(({ folder, state }) => ({ folder, state }))
+  });
+});
+app.post('/api/admin/relatos/inbox', needAdmin, (req, res) => {
+  const item = inboxState().find(x => x.folder === String(req.body.folder || ''));
+  if (!item) return res.status(404).json({ error: 'Pasta não encontrada na entrada.' });
+  try {
+    const staged = relatos.readInboxFolder(path.join(INBOX_DIR, item.folder));
+    const token = stage(staged, item);
+    res.json({ token, ...relatos.runRelato(db, staged, relatoOpts(req)) });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.post('/api/admin/relatos/run', needAdmin, (req, res) => {
+  const st = staging.get(String(req.body.token || ''));
+  if (!st) return res.status(400).json({ error: 'A prévia expirou. Abra o relato de novo.' });
+  const decisions = {};
+  for (const [k, v] of Object.entries(req.body.decisions || {})) if (typeof v === 'string' && /^(new|skip|keep|id:.+)$/.test(v)) decisions[String(k).slice(0, 300)] = v;
+  try {
+    const r = relatos.runRelato(db, st.staged, relatoOpts(req, { decisions, apply: !!req.body.apply }));
+    if (req.body.apply) {
+      if (st.inbox) setSetting('inbox:' + st.inbox.folder, st.inbox.sig);
+      staging.delete(String(req.body.token));
+      log(req, 'importou relato', st.staged.meta.id, { linhas: r.rows.length, aplicadas: r.rows.filter(x => x.ok).length });
+    }
+    res.json(r);
+  } catch (e) { res.status(e.status || 500).json({ error: e.status ? e.message : 'Erro ao importar o relato.' }); if (!e.status) console.error(e); }
+});
+// Marcar uma pasta da entrada como vista sem importar (ex.: relato antigo já lançado à mão).
+app.post('/api/admin/relatos/inbox/ignore', needAdmin, (req, res) => {
+  const item = inboxState().find(x => x.folder === String(req.body.folder || ''));
+  if (!item) return res.status(404).json({ error: 'Pasta não encontrada.' });
+  setSetting('inbox:' + item.folder, item.sig); res.json({ ok: true });
+});
+app.get('/api/relatos/:id', needWriter, (req, res) => {
+  const r = db.prepare('SELECT id,fonte,data,ficha,relato,imported_at importedAt,applied,skipped FROM relatos WHERE id=?').get(req.params.id);
+  if (!r) return res.status(404).json({ error: 'Relato não encontrado.' });
+  r.files = db.prepare('SELECT id,name,mime,size FROM relato_files WHERE relato_id=? ORDER BY name').all(r.id);
+  r.people = db.prepare('SELECT person_id FROM relato_people WHERE relato_id=?').all(r.id).map(x => x.person_id);
+  res.json(r);
+});
+app.get('/api/relatos/:id/files/:fid', needWriter, (req, res) => {
+  const f = db.prepare('SELECT * FROM relato_files WHERE id=? AND relato_id=?').get(Number(req.params.fid), req.params.id);
+  if (!f) return res.status(404).end();
+  res.set('Content-Type', f.mime || 'application/octet-stream');
+  res.set('X-Content-Type-Options', 'nosniff');
+  res.set('Content-Security-Policy', "default-src 'none'; img-src 'self'; media-src 'self'; frame-ancestors 'self'; sandbox");
+  res.set('Content-Disposition', `${/^(image|audio|video)\/|pdf/.test(f.mime) && !req.query.download ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(f.name)}`);
+  res.set('Cache-Control', 'private, max-age=86400');
+  res.sendFile(path.join(RELATO_DIR, path.basename(f.stored)));
+});
+// Pendências: alertas pulados e possíveis duplicados
+app.get('/api/admin/pending', needAdmin, (req, res) => {
+  res.json({ pending: db.prepare("SELECT id,kind,relato_id relatoId,title,data,created_at createdAt FROM pending WHERE status='open' ORDER BY created_at DESC").all().map(p => ({ ...p, data: JSON.parse(p.data || '{}') })) });
+});
+app.post('/api/admin/pending/:id/close', needAdmin, (req, res) => {
+  db.prepare("UPDATE pending SET status='closed' WHERE id=?").run(Number(req.params.id)); res.json({ ok: true });
+});
+app.get('/api/admin/duplicates', needAdmin, (req, res) => res.json({ pairs: relatos.scanDuplicates(db) }));
+app.post('/api/admin/duplicates/not', needAdmin, (req, res) => {
+  const a = String(req.body.a || ''), b = String(req.body.b || '');
+  if (!exists(a) || !exists(b)) return res.status(404).json({ error: 'Pessoa não encontrada.' });
+  const [x, y] = [a, b].sort();
+  db.prepare('INSERT OR IGNORE INTO not_duplicates(a,b) VALUES(?,?)').run(x, y);
+  log(req, 'marcou como pessoas diferentes', null, { a: x, b: y });
+  res.json({ ok: true });
 });
 
 // ---------- páginas ----------

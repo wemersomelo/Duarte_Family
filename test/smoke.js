@@ -159,6 +159,55 @@ function client() {
   assert.equal((await admin('POST', '/api/admin/import-lote', { text: csv, apply: true })).data.ok, 1, 'CSV com ;');
   assert.equal((await admin('GET', '/api/tree')).data.people.find(x => x.name === 'Tia Lote Teste').birthPlace, 'Catuji; MG');
 
+  // relatos: pasta enviada pelo navegador (com caminhos), .zip e pasta de entrada no servidor
+  const { zipSync, strToU8 } = require('fflate');
+  const lote2 = 'Ação,Pessoa,Campo,Valor,Fonte,Confiança\nATUALIZAR,Tia Lote,nascimento,1947,Prima X 02/02,Relato direto\nNOVA,Bisavô Novo Teste,nome completo,Bisavô Novo Teste,Prima X,Relato indireto\nVÍNCULO,Bisavô Novo Teste,filho,Tia Lote Teste,Prima X,Relato indireto\nATUALIZAR,Bisavô Novo Teste,sexo,masculino,Prima X,Relato indireto\n';
+  const ficha2 = '- **ID:** 2026-02-02_primax\n- **Fonte:** Prima X\n- **Data:** 02/02/2026\n';
+  const rfd = new FormData();
+  rfd.append('files', new Blob([ficha2]), '2026-02-02_primax/ficha.md');
+  rfd.append('files', new Blob(['# Relato da prima X']), '2026-02-02_primax/relato.md');
+  rfd.append('files', new Blob([lote2]), '2026-02-02_primax/lote.csv');
+  rfd.append('files', new Blob([Buffer.from('%PDF-1.4 teste')]), '2026-02-02_primax/material/certidao.pdf');
+  assert.equal((await tia('POST', '/api/admin/relatos/upload', rfd, true)).status, 403, 'só admin envia relato');
+  let rrp = (await admin('POST', '/api/admin/relatos/upload', rfd, true)).data;
+  assert.equal(rrp.relato.id, '2026-02-02_primax'); assert.equal(rrp.relato.material.length, 1);
+  // "Tia Lote" é o apelido de "Tia Lote Teste": alerta de identidade, nada aplicado ainda
+  assert.equal(rrp.alerts.length, 1); assert.equal(rrp.alerts[0].type, 'same');
+  const tlId = rrp.alerts[0].candidates[0].id, rtok = rrp.token;
+  assert.equal((await admin('POST', '/api/admin/relatos/run', { token: rrp.token, apply: true })).status, 400, 'não aplica com alerta aberto');
+  rrp = (await admin('POST', '/api/admin/relatos/run', { token: rtok, decisions: { [rrp.alerts[0].key]: 'id:' + tlId } })).data;
+  // a data de nascimento diverge (1946 no site): alerta de divergência
+  const rdv = rrp.alerts.find(a => a.type === 'divergence'); assert.ok(rdv, 'divergência'); assert.equal(rdv.current, '1946');
+  const rap = (await admin('POST', '/api/admin/relatos/run', { token: rtok, decisions: { [rrp.alerts.find(a => a.type !== 'divergence')?.key || 'x']: 'skip', tia: 'skip', 'tia lote': 'id:' + tlId, [rdv.key]: 'keep' }, apply: true }));
+  assert.equal(rap.status, 200, JSON.stringify(rap.data));
+  let rtr = (await admin('GET', '/api/tree')).data;
+  const tlp = rtr.people.find(x => x.id === tlId), biso = rtr.people.find(x => x.name === 'Bisavô Novo Teste');
+  assert.equal(tlp.birth, '1946', 'manteve o atual'); assert.ok(rtr.notes.some(n => n.personId === tlId && n.text.includes('Outra versão de nascimento: 1947')));
+  assert.ok(biso, 'nova pessoa criada'); assert.ok(rtr.relatoLinks.some(l => l.personId === tlId && l.relatoId === '2026-02-02_primax'), 'relato ligado à pessoa');
+  // nome alternativo memorizado: na próxima vez "Tia Lote" resolve sozinho
+  const rfd2 = new FormData(); rfd2.append('files', new Blob([zipSync({ 'x/lote.csv': strToU8('Ação,Pessoa,Campo,Valor,Fonte,Confiança\nATUALIZAR,Tia Lote,local de falecimento,Teste,Zip,Hipótese\n') })]), 'x.zip');
+  rrp = (await admin('POST', '/api/admin/relatos/upload', rfd2, true)).data;
+  assert.equal(rrp.alerts.length, 0, 'nome alternativo lembrado'); assert.equal(rrp.relato.id, 'x');
+  // reimportar o mesmo relato: só linhas novas
+  rrp = (await admin('POST', '/api/admin/relatos/upload', rfd, true)).data;
+  assert.ok(rrp.relato.existing); assert.ok(rrp.rows.filter(r => r.done).length >= 3, 'linhas já importadas não repetem');
+  // relato e material: privados
+  const relv = await admin('GET', '/api/relatos/2026-02-02_primax'); assert.equal(relv.status, 200); assert.equal(relv.data.files.length, 1);
+  assert.equal((await leitor('GET', '/api/relatos/2026-02-02_primax')).status, 403, 'leitor não vê relatos');
+  assert.equal((await anon('GET', '/api/relatos/2026-02-02_primax')).status, 403);
+  assert.equal((await leitor('GET', '/api/tree')).data.relatoLinks.length, 0, 'leitor não recebe ligações de relatos');
+  const rfr = await admin('GET', `/api/relatos/2026-02-02_primax/files/${relv.data.files[0].id}`); assert.equal(rfr.status, 200);
+  // pasta de entrada no servidor
+  const inboxDir = path.join(process.env.DATA_DIR, 'relatos-entrada', 'melo', '2026-03-03_tio');
+  fs.mkdirSync(inboxDir, { recursive: true });
+  fs.writeFileSync(path.join(inboxDir, 'lote.csv'), 'Ação,Pessoa,Campo,Valor,Fonte,Confiança\nNOTA,Tia Lote Teste,nota,Teste da entrada,Tio,Relato direto\n');
+  assert.equal((await admin('GET', '/api/status')).data.inboxNew, 1);
+  rrp = (await admin('POST', '/api/admin/relatos/inbox', { folder: 'melo/2026-03-03_tio' })).data;
+  await admin('POST', '/api/admin/relatos/run', { token: rrp.token, apply: true });
+  assert.equal((await admin('GET', '/api/status')).data.inboxNew, 0, 'entrada marcada como importada');
+  // varredura de duplicados não junta nada sozinha
+  const rdup = (await admin('GET', '/api/admin/duplicates')).data; assert.ok(Array.isArray(rdup.pairs));
+
   const adminId = (await admin('GET', '/api/admin')).data.users.find(u => u.email === 'admin@ex.com').id;
   assert.equal((await admin('PUT', '/api/admin/users/' + adminId, { personId: 'avo' })).status, 200);
   assert.equal((await anon('GET', '/api/status')).data.defaultPerson, 'avo', 'visitante começa pela pessoa do admin');

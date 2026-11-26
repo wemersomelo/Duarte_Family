@@ -5,6 +5,7 @@
 // Regras: nunca apaga nada; quando um campo já tem outro valor, o antigo vira nota ("versão anterior");
 // fonte e confiança vão para o campo "Fontes" da pessoa; campos desconhecidos viram nota.
 
+const crypto = require('crypto');
 const norm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 const unmd = s => String(s || '').replace(/\*\*|__|`/g, '').replace(/\s+/g, ' ').trim();
 
@@ -56,13 +57,20 @@ const COLOR = { branca: 'branca', branco: 'branca', preta: 'preta', preto: 'pret
 // "Donato ("velho Donato")" -> nome "Donato" e apelido "velho Donato"
 function splitNick(v) { const m = unmd(v).match(/^(.*?)\s*\(\s*["“]([^"”]+)["”]\s*\)\s*$/); return m ? { main: m[1].trim(), nick: m[2].trim() } : { main: unmd(v), nick: '' }; }
 
+// Identifica uma linha do lote (para não aplicar duas vezes a mesma linha de um relato).
+const rowKey = r => crypto.createHash('sha1').update([r.acao, r.pessoa, r.campo, r.valor].map(norm).join('|')).digest('hex').slice(0, 16);
+// Alerta: a linha fica parada até o administrador decidir.
+class Alert extends Error { constructor(a) { super(a.title); this.alert = a; } }
+
 // ---------- aplicação ----------
-function runLote(db, text, { apply, userId, newId, now }) {
+function runLote(db, text, { apply, userId, newId, now, resolver, divergence, skipKeys }) {
   const parsed = parseRows(text); if (parsed.error) return { error: parsed.error };
   const report = [];
   const all = () => db.prepare('SELECT * FROM people').all();
-  function find(ref) {
+  function find(ref, ctx) {
+    if (resolver) return resolver(ref, ctx || {});
     const { main } = splitNick(ref), r = norm(main); if (!r) return { none: true };
+    const al = db.prepare('SELECT p.* FROM person_aliases a JOIN people p ON p.id=a.person_id WHERE a.alias=?').get(r); if (al) return { p: al };
     const ps = all();
     const byId = ps.find(p => p.id === main); if (byId) return { p: byId };
     let hit = ps.filter(p => norm(p.name) === r); if (hit.length === 1) return { p: hit[0] }; if (hit.length > 1) return { many: hit };
@@ -80,27 +88,57 @@ function runLote(db, text, { apply, userId, newId, now }) {
     if (!cur.includes(line)) db.prepare('UPDATE people SET sources=?, updated_at=? WHERE id=?').run((cur ? cur + '\n' : '') + line, now(), pid);
   };
   const src = row => row.fonte ? ` (${row.fonte}${row.conf ? ', ' + row.conf.toLowerCase() : ''})` : '';
+  const nameOf = id => { const q = db.prepare('SELECT name FROM people WHERE id=?').get(id); return q ? q.name : id; };
   function setField(p, f, v, row) {
     const old = p[f] || '';
     if (norm(old) === norm(v)) return 'já estava assim';
+    if (old && divergence) {
+      const rel = ['father_id', 'mother_id', 'spouse_id'].includes(f), show = x => rel ? nameOf(x) : x;
+      const key = `${p.id}|${f}|${norm(v)}`, d = divergence(key);
+      if (!d) {
+        const srcLine = String(p.sources || '').split('\n').filter(l => norm(l).startsWith('• ' + norm(LABEL[f]))).pop() || '';
+        throw new Alert({ type: 'divergence', key, title: `Divergência em ${LABEL[f]} de ${p.name}`, person: p.name, field: LABEL[f], current: show(old), currentSource: srcLine.replace(/^•\s*/, ''), proposed: show(v), proposedSource: [row.fonte, row.conf].filter(Boolean).join(', ') });
+      }
+      if (d === 'keep') { addNote(p.id, 'info', `Outra versão de ${LABEL[f]}: ${show(v)}${src(row)}. Mantido "${show(old)}".`); return `mantido "${show(old)}"; a outra versão ficou em nota`; }
+    }
     if (old && !['father_id', 'mother_id', 'spouse_id'].includes(f)) addNote(p.id, 'info', `Versão anterior de ${LABEL[f]}: ${old}. Trocado por "${v}" no lote${src(row)}.`);
-    db.prepare(`UPDATE people SET ${f}=?, updated_at=? WHERE id=?`).run(v, now(), p.id); p[f] = v;
+    db.prepare(`UPDATE people SET ${f}=?, updated_at=? WHERE id=?`).run(v, now(), p.id); p[f] = v; touched.add(p.id);
     return old ? `${LABEL[f]}: "${old}" → "${v}" (versão anterior guardada em nota)` : `${LABEL[f]}: ${v}`;
   }
 
+  let touched = new Set();
+  // Pessoa citada no Valor (pai, mãe, cônjuge, filho): pode gerar alerta ou ser criada se o administrador decidiu "criar nova".
+  function target(v) {
+    const t = find(v, { role: 'valor' });
+    if (t.alert) throw new Alert(t.alert);
+    if (t.skip) throw Object.assign(new Error('pulada (decisão: pular por enquanto)'), { skipped: true });
+    if (t.create) {
+      const { main, nick } = splitNick(v), id = newId(main);
+      db.prepare('INSERT INTO people(id,name,nick,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?)').run(id, main, nick, userId, now(), now());
+      touched.add(id); if (t.onCreate) t.onCreate(id);
+      return { p: db.prepare('SELECT * FROM people WHERE id=?').get(id) };
+    }
+    if (!t.p) throw new Error(t.many ? `"${v}" é ambíguo: ${t.many.map(x => x.name).join(', ')}` : `"${v}" não está na árvore. Crie primeiro com uma linha NOVA.`);
+    touched.add(t.p.id); return t;
+  }
   const tx = db.transaction(() => {
     for (const row of parsed.rows) {
-      const out = { n: row.n, acao: row.acao, pessoa: row.pessoa, campo: row.campo, valor: unmd(row.valor) };
+      const out = { n: row.n, key: rowKey(row), acao: row.acao, pessoa: row.pessoa, campo: row.campo, valor: unmd(row.valor) };
+      touched = new Set();
+      if (skipKeys && skipKeys.has(out.key)) { out.done = 'já importada antes'; report.push(out); continue; }
+      const sp = db.prepare('SAVEPOINT linha'); sp.run();
       try {
         const f = fieldOf(row.campo), ac = norm(row.acao);
-        let who = find(row.pessoa), p = who.p;
+        let who = find(row.pessoa, { role: 'pessoa', nova: ac.includes('nova'), row }), p = who.p;
+        if (who.alert) throw new Alert(who.alert);
+        if (who.skip) { out.skipped = 'pulada (decisão: pular por enquanto)'; db.prepare('RELEASE linha').run(); report.push(out); continue; }
         if (who.many) throw new Error('mais de uma pessoa com esse nome: ' + who.many.map(x => x.name).join(', ') + '. Use o nome completo.');
         if (!p) {
-          if (!ac.includes('nova')) throw new Error('pessoa não encontrada na árvore. Use NOVA para criar.');
+          if (!ac.includes('nova') && !who.create) throw new Error('pessoa não encontrada na árvore. Use NOVA para criar.');
           const { main, nick } = f === 'name' ? splitNick(row.valor) : splitNick(row.pessoa);
           const id = newId(main);
           db.prepare('INSERT INTO people(id,name,nick,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?)').run(id, main, nick, userId, now(), now());
-          p = db.prepare('SELECT * FROM people WHERE id=?').get(id); out.novo = true;
+          p = db.prepare('SELECT * FROM people WHERE id=?').get(id); out.novo = true; touched.add(id); if (who.onCreate) who.onCreate(id);
         }
         out.pessoa = p.name;
         const v = unmd(row.valor);
@@ -113,15 +151,14 @@ function runLote(db, text, { apply, userId, newId, now }) {
           addSource(p.id, 'nome', row);
         }
         else if (['father_id', 'mother_id', 'spouse_id'].includes(f)) {
-          const t = find(v); if (!t.p) throw new Error(t.many ? `"${v}" é ambíguo` : `"${v}" não está na árvore. Crie primeiro com uma linha NOVA.`);
-          if (t.p.id === p.id) throw new Error('a pessoa não pode ser ligada a ela mesma');
+          const t = target(v); if (t.p.id === p.id) throw new Error('a pessoa não pode ser ligada a ela mesma');
           out.ok = setField(p, f, t.p.id, row).replace(t.p.id, t.p.name); addSource(p.id, LABEL[f] + ' ' + t.p.name, row);
           if (f === 'spouse_id' && !t.p.spouse_id) db.prepare('UPDATE people SET spouse_id=? WHERE id=?').run(p.id, t.p.id);
         }
         else if (f === 'parents') {
           const names = v.split(/\s*(?:\+|\be\b|&)\s*/).filter(Boolean), done = [];
           for (const nm of names) {
-            const t = find(nm); if (!t.p) throw new Error(`"${nm}" não está na árvore`);
+            const t = target(nm);
             const slot = t.p.sex === 'f' ? 'mother_id' : t.p.sex === 'm' ? 'father_id' : null;
             if (!slot) throw new Error(`não sei se ${t.p.name} é pai ou mãe (sexo não informado)`);
             setField(p, slot, t.p.id, row); done.push(`${LABEL[slot]}: ${t.p.name}`);
@@ -129,7 +166,7 @@ function runLote(db, text, { apply, userId, newId, now }) {
           addSource(p.id, 'pais', row); out.ok = done.join('; ');
         }
         else if (f === 'child') {
-          const t = find(v); if (!t.p) throw new Error(`"${v}" não está na árvore. Crie primeiro com uma linha NOVA.`);
+          const t = target(v);
           const slot = p.sex === 'f' ? 'mother_id' : p.sex === 'm' ? 'father_id' : null;
           if (!slot) throw new Error(`não sei se ${p.name} é pai ou mãe (sexo não informado)`);
           out.ok = `${t.p.name}: ` + setField(t.p, slot, p.id, row).replace(p.id, p.name); addSource(t.p.id, LABEL[slot] + ' ' + p.name, row);
@@ -139,13 +176,18 @@ function runLote(db, text, { apply, userId, newId, now }) {
         else if (f) { out.ok = setField(p, f, v, row); addSource(p.id, `${LABEL[f]} ${v}`, row); }
         else { addNote(p.id, 'info', `${row.campo}: ${v}${src(row)}`); out.ok = 'nota acrescentada (campo livre)'; }
         if (out.novo) out.ok = 'NOVA pessoa · ' + out.ok;
-      } catch (e) { out.erro = e.message; }
+        touched.add(p.id); out.people = [...touched];
+        db.prepare('RELEASE linha').run();
+      } catch (e) {
+        db.prepare('ROLLBACK TO linha').run(); db.prepare('RELEASE linha').run();
+        if (e.alert) out.alert = e.alert; else if (e.skipped) out.skipped = e.message; else out.erro = e.message;
+      }
       report.push(out);
     }
     if (!apply) throw Object.assign(new Error('preview'), { preview: true });
   });
   try { tx(); } catch (e) { if (!e.preview) throw e; }
-  return { rows: report, ok: report.filter(r => r.ok).length, erros: report.filter(r => r.erro).length, applied: !!apply };
+  return { rows: report, ok: report.filter(r => r.ok).length, erros: report.filter(r => r.erro).length, alerts: report.filter(r => r.alert).length, applied: !!apply };
 }
 
-module.exports = { runLote, parseRows };
+module.exports = { runLote, parseRows, rowKey, norm, unmd, splitNick };

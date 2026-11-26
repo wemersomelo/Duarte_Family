@@ -4,7 +4,7 @@ const $ = s => document.querySelector(s);
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const norm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
-let me = null, people = {}, notes = [], files = [], media = [], userNames = {}, focus = null, editing = null, ctx = {};
+let me = null, people = {}, notes = [], files = [], media = [], relatoLinks = [], userNames = {}, focus = null, editing = null, ctx = {};
 const P = id => (id && people[id]) ? people[id] : null;
 const canWrite = () => !!me && (me.role === 'member' || me.role === 'admin');
 const isGuest = () => !!me && me.role === 'guest';
@@ -143,7 +143,7 @@ async function start() {
   $('#adminBtn').hidden = me.role !== 'admin';
   $('#pwBtn').hidden = isGuest();
   $('#askBtn').hidden = !isGuest();
-  $('#adminBtn').textContent = st.pendingRequests ? `Administrar (${st.pendingRequests})` : 'Administrar';
+  { const n = (st.pendingRequests || 0) + (st.inboxNew || 0); $('#adminBtn').textContent = n ? `Administrar (${n})` : 'Administrar'; }
   $('#how').hidden = isGuest();
   $('#addBtn').hidden = !canWrite();
   await load();
@@ -153,7 +153,7 @@ async function load() {
   try {
     const d = await api('/api/tree');
     people = Object.fromEntries(d.people.map(p => [p.id, p]));
-    notes = d.notes; files = d.files; media = d.media || [];
+    notes = d.notes; files = d.files; media = d.media || []; relatoLinks = d.relatoLinks || [];
     userNames = Object.fromEntries(d.users.map(u => [u.id, u.name]));
     me = d.me;
     const n = d.people.length;
@@ -231,6 +231,7 @@ function renderRecord() {
   const pn = notes.filter(n => n.personId === p.id);
   const pf = files.filter(f => f.personId === p.id);
   const ed = canEdit(p);
+  const prel = relatoLinks.filter(r => r.personId === p.id);
   // Casamento: guardado na ficha da pessoa ou na do cônjuge.
   const sp = P(p.spouseId), back = sp && (!sp.spouseId || sp.spouseId === p.id) ? sp : null;
   const mD = p.marriage || back?.marriage || '', mP = p.marriagePlace || back?.marriagePlace || '';
@@ -257,7 +258,8 @@ function renderRecord() {
   <h4>Lembranças da família (${mem.length})</h4>
   ${mem.length ? noteList(mem) : '<p class="none">Nenhuma ainda. Conte uma história, uma lembrança ou algo que você aprendeu com esta pessoa.</p>'}
   <h4>Informações da família (${info.length})</h4>
-  ${info.length ? noteList(info) : '<p class="none">Nenhuma ainda.</p>'}`}`;
+  ${info.length ? noteList(info) : '<p class="none">Nenhuma ainda.</p>'}`}
+  ${prel.length ? `<h4>Relatos que citam esta pessoa (${prel.length})</h4><ul class="mlinks">${prel.map(r => `<li><button type="button" class="link" data-relato="${esc(r.relatoId)}">${esc(r.fonte || r.relatoId)}</button><small>${esc(r.data || '')}</small></li>`).join('')}</ul>` : ''}`;
   const par = [P(p.fatherId), P(p.motherId)].filter(Boolean);
   // Primos: filhos dos irmãos do pai e da mãe.
   const sibs = siblingsOf(p.id), skip = new Set([p.id, ...sibs.map(q => q.id)]);
@@ -268,6 +270,7 @@ function renderRecord() {
 document.addEventListener('click', async e => {
   const g = e.target.closest('[data-go]'); if (g) { closeAll(); go(g.dataset.go); return; }
   const v = e.target.closest('[data-view]'); if (v) { openViewer(v.dataset.view); return; }
+  const rv = e.target.closest('[data-relato]'); if (rv) { openRelato(rv.dataset.relato); return; }
   const rn = e.target.closest('[data-rmnote]'); if (rn) { if (await confirmBtn(rn)) { await api('/api/notes/' + rn.dataset.rmnote, { method: 'DELETE' }).catch(err => alertStatus(err)); load(); } return; }
   const rl = e.target.closest('[data-rmlink]'); if (rl) { if (await confirmBtn(rl)) { await api('/api/media-links/' + rl.dataset.rmlink, { method: 'DELETE' }).catch(err => alertStatus(err)); load(); } return; }
   const mp = e.target.closest('[data-mainphoto]'); if (mp) { await api(`/api/people/${encodeURIComponent(focus)}/photo`, { method: 'PUT', body: { fileId: mp.dataset.mainphoto } }).catch(err => alertStatus(err)); load(); return; }
@@ -518,6 +521,7 @@ async function loadAdmin() {
   linkedIds = new Set([...d.users.map(u => u.personId), ...d.invites.filter(i => !i.usedBy && i.expires > Date.now()).map(i => i.personId)].filter(Boolean));
   $('#iform').elements.personId.innerHTML = personOptions();
   loadRequests().catch(err => $('#aErr').textContent = err.message);
+  loadRelatos().catch(err => $('#aErr').textContent = err.message);
   $('#users').innerHTML = `<table class="tbl"><thead><tr><th>Nome</th><th>E-mail</th><th>Acesso</th><th>Na árvore</th><th></th></tr></thead><tbody>${d.users.map(u => `<tr><td>${esc(u.name)}</td><td>${esc(u.email)}</td><td>${u.id === me.id ? ROLE[u.role] : `<select data-role="${u.id}">${Object.entries(ROLE).map(([k, v]) => `<option value="${k}"${k === u.role ? ' selected' : ''}>${v}</option>`).join('')}</select>`}</td><td><select data-person="${u.id}"><option value="">—</option>${Object.values(people).sort(byName).map(p => `<option value="${esc(p.id)}"${p.id === u.personId ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</select></td><td>${u.id === me.id ? 'você' : `<button type="button" class="link" data-reset="${u.id}">link de nova senha</button> <button type="button" class="link" data-active="${u.id}" data-to="${u.active ? 0 : 1}">${u.active ? 'bloquear' : 'desbloquear'}</button>`}</td></tr>`).join('')}</tbody></table>`;
   const open = d.invites.filter(i => !i.usedBy && i.expires > Date.now());
   $('#invites').innerHTML = open.length ? `<p class="note">Convites ainda não usados (valem 30 dias):</p><table class="tbl"><tbody>${open.map(i => `<tr><td>${esc(i.label || 'sem nome')}</td><td>${ROLE[i.role]}</td><td><button type="button" class="link" data-copy="${esc(i.token)}">copiar link</button> <button type="button" class="link" data-revoke="${esc(i.token)}">cancelar</button></td></tr>`).join('')}</tbody></table>` : '';
@@ -597,6 +601,101 @@ $('#lotePrev').addEventListener('click', async e => {
     const r = await api('/api/admin/import-lote', { method: 'POST', body: { text: loteText, apply: true } });
     $('#lotePrev').innerHTML = loteTable(r); $('#loteform').reset(); await load();
   } catch (err) { $('#lotePrev').innerHTML += `<p class="err">${esc(err.message)}</p>`; }
+});
+
+/* ---------- relatos de entrevista ---------- */
+// Texto do relato: markdown simples (títulos, negrito, listas, tabelas viram texto legível).
+function mdLite(t) {
+  return esc(t || '').split('\n').map(l => {
+    if (/^\s*\|?\s*:?-{3,}/.test(l)) return '';
+    const h = l.match(/^(#{1,4})\s+(.*)$/); if (h) return `<h${Math.min(h[1].length + 2, 5)}>${h[2]}</h${Math.min(h[1].length + 2, 5)}>`;
+    return (l.trim() ? `<p>${l}</p>` : '');
+  }).join('').replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+}
+async function openRelato(id) {
+  try {
+    const r = await api('/api/relatos/' + encodeURIComponent(id));
+    $('#relTitle').textContent = `${r.fonte || r.id}${r.data ? ' · ' + r.data : ''}`;
+    const img = f => /^image\//.test(f.mime);
+    $('#relBody').innerHTML = `<p class="note">Importado em ${esc(fmtDate(r.importedAt))} · ${r.applied} linha(s) aplicadas${r.skipped ? `, ${r.skipped} pulada(s)` : ''}</p>
+      ${r.people.length ? `<h4>Pessoas citadas</h4><div class="chips">${r.people.filter(P).map(id => chip(P(id))).join('')}</div>` : ''}
+      ${r.files.length ? `<h4>Material (${r.files.length})</h4><div class="relfiles">${r.files.map(f => { const u = `/api/relatos/${encodeURIComponent(r.id)}/files/${f.id}`; return `<a class="relfile" href="${u}" target="_blank" rel="noopener">${img(f) ? `<img src="${u}" alt="" loading="lazy">` : '<span class="relicon">📄</span>'}<span>${esc(f.name)}</span></a>`; }).join('')}</div>` : ''}
+      ${r.ficha ? `<h4>Ficha</h4><div class="mdtext">${mdLite(r.ficha)}</div>` : ''}
+      ${r.relato ? `<h4>Relato</h4><div class="mdtext">${mdLite(r.relato)}</div>` : ''}`;
+    $('#reldlg').showModal();
+  } catch (err) { alertStatus(err); }
+}
+let rel = null; // { token, decisions, data }
+const relNames = {};
+async function loadRelatos() {
+  const d = await api('/api/admin/relatos');
+  const fresh = d.inbox.filter(x => x.state !== 'importado');
+  $('#relCount').textContent = fresh.length ? `(${fresh.length} novo${fresh.length > 1 ? 's' : ''})` : '';
+  $('#inbox').innerHTML = fresh.length ? `<p class="note">Na pasta de entrada do servidor:</p><table class="tbl"><tbody>${fresh.map(x => `<tr><td><b>${esc(x.folder)}</b><br><span class="note">${x.state === 'mudou' ? 'mudou desde a última importação' : 'novo'}</span></td><td><button type="button" class="primary" data-inbox="${esc(x.folder)}">Abrir</button> <button type="button" class="link" data-inboxignore="${esc(x.folder)}">já lancei, ignorar</button></td></tr>`).join('')}</tbody></table>`
+    : '<p class="note">Nenhum relato novo na pasta de entrada. Também pode escolher a pasta de um relato ou um .zip:</p>';
+  $('#relList').innerHTML = d.relatos.length ? `<table class="tbl"><tbody>${d.relatos.map(r => `<tr><td><button type="button" class="link" data-relato="${esc(r.id)}">${esc(r.fonte || r.id)}</button><br><span class="note">${esc(r.id)}</span></td><td class="note">relato de ${esc(r.data || '?')}<br>importado ${esc(fmtDate(r.importedAt))}</td><td class="note">${r.applied} aplicada(s)${r.skipped ? `<br>${r.skipped} pulada(s)` : ''}</td></tr>`).join('')}</tbody></table>` : '<p class="none">Nenhum relato importado ainda.</p>';
+  const pd = await api('/api/admin/pending');
+  $('#pendList').innerHTML = pd.pending.length ? `<table class="tbl"><tbody>${pd.pending.map(x => `<tr><td>${esc(x.title)}<br><span class="note">relato ${esc(x.relatoId || '')} · ${esc(fmtDate(x.createdAt))}. Para resolver, abra o relato de novo.</span></td><td><button type="button" class="link" data-pendclose="${x.id}">resolvido</button></td></tr>`).join('')}</tbody></table>` : '<p class="none">Nenhuma pendência.</p>';
+}
+const cand = c => `<div class="cand"><b>${esc(c.name)}</b>${c.nick ? ` (${esc(c.nick)})` : ''}${c.why ? ` <span class="tag">${esc(c.why)}</span>` : ''}
+  <div class="note">${[c.birth && '★ ' + c.birth, c.death && '✝ ' + c.death, c.father && 'pai: ' + c.father, c.mother && 'mãe: ' + c.mother, c.spouse && 'cônjuge: ' + c.spouse, c.relatos && c.relatos.length && 'relatos: ' + c.relatos.join(', ')].filter(Boolean).map(esc).join(' · ') || 'sem outros dados'}</div>`;
+function renderRel() {
+  const d = rel.data, R = d.relato, decided = Object.entries(rel.decisions);
+  const label = v => v === 'new' ? 'criar pessoa nova' : v === 'skip' ? 'pular por enquanto' : v === 'keep' ? 'manter o atual' : v.startsWith('id:') ? 'é ' + (P(v.slice(3))?.name || relNames[v.slice(3)] || 'a pessoa escolhida') : v;
+  const alertHtml = a => a.type === 'divergence'
+    ? `<div class="alert"><p><b>${esc(a.title)}</b> <span class="note">(linha ${a.rows.join(', ')})</span></p>
+        <div class="cand"><b>Atual:</b> ${esc(a.current)}<div class="note">${esc(a.currentSource || 'sem fonte registrada')}</div></div>
+        <div class="cand"><b>Novo:</b> ${esc(a.proposed)}<div class="note">${esc(a.proposedSource || 'sem fonte')}</div></div>
+        <div class="actions"><button type="button" class="primary" data-dec="${esc(a.key)}" data-val="new">Usar o novo</button><button type="button" data-dec="${esc(a.key)}" data-val="keep">Manter o atual</button></div>
+        <p class="note">O outro valor fica guardado em nota, com a fonte.</p></div>`
+    : `<div class="alert"><p><b>${esc(a.title)}</b> <span class="note">(linha${a.rows.length > 1 ? 's' : ''} ${a.rows.join(', ')})</span></p>
+        ${a.candidates.map(c => { relNames[c.id] = c.name; return `${cand(c)}<div class="actions small"><button type="button" class="primary" data-dec="${esc(a.key)}" data-val="id:${esc(c.id)}">É esta pessoa</button></div></div>`; }).join('')}
+        <div class="actions"><button type="button" data-dec="${esc(a.key)}" data-val="new">${a.candidates.length ? 'É outra pessoa: criar nova' : 'Criar pessoa nova'}</button><button type="button" class="link" data-dec="${esc(a.key)}" data-val="skip">Pular por enquanto</button></div></div>`;
+  const rowTxt = r => r.done ? `<span class="note">${esc(r.done)}</span>` : r.alert ? '<span class="note">aguardando o alerta acima</span>' : r.erro ? `<span class="err">${esc(r.erro)}</span>` : r.skipped ? `<span class="note">${esc(r.skipped)}</span>` : esc(r.ok);
+  const nOk = d.rows.filter(r => r.ok).length;
+  $('#relWork').innerHTML = `<div class="relbox">
+    <p><b>${esc(R.fonte || R.id)}</b>${R.data ? ' · ' + esc(R.data) : ''} <span class="note">(${esc(R.id)})</span></p>
+    ${R.existing ? `<p class="hint">Este relato já foi importado${R.importedAt ? ' em ' + esc(fmtDate(R.importedAt)) : ''}. Só as linhas que ainda não entraram serão aplicadas.</p>` : ''}
+    ${R.material.length ? `<p class="note">Material: ${R.material.map(f => esc(f.name)).join(', ')} (fica guardado no relato, visível só para quem pode editar).</p>` : ''}
+    ${d.applied ? `<p class="hint"><b>Aplicado.</b> ${nOk} linha(s) entraram na árvore.</p>` : d.alerts.length ? `<h4>Primeiro, resolva ${d.alerts.length} alerta${d.alerts.length > 1 ? 's' : ''}</h4>${d.alerts.map(alertHtml).join('')}` : `<p class="hint">Sem alertas. Confira as linhas e toque em Aplicar.</p>`}
+    ${decided.length && !d.applied ? `<p class="note">Decisões: ${decided.map(([k, v]) => `${esc(k.includes('|') ? 'divergência' : k)} → ${esc(label(v))} <button type="button" class="link" data-undo="${esc(k)}">desfazer</button>`).join(' · ')}</p>` : ''}
+    <h4>Linhas do lote</h4>
+    <table class="tbl"><tbody>${d.rows.map(r => `<tr><td class="note">${r.n}</td><td><b>${esc(r.pessoa)}</b><br><span class="note">${esc(r.acao)} · ${esc(r.campo)}${r.valor ? ': ' + esc(r.valor) : ''}</span></td><td>${rowTxt(r)}</td></tr>`).join('')}</tbody></table>
+    <div class="actions">${d.applied ? '<button type="button" id="relClose">Fechar</button>' : `<button type="button" class="primary" id="relApply"${d.alerts.length || !nOk ? ' disabled' : ''}>Aplicar ${nOk} linha(s)</button><button type="button" id="relClose">Cancelar</button>`}</div>
+  </div>`;
+  $('#relWork').scrollIntoView({ block: 'start' });
+}
+async function relRun(apply) {
+  try { rel.data = await api('/api/admin/relatos/run', { method: 'POST', body: { token: rel.token, decisions: rel.decisions, apply } }); renderRel(); if (apply) { await load(); loadRelatos(); } }
+  catch (err) { $('#relWork').insertAdjacentHTML('afterbegin', `<p class="err">${esc(err.message)}</p>`); }
+}
+async function relStart(promise) {
+  $('#relWork').innerHTML = '<p class="note">Lendo o relato…</p>';
+  try { const d = await promise; rel = { token: d.token, decisions: {}, data: d }; renderRel(); }
+  catch (err) { $('#relWork').innerHTML = `<p class="err">${esc(err.message)}</p>`; }
+}
+$('#relform').addEventListener('change', e => {
+  const list = [...(e.target.files || [])]; if (!list.length) return;
+  const fd = new FormData();
+  for (const f of list) fd.append('files', f, f.webkitRelativePath || f.name);
+  e.target.value = '';
+  relStart(api('/api/admin/relatos/upload', { method: 'POST', body: fd }));
+});
+$('#adlg').addEventListener('click', async e => {
+  const ib = e.target.closest('[data-inbox]'); if (ib) { relStart(api('/api/admin/relatos/inbox', { method: 'POST', body: { folder: ib.dataset.inbox } })); return; }
+  const ig = e.target.closest('[data-inboxignore]'); if (ig) { if (!(await confirmBtn(ig))) return; await api('/api/admin/relatos/inbox/ignore', { method: 'POST', body: { folder: ig.dataset.inboxignore } }).catch(err => $('#aErr').textContent = err.message); loadRelatos(); return; }
+  const dc = e.target.closest('[data-dec]'); if (dc) { rel.decisions[dc.dataset.dec] = dc.dataset.val; relRun(false); return; }
+  const un = e.target.closest('[data-undo]'); if (un) { delete rel.decisions[un.dataset.undo]; relRun(false); return; }
+  if (e.target.closest('#relApply')) { relRun(true); return; }
+  if (e.target.closest('#relClose')) { rel = null; $('#relWork').innerHTML = ''; return; }
+  const pc = e.target.closest('[data-pendclose]'); if (pc) { await api(`/api/admin/pending/${pc.dataset.pendclose}/close`, { method: 'POST' }); loadRelatos(); return; }
+  if (e.target.closest('#dupBtn')) {
+    $('#dupList').innerHTML = '<p class="note">Procurando…</p>';
+    const d = await api('/api/admin/duplicates');
+    $('#dupList').innerHTML = d.pairs.length ? d.pairs.map(x => `<div class="alert"><p class="note">${esc(x.why)}</p>${cand(x.a)}<div class="actions small"><button type="button" data-go="${esc(x.a.id)}">Abrir</button></div></div>${cand(x.b)}<div class="actions small"><button type="button" data-go="${esc(x.b.id)}">Abrir</button></div></div><div class="actions"><button type="button" class="link" data-notdup="${esc(x.a.id)}|${esc(x.b.id)}">São pessoas diferentes</button></div></div>`).join('')
+      + '<p class="note">Se forem a mesma pessoa, corrija à mão: copie o que falta para uma das fichas e exclua a outra. O site nunca junta sozinho.</p>' : '<p class="none">Nenhum possível duplicado.</p>';
+    return; }
+  const nd = e.target.closest('[data-notdup]'); if (nd) { const [a, b] = nd.dataset.notdup.split('|'); await api('/api/admin/duplicates/not', { method: 'POST', body: { a, b } }); nd.closest('.alert').remove(); return; }
 });
 
 function renderAll() {

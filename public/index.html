@@ -169,6 +169,12 @@
   <div id="vBody"></div>
 </dialog>
 
+<!-- Relato -->
+<dialog id="reldlg" class="wide">
+  <div class="actions" style="justify-content:space-between;margin:0 0 8px"><h2 id="relTitle" style="margin:0">Relato</h2><button type="button" class="closeDlg">Fechar</button></div>
+  <div id="relBody"></div>
+</dialog>
+
 <!-- Senha -->
 <dialog id="pdlg">
   <form id="pform">
@@ -184,6 +190,20 @@
 <dialog id="adlg" class="wide">
   <div class="admin">
     <div class="actions" style="justify-content:space-between;margin:0 0 8px"><h2 style="margin:0">Administrar</h2><button type="button" class="closeDlg">Fechar</button></div>
+    <h3>Relatos de entrevista <span id="relCount" class="note"></span></h3>
+    <div id="inbox"></div>
+    <form id="relform" class="actions">
+      <label class="btn">Escolher pasta do relato<input type="file" name="folder" webkitdirectory directory multiple hidden></label>
+      <label class="btn">Escolher .zip<input type="file" name="zip" accept=".zip,application/zip" hidden></label>
+    </form>
+    <div id="relWork"></div>
+    <details class="relmore"><summary>Relatos já importados, pendências e duplicados</summary>
+      <div id="relList"></div>
+      <h4>Pendências</h4><div id="pendList"></div>
+      <h4>Possíveis duplicados na árvore</h4>
+      <p class="note">Procura pessoas com nomes parecidos em toda a árvore. Nada é juntado: você decide caso a caso.</p>
+      <button type="button" id="dupBtn">Procurar duplicados</button><div id="dupList"></div>
+    </details>
     <h3>Pedidos para participar <span id="reqCount" class="note"></span></h3>
     <div id="requests"></div>
     <h3>Convidar parente</h3>
