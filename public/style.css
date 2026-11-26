@@ -147,3 +147,4 @@ dialog.viewer{width:min(1000px,96vw)}
 .hint{background:var(--soft);border-left:3px solid var(--accent);padding:10px 14px;border-radius:6px;font-size:14px;margin:0 0 12px}
 .mine{color:var(--green);font-weight:600;font-size:14px}
 .index button.me{font-weight:700;color:var(--accent)}
+.notice{background:var(--soft);border-bottom:3px solid var(--accent);color:var(--ink);padding:14px max(16px,calc((100vw - 1100px)/2));font-size:15px;line-height:1.5}

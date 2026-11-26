@@ -79,6 +79,10 @@ npm start          # abre em http://localhost:3000
 npm test           # testa as regras de acesso
 ```
 
+### E-mail automático
+
+Quando um parente pede para participar, você recebe um e-mail. Quando você aprova, a pessoa recebe um e-mail com o link para criar a senha (isso confirma o e-mail dela). Para ligar, preencha no `.env` `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER` e `SMTP_PASS` (na Strato: `smtp.strato.de`, porta `465`, o endereço completo e a senha de uma caixa de e-mail do domínio) e reinicie com `docker compose up -d`. Sem isso, o site continua funcionando e você manda o convite à mão.
+
 Variáveis úteis: `DATA_DIR` (onde guardar os dados), `PORT`, `FAMILY_NAME`, `DEFAULT_PERSON`, `SETUP_KEY`, `MAX_UPLOAD_MB`, `MAX_USER_STORAGE_MB` (limite de envio por pessoa, padrão 2000), `COOKIE_SECURE=1` (use atrás de HTTPS).
 
 ## Como funciona por dentro

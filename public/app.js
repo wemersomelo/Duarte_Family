@@ -88,9 +88,18 @@ $('#authForm').addEventListener('submit', async e => {
   } catch (err) { $('#authErr').textContent = err.message; }
 });
 
+// Aviso para quem pediu acesso neste aparelho.
+function showRequest(r) {
+  const n = $('#notice'), msg = !r ? '' :
+    r.status === 'pending' ? 'Seu pedido para participar está aguardando a aprovação do administrador.' :
+    r.status === 'approved' ? (r.mailed ? `<b>Seu pedido foi aprovado!</b> Enviamos um e-mail para ${esc(r.email)}. Abra e toque no link para criar a sua senha. Se não encontrar, olhe na pasta de spam.` : '<b>Seu pedido foi aprovado!</b> O administrador vai te mandar o link para criar a sua senha.') :
+    r.status === 'rejected' ? 'Seu pedido não foi aprovado. Se achar que é um engano, fale com o administrador.' : '';
+  n.innerHTML = msg; n.hidden = !msg;
+}
 async function start() {
   const st = await api('/api/status');
   familyName = st.familyName || familyName; defaultPerson = st.defaultPerson || '';
+  showRequest(st.request);
   document.title = familyName; $('#title').textContent = familyName;
   const rm = location.pathname.match(/^\/senha\/([\w-]+)/);
   if (rm) {
@@ -101,7 +110,7 @@ async function start() {
   const m = location.pathname.match(/^\/convite\/([\w-]+)/);
   if (m && !st.user) {
     inviteToken = m[1];
-    try { const info = await api('/api/invites/' + encodeURIComponent(inviteToken)); showAuth('invite', info); const em = $('#authForm').elements.email; em.value = info.email || ''; em.readOnly = !!info.email; return; }
+    try { const info = await api('/api/invites/' + encodeURIComponent(inviteToken)); showAuth('invite', info); const em = $('#authForm').elements.email; em.value = info.email || ''; em.readOnly = !!info.email; if (info.name) $('#authForm').elements.name.value = info.name; showRequest(null); return; }
     catch (err) { showAuth('login'); $('#authErr').textContent = err.message; return; }
   }
   if (st.needsSetup) return showAuth('setup');
@@ -396,8 +405,10 @@ $('#askBtn').addEventListener('click', () => { $('#rform').reset(); $('#rErr').t
 $('#rform').addEventListener('submit', async e => {
   e.preventDefault(); const f = e.target;
   try {
-    await api('/api/access-requests', { method: 'POST', body: { name: f.elements.name.value, email: f.elements.email.value, relation: f.elements.relation.value, message: f.elements.message.value } });
-    $('#rdlg').close(); $('#status').textContent = 'Pedido enviado. Você vai receber um convite quando o administrador aprovar.';
+    const r = await api('/api/access-requests', { method: 'POST', body: { name: f.elements.name.value, email: f.elements.email.value, relation: f.elements.relation.value, message: f.elements.message.value } });
+    $('#rdlg').close();
+    $('#notice').innerHTML = r.mail ? '<b>Pedido enviado.</b> Quando o administrador aprovar, você recebe um e-mail com o link para criar a sua senha. Ao voltar a este site, você também verá aqui se já foi aprovado.' : '<b>Pedido enviado.</b> Você vai receber o link para criar a sua senha quando o administrador aprovar.';
+    $('#notice').hidden = false; scrollTo({ top: 0, behavior: 'smooth' });
   } catch (err) { $('#rErr').textContent = err.message; }
 });
 
@@ -464,7 +475,7 @@ $('#adlg').addEventListener('click', async e => {
       const r = await api(`/api/admin/access-requests/${ap.dataset.approve}/approve`, { method: 'POST', body: { role } });
       const url = inviteUrl(r.token), box = $('#newInvite'); box.hidden = false;
       const msg = `Oi, ${r.name}! Seu acesso à árvore da família foi aprovado. Crie sua conta com o e-mail ${r.email} neste link (vale 30 dias): ${url}`;
-      box.innerHTML = `<b>Aprovado.</b> Mande este convite para ${esc(r.name)} (só funciona com o e-mail <b>${esc(r.email)}</b>):<br><span>${esc(url)}</span><br><div class="actions"><button type="button" class="primary" data-copyurl="${esc(msg)}">Copiar mensagem pronta</button><a class="btn" href="mailto:${encodeURIComponent(r.email)}?subject=${encodeURIComponent('Convite: árvore da família')}&body=${encodeURIComponent(msg)}">Abrir e-mail</a></div>`;
+      box.innerHTML = r.mailed ? `<b>Aprovado.</b> Enviamos um e-mail para <b>${esc(r.email)}</b> com o link para ${esc(r.name)} criar a senha. Se a pessoa não receber, mande você mesmo:<br><span>${esc(url)}</span><br><div class="actions"><button type="button" data-copyurl="${esc(msg)}">Copiar mensagem pronta</button></div>` : `<b>Aprovado.</b> O e-mail automático não está configurado. Mande este convite para ${esc(r.name)} (só funciona com o e-mail <b>${esc(r.email)}</b>):<br><span>${esc(url)}</span><br><div class="actions"><button type="button" class="primary" data-copyurl="${esc(msg)}">Copiar mensagem pronta</button><a class="btn" href="mailto:${encodeURIComponent(r.email)}?subject=${encodeURIComponent('Convite: árvore da família')}&body=${encodeURIComponent(msg)}">Abrir e-mail</a></div>`;
       box.scrollIntoView({ block: 'nearest' }); loadRequests();
     } catch (err) { $('#aErr').textContent = err.message; }
     return; }

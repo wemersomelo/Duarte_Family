@@ -5,20 +5,23 @@ const fs = require('fs'), os = require('os'), path = require('path'), assert = r
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'arvore-sec-'));
 process.env.DATA_DIR = dir;
 process.env.COOKIE_SECURE = '1';
+process.env.SMTP_HOST = 'test'; process.env.SMTP_USER = 'arvore@ex.com'; process.env.SMTP_PASS = 'x'; process.env.DOMAIN = 'arvore.ex.com';
+const mail = require('../src/mail');
 const sharp = require('sharp');
 const { app } = require('../server');
 const server = app.listen(0);
 const base = `http://127.0.0.1:${server.address().port}`;
 
 function client() {
-  let cookie = '';
+  const jar = {};
   return async (method, url, body, isForm, extra = {}) => {
     const headers = { ...extra };
+    const cookie = Object.entries(jar).map(([k, v]) => k + '=' + v).join('; ');
     if (cookie) headers.cookie = cookie;
     let payload;
     if (isForm) payload = body; else if (body !== undefined) { headers['content-type'] = 'application/json'; payload = JSON.stringify(body); }
     const r = await fetch(base + url, { method, headers, body: payload, redirect: 'manual' });
-    const sc = r.headers.get('set-cookie'); if (sc) cookie = sc.split(';')[0];
+    for (const sc of r.headers.getSetCookie()) { const [kv] = sc.split(';'); const i = kv.indexOf('='); jar[kv.slice(0, i)] = kv.slice(i + 1); }
     const buf = Buffer.from(await r.arrayBuffer()); let data; try { data = JSON.parse(buf.toString()); } catch { data = buf; }
     return { status: r.status, data, headers: r.headers };
   };
@@ -121,8 +124,16 @@ function client() {
   assert.equal((await guest('POST', '/api/access-requests', { name: 'Prima Nova', email: 'Nova@Ex.com', relation: 'neta do Bisavô', message: 'zap 123' })).status, 200);
   const reqs = (await admin('GET', '/api/admin/access-requests')).data.requests;
   assert.equal(reqs[0].email, 'nova@ex.com');
+  assert.ok(mail.sent.some(m => m.to === 'a@ex.com' && m.text.includes('Prima Nova')), 'admin recebe aviso do pedido');
+  assert.equal((await guest('GET', '/api/status')).data.request.status, 'pending', 'quem pediu vê que está aguardando');
   assert.equal((await tia('GET', '/api/admin/access-requests')).status, 403, 'só admin vê pedidos');
   const apr = (await admin('POST', `/api/admin/access-requests/${reqs[0].id}/approve`, { role: 'member' })).data;
+  assert.equal(apr.mailed, true);
+  const aviso = mail.sent.find(m => m.to === 'nova@ex.com');
+  assert.ok(aviso && aviso.text.includes('https://arvore.ex.com/convite/' + apr.token), 'e-mail de aprovação leva o link do convite');
+  const st = (await guest('GET', '/api/status')).data.request;
+  assert.equal(st.status, 'approved'); assert.equal(st.email, 'no***@ex.com'); assert.ok(!JSON.stringify(st).includes(apr.token), 'o aparelho não recebe o convite, só o e-mail');
+  assert.equal((await client()('GET', '/api/invites/' + apr.token)).data.name, 'Prima Nova');
   assert.equal((await client()('POST', '/api/invites/' + apr.token, { name: 'Outra', email: 'outra@ex.com', password: 'senha-forte-7' })).status, 400, 'convite preso ao e-mail do pedido');
   assert.equal((await client()('POST', '/api/invites/' + apr.token, { name: 'Prima Nova', email: 'nova@ex.com', password: 'senha-forte-7' })).status, 200);
   assert.equal((await admin('GET', '/api/admin/access-requests')).data.requests[0].status, 'joined');

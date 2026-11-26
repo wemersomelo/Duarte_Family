@@ -11,6 +11,7 @@ const multer = require('multer');
 const bcrypt = require('bcryptjs');
 const { openDb } = require('./src/db');
 const { toGedcom } = require('./src/gedcom');
+const mail = require('./src/mail');
 
 const PORT = Number(process.env.PORT || 3000);
 const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(__dirname, 'data'));
@@ -88,6 +89,9 @@ const needUserOrGuest = (req, res, next) => (req.user || req.guest) ? next() : r
 // Um link único que o administrador cria, troca ou desliga. Quem entra por ele só vê:
 // dos falecidos, tudo; dos vivos, só nome, apelido e ligações de família.
 const getSetting = k => (db.prepare('SELECT value FROM settings WHERE key=?').get(k) || {}).value || '';
+const baseUrl = req => process.env.DOMAIN ? 'https://' + process.env.DOMAIN : `${req.protocol}://${req.get('host')}`;
+// Mostra só o começo do e-mail (ex.: ma***@gmail.com) para quem pediu acesso neste aparelho.
+const maskEmail = e => { const [u, d] = String(e).split('@'); return (u.length <= 2 ? u[0] : u.slice(0, 2)) + '***@' + d; };
 // Pessoa inicial de quem não tem pessoa ligada (visitantes): a pessoa do primeiro administrador.
 function startPerson() {
   const a = db.prepare("SELECT person_id FROM users WHERE role='admin' AND active=1 AND person_id<>'' ORDER BY id LIMIT 1").get();
@@ -185,7 +189,14 @@ function exists(id) { return !!db.prepare('SELECT 1 FROM people WHERE id=?').get
 app.get('/api/status', (req, res) => {
   const users = db.prepare('SELECT COUNT(*) n FROM users').get().n;
   const pending = req.user && req.user.role === 'admin' ? db.prepare("SELECT COUNT(*) n FROM access_requests WHERE status='pending'").get().n : 0;
-  res.json({ needsSetup: users === 0, pendingRequests: pending, user: req.user || (req.guest ? { id: null, name: 'Visitante', role: 'guest' } : null), familyName: process.env.FAMILY_NAME || 'Árvore da Família', defaultPerson: startPerson() });
+  // Quem pediu acesso neste aparelho vê em que pé está o pedido (o convite em si só chega pelo e-mail).
+  let request = null;
+  const claim = !req.user && parseCookies(req).pedido;
+  if (claim) {
+    const r = db.prepare('SELECT status,email FROM access_requests WHERE claim=?').get(String(claim));
+    if (r) request = { status: r.status, email: maskEmail(r.email), mailed: r.status === 'approved' && mail.configured() };
+  }
+  res.json({ request, needsSetup: users === 0, pendingRequests: pending, user: req.user || (req.guest ? { id: null, name: 'Visitante', role: 'guest' } : null), familyName: process.env.FAMILY_NAME || 'Árvore da Família', defaultPerson: startPerson() });
 });
 
 app.post('/api/setup', (req, res) => {
@@ -254,7 +265,8 @@ app.post('/api/reset/:token', (req, res) => {
 app.get('/api/invites/:token', (req, res) => {
   const inv = db.prepare('SELECT role,label,email,used_by,expires FROM invites WHERE token=?').get(req.params.token);
   if (!inv || inv.used_by || inv.expires < Date.now()) return res.status(404).json({ error: 'Convite inválido ou já usado.' });
-  res.json({ role: inv.role, label: inv.label, email: inv.email || '' });
+  const r = db.prepare('SELECT name FROM access_requests WHERE invite_token=?').get(req.params.token);
+  res.json({ role: inv.role, label: inv.label, email: inv.email || '', name: r ? r.name : '' });
 });
 app.post('/api/invites/:token', (req, res) => {
   const inv = db.prepare('SELECT * FROM invites WHERE token=?').get(req.params.token);
@@ -286,8 +298,13 @@ app.post('/api/access-requests', (req, res) => {
   if (db.prepare("SELECT COUNT(*) n FROM access_requests WHERE status='pending'").get().n >= 300) return res.status(429).json({ error: 'Muitos pedidos aguardando. Tente mais tarde.' });
   if (db.prepare("SELECT 1 FROM access_requests WHERE email=? AND status='pending'").get(email)) return res.json({ ok: true });
   a.push(nowMs); reqLimit.set(ip, a);
-  db.prepare("INSERT INTO access_requests(name,email,relation,message,ip,status,created_at) VALUES(?,?,?,?,?,'pending',?)").run(name, email, relation, message, ip, now());
-  res.json({ ok: true });
+  const claim = crypto.randomBytes(24).toString('base64url');
+  db.prepare("INSERT INTO access_requests(name,email,relation,message,ip,status,created_at,claim) VALUES(?,?,?,?,?,'pending',?,?)").run(name, email, relation, message, ip, now(), claim);
+  res.setHeader('Set-Cookie', `pedido=${claim}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${60 * 86400}${COOKIE_SECURE ? '; Secure' : ''}`);
+  // Avisa os administradores por e-mail (se o e-mail estiver configurado).
+  const admins = db.prepare("SELECT email FROM users WHERE role='admin' AND active=1").all().map(u => u.email);
+  mail.send(admins.join(','), `Pedido de acesso: ${name}`, `${name} (${email}) pediu para participar da árvore.\nParentesco: ${relation}${message ? '\nMensagem: ' + message : ''}\n\nPara aprovar ou recusar, entre no site e abra Administrar:\n${baseUrl(req)}`);
+  res.json({ ok: true, mail: mail.configured() });
 });
 
 // ---------- leitura da árvore ----------
@@ -586,7 +603,10 @@ app.post('/api/admin/access-requests/:id/approve', needAdmin, (req, res) => {
     .run(token, role, `${r.name} (${r.relation})`.slice(0, 100), r.email, req.user.id, now(), Date.now() + 30 * 864e5);
   db.prepare("UPDATE access_requests SET status='approved', decided_by=?, decided_at=?, invite_token=? WHERE id=?").run(req.user.id, now(), token, r.id);
   log(req, 'aprovou pedido de acesso', r.email, { name: r.name, relation: r.relation, role });
-  res.json({ token, email: r.email, name: r.name });
+  const family = process.env.FAMILY_NAME || 'Árvore da Família';
+  mail.send(r.email, `Seu acesso à ${family} foi aprovado`,
+    `Olá, ${r.name}!\n\nSeu pedido para participar da ${family} foi aprovado.\n\nToque no link abaixo para criar a sua senha. Ele confirma o seu e-mail e vale 30 dias:\n${baseUrl(req)}/convite/${token}\n\nDepois, é só entrar em ${baseUrl(req)} com o e-mail ${r.email} e a sua senha.\n\nSe você não pediu este acesso, ignore este e-mail.`)
+    .then(mailed => res.json({ token, email: r.email, name: r.name, mailed }));
 });
 app.post('/api/admin/access-requests/:id/reject', needAdmin, (req, res) => {
   const r = db.prepare('SELECT * FROM access_requests WHERE id=?').get(Number(req.params.id));
