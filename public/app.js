@@ -577,6 +577,28 @@ $('#impform').addEventListener('submit', async e => {
   } catch (err) { $('#aErr').textContent = err instanceof SyntaxError ? 'O arquivo não é um JSON válido.' : err.message; }
 });
 
+// Lote: prévia primeiro, depois aplicar.
+let loteText = '';
+const loteTable = r => `<p><b>${r.applied ? 'Aplicado' : 'Prévia'}:</b> ${r.ok} linha(s) ${r.applied ? 'aplicadas' : 'prontas'}${r.erros ? `, <span class="err">${r.erros} com problema (${r.applied ? 'não aplicadas' : 'serão puladas'})</span>` : ''}.</p>
+  <table class="tbl"><tbody>${r.rows.map(x => `<tr><td class="note">${x.n}</td><td><b>${esc(x.pessoa)}</b><br><span class="note">${esc(x.acao)} · ${esc(x.campo)}</span></td><td>${x.erro ? `<span class="err">${esc(x.erro)}</span>` : esc(x.ok)}</td></tr>`).join('')}</tbody></table>`;
+$('#loteform').addEventListener('submit', async e => {
+  e.preventDefault(); const f = e.target, file = f.elements.file.files[0];
+  try {
+    loteText = file ? await file.text() : f.elements.text.value;
+    const r = await api('/api/admin/import-lote', { method: 'POST', body: { text: loteText } });
+    $('#lotePrev').innerHTML = loteTable(r) + (r.ok ? '<div class="actions"><button type="button" class="primary" id="loteApply">Aplicar</button><button type="button" id="loteCancel">Cancelar</button></div>' : '');
+    $('#lotePrev').scrollIntoView({ block: 'nearest' });
+  } catch (err) { $('#lotePrev').innerHTML = `<p class="err">${esc(err.message)}</p>`; }
+});
+$('#lotePrev').addEventListener('click', async e => {
+  if (e.target.closest('#loteCancel')) { $('#lotePrev').innerHTML = ''; return; }
+  if (!e.target.closest('#loteApply')) return;
+  try {
+    const r = await api('/api/admin/import-lote', { method: 'POST', body: { text: loteText, apply: true } });
+    $('#lotePrev').innerHTML = loteTable(r); $('#loteform').reset(); await load();
+  } catch (err) { $('#lotePrev').innerHTML += `<p class="err">${esc(err.message)}</p>`; }
+});
+
 function renderAll() {
   if (!P(focus)) { const h = decodeURIComponent(location.hash.slice(1)); focus = P(h) ? h : rootPerson() || (Object.values(people).find(p => p.createdBy === me?.id)?.id || Object.keys(people)[0] || null); }
   drawChart(); renderRecord(); renderIndex();

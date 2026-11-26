@@ -12,6 +12,7 @@ const bcrypt = require('bcryptjs');
 const { openDb } = require('./src/db');
 const { toGedcom } = require('./src/gedcom');
 const mail = require('./src/mail');
+const { runLote } = require('./src/lote');
 
 const PORT = Number(process.env.PORT || 3000);
 const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(__dirname, 'data'));
@@ -714,6 +715,18 @@ app.post('/api/admin/import', needAdmin, (req, res) => {
   });
   tx();
   res.json({ added, updated });
+});
+
+// Lote dos relatórios de entrevista (tabela colada ou CSV). Sem "apply" só mostra o que faria.
+app.post('/api/admin/import-lote', needAdmin, (req, res) => {
+  const text = String((req.body && req.body.text) || '');
+  if (!text.trim()) return res.status(400).json({ error: 'Cole a tabela do lote ou escolha um arquivo.' });
+  if (text.length > 200000) return res.status(400).json({ error: 'Lote grande demais.' });
+  const apply = !!req.body.apply;
+  const r = runLote(db, text, { apply, userId: req.user.id, newId, now });
+  if (r.error) return res.status(400).json({ error: r.error });
+  if (apply) log(req, 'importou lote', null, { linhas: r.rows.length, ok: r.ok, erros: r.erros });
+  res.json(r);
 });
 
 // ---------- páginas ----------

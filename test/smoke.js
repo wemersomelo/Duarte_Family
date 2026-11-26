@@ -137,6 +137,28 @@ function client() {
   assert.equal(pr.birth, '02/03/1990'); assert.equal(pr.marriage, '10/10/2015'); assert.equal(pr.marriagePlace, 'Catuji, MG');
   assert.equal((await leitor('PUT', '/api/people/avo', { birth: '1900' })).status, 403, 'não edita outra pessoa');
   assert.equal((await leitor('DELETE', '/api/people/' + prima)).status, 403, 'não exclui a própria ficha');
+  // lote de relatório: prévia não muda nada, aplicar muda, nunca apaga a versão anterior
+  const lote = `| Ação | Pessoa | Campo | Valor | Fonte | Confiança |
+|---|---|---|---|---|---|
+| NOVA | Tia Lote Teste | nome completo | Tia Lote Teste ("Tia Lote") | Teste 01/01 | Relato direto |
+| ATUALIZAR | Tia Lote Teste | nascimento | 13/11/1945 | Teste 01/01 | Relato direto |
+| ATUALIZAR | Ninguém Existe | nascimento | 1900 | Teste | Hipótese |
+| ATUALIZAR | Tia Lote Teste | moradia | Catuji (MG) | Teste | Relato direto |`;
+  assert.equal((await tia('POST', '/api/admin/import-lote', { text: lote })).status, 403, 'só admin importa lote');
+  const prev = (await admin('POST', '/api/admin/import-lote', { text: lote })).data;
+  assert.equal(prev.ok, 3); assert.equal(prev.erros, 1); assert.equal(prev.applied, false);
+  assert.ok(!(await admin('GET', '/api/tree')).data.people.some(x => x.name === 'Tia Lote Teste'), 'prévia não grava');
+  await admin('POST', '/api/admin/import-lote', { text: lote, apply: true });
+  let tl = (await admin('GET', '/api/tree')).data.people.find(x => x.name === 'Tia Lote Teste');
+  assert.equal(tl.birth, '13/11/1945'); assert.equal(tl.nick, 'Tia Lote'); assert.ok(tl.sources.includes('Teste 01/01'));
+  await admin('POST', '/api/admin/import-lote', { text: '| Ação | Pessoa | Campo | Valor | Fonte | Confiança |\n| ATUALIZAR | Tia Lote Teste | nascimento | 1946 | Outra | Relato indireto |', apply: true });
+  const tree2 = (await admin('GET', '/api/tree')).data; tl = tree2.people.find(x => x.name === 'Tia Lote Teste');
+  assert.equal(tl.birth, '1946'); assert.ok(tree2.notes.some(n => n.personId === tl.id && n.text.includes('Versão anterior de nascimento: 13/11/1945')), 'versão anterior guardada');
+  assert.ok(tree2.notes.some(n => n.personId === tl.id && n.text.startsWith('moradia: Catuji')), 'campo livre vira nota');
+  const csv = 'Ação;Pessoa;Campo;Valor;Fonte;Confiança\nATUALIZAR;Tia Lote Teste;local de nascimento;"Catuji; MG";CSV;Documento';
+  assert.equal((await admin('POST', '/api/admin/import-lote', { text: csv, apply: true })).data.ok, 1, 'CSV com ;');
+  assert.equal((await admin('GET', '/api/tree')).data.people.find(x => x.name === 'Tia Lote Teste').birthPlace, 'Catuji; MG');
+
   const adminId = (await admin('GET', '/api/admin')).data.users.find(u => u.email === 'admin@ex.com').id;
   assert.equal((await admin('PUT', '/api/admin/users/' + adminId, { personId: 'avo' })).status, 200);
   assert.equal((await anon('GET', '/api/status')).data.defaultPerson, 'avo', 'visitante começa pela pessoa do admin');

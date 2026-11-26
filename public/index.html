@@ -209,6 +209,13 @@
     <div class="actions"><a class="btn" href="/api/export.json">Baixar dados (JSON)</a><a class="btn" href="/api/export.ged">Baixar GEDCOM</a></div>
     <h3>Importar</h3>
     <p class="note">Importa um arquivo JSON exportado desta árvore ou da versão anterior. Pessoas com o mesmo código são atualizadas.</p>
+    <p class="note"><b>Lote de um relatório de entrevista:</b> cole a tabela "Lote para a árvore" (Ação | Pessoa | Campo | Valor | Fonte | Confiança) ou escolha o arquivo .csv. Primeiro aparece uma prévia; nada muda até você tocar em Aplicar. Nada é apagado: quando um dado muda, o anterior fica guardado em nota.</p>
+    <form id="loteform">
+      <textarea name="text" rows="6" placeholder="| Ação | Pessoa | Campo | Valor | Fonte | Confiança |"></textarea>
+      <div class="actions"><input name="file" type="file" accept=".csv,.md,.txt,text/csv,text/plain"><button type="submit" class="primary">Ver prévia</button></div>
+    </form>
+    <div id="lotePrev"></div>
+    <p class="note" style="margin-top:16px"><b>Cópia completa (.json)</b> exportada deste site:</p>
     <form id="impform" class="inline"><input name="file" type="file" accept="application/json,.json" required><button type="submit">Importar</button></form>
     <div class="err" id="aErr"></div>
   </div>
