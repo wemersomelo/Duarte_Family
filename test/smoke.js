@@ -193,6 +193,41 @@ function client() {
   sg = (await admin('GET', '/api/admin/suggestions')).data.suggestions;
   assert.ok(!sg.some(x => x.key === sSp.key || x.key === sSib.key), 'aplicada e dispensada não voltam');
 
+  // nomes repetidos na família: mesma pessoa só se os pais baterem
+  const joao = (await admin('POST', '/api/people', { name: 'João Ctx', sex: 'm' })).data.id;
+  const mariaJ = (await admin('POST', '/api/people', { name: 'Maria Ctx', fatherId: joao })).data.id;
+  const ctxLote = (rows) => { const f = new FormData(); f.append('files', new Blob(['Ação,Pessoa,Campo,Valor,Fonte,Confiança\n' + rows]), 'ctx/lote.csv'); return f; };
+  // a) Maria filha do José (novo): não é a Maria filha do João -> cria outra, sem perguntar
+  let cx = (await admin('POST', '/api/admin/relatos/upload', ctxLote('NOVA,José Ctx,nome completo,José Ctx,T,Relato direto\nATUALIZAR,José Ctx,sexo,masculino,T,Relato direto\nNOVA,Maria Ctx,nome completo,Maria Ctx,T,Relato direto\nVÍNCULO,Maria Ctx,pai,José Ctx,T,Relato direto\nATUALIZAR,Maria Ctx,nascimento,1960,T,Relato direto\n'), true)).data;
+  assert.equal(cx.alerts.length, 0, 'não pergunta: pais diferentes = outra pessoa ' + JSON.stringify(cx.alerts.map(a => a.title)));
+  await admin('POST', '/api/admin/relatos/run', { token: cx.token, apply: true });
+  let tc = (await admin('GET', '/api/tree')).data.people;
+  assert.equal(tc.filter(x => x.name === 'Maria Ctx').length, 2, 'duas Marias');
+  assert.ok(!tc.find(x => x.id === mariaJ).birth, 'a Maria filha do João não recebeu o dado da outra');
+  // b) Maria filha do João: é a mesma -> atualiza sem perguntar
+  cx = (await admin('POST', '/api/admin/relatos/upload', ctxLote('ATUALIZAR,Maria Ctx,local de nascimento,Catuji,T,Relato direto\nVÍNCULO,Maria Ctx,pai,João Ctx,T,Relato direto\n'), true)).data;
+  assert.equal(cx.alerts.length, 0, 'mesmos pais = mesma pessoa');
+  await admin('POST', '/api/admin/relatos/run', { token: cx.token, apply: true });
+  tc = (await admin('GET', '/api/tree')).data.people;
+  assert.equal(tc.find(x => x.id === mariaJ).birthPlace, 'Catuji');
+
+  // juntar duas fichas da mesma pessoa
+  const dupA = (await admin('POST', '/api/people', { name: 'Duplicada Teste', birth: '1950', fatherId: pai })).data.id;
+  const dupB = (await admin('POST', '/api/people', { name: 'Duplicada T.', birth: '1951', birthPlace: 'Catuji' })).data.id;
+  const filhoB = (await admin('POST', '/api/people', { name: 'Filho da Duplicada', motherId: dupB })).data.id;
+  await admin('POST', `/api/people/${dupB}/notes`, { kind: 'info', text: 'nota da B' });
+  assert.equal((await tia('POST', '/api/admin/merge', { keep: dupA, remove: dupB })).status, 403);
+  assert.equal((await admin('POST', '/api/admin/merge', { keep: filhoB, remove: dupB })).status, 400, 'pai/mãe não se junta com filho');
+  const mr = (await admin('POST', '/api/admin/merge', { keep: dupA, remove: dupB })).data;
+  assert.ok(mr.ok); assert.ok(mr.conflicts.some(c => c.includes('1951')));
+  const tm = (await admin('GET', '/api/tree')).data;
+  assert.ok(!tm.people.some(x => x.id === dupB), 'a outra ficha some');
+  const kA = tm.people.find(x => x.id === dupA);
+  assert.equal(kA.birth, '1950'); assert.equal(kA.birthPlace, 'Catuji', 'completa o que faltava');
+  assert.equal(tm.people.find(x => x.id === filhoB).motherId, dupA, 'filhos passam para a ficha que fica');
+  assert.ok(tm.notes.some(n => n.personId === dupA && n.text === 'nota da B'), 'notas passam');
+  assert.ok(tm.notes.some(n => n.personId === dupA && n.text.includes('1951')), 'valor diferente guardado em nota');
+
   // relatos: pasta enviada pelo navegador (com caminhos), .zip e pasta de entrada no servidor
   const { zipSync, strToU8 } = require('fflate');
   const lote2 = 'Ação,Pessoa,Campo,Valor,Fonte,Confiança\nATUALIZAR,Tia Lote,nascimento,1947,Prima X 02/02,Relato direto\nNOVA,Bisavô Novo Teste,nome completo,Bisavô Novo Teste,Prima X,Relato indireto\nVÍNCULO,Bisavô Novo Teste,filho,Tia Lote Teste,Prima X,Relato indireto\nATUALIZAR,Bisavô Novo Teste,sexo,masculino,Prima X,Relato indireto\n';

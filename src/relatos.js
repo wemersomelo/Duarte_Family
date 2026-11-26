@@ -6,7 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { unzipSync } = require('fflate');
-const { runLote, norm, splitNick } = require('./lote');
+const { runLote, norm, splitNick, parseRows, unmd } = require('./lote');
 
 // ---------- leitura da pasta ----------
 const MIME = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.heic': 'image/heic', '.gif': 'image/gif', '.pdf': 'application/pdf', '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.ogg': 'audio/ogg', '.opus': 'audio/ogg', '.wav': 'audio/wav', '.mp4': 'video/mp4', '.txt': 'text/plain', '.md': 'text/plain' };
@@ -88,9 +88,26 @@ function personCard(db, p) {
   return { id: p.id, name: p.name, nick: p.nick || '', birth: p.birth || '', death: p.death || '', father: nm(p.father_id), mother: nm(p.mother_id), spouse: nm(p.spouse_id), relatos: rel };
 }
 
+// O que o próprio relato diz de cada pessoa: pais, filhos, cônjuge. Usado para não confundir
+// as muitas Marias e Josés da família: mesma pessoa só se os pais (ou o cônjuge) baterem.
+function loteContext(text) {
+  const { rows } = parseRows(text); const hints = {};
+  const H = n => (hints[norm(splitNick(n).main)] ||= { parents: new Set(), spouses: new Set() });
+  const QUAL = /\((?:filh[oa]|net[oa])\s+d[oa]s?\s+([^)]+)\)/i, SPQ = /\((?:marido|esposa|esposo|mulher|viúv[oa])\s+d[oa]s?\s+([^)]+)\)/i;
+  for (const r of rows || []) {
+    const c = norm(r.campo), v = unmd(r.valor);
+    for (const name of [r.pessoa, v]) { const q = String(name).match(QUAL); if (q) H(name).parents.add(q[1].trim()); const s2 = String(name).match(SPQ); if (s2) H(name).spouses.add(s2[1].trim()); }
+    if (/^(pai|mae)$/.test(c)) H(r.pessoa).parents.add(v);
+    else if (c === 'pais') v.split(/\s*(?:\+|\be\b|&)\s*/).filter(Boolean).forEach(x => H(r.pessoa).parents.add(x));
+    else if (/^filh[oa]s?$/.test(c)) H(v).parents.add(r.pessoa);
+    else if (/^(conjuge|esposa|esposo|marido|mulher|casou com)$/.test(c)) { H(r.pessoa).spouses.add(v); H(v).spouses.add(r.pessoa); }
+  }
+  return hints;
+}
+
 // Resolve um nome do lote para uma pessoa, usando as decisões já tomadas.
 // decisions: { [nomeNormalizado]: 'id:<pessoa>' | 'new' | 'skip' }
-function makeResolver(db, decisions, created) {
+function makeResolver(db, decisions, created, hints = {}) {
   return (ref, ctx) => {
     const { main } = splitNick(ref), n = norm(main);
     if (!n) return { none: true };
@@ -99,16 +116,51 @@ function makeResolver(db, decisions, created) {
     if (d === 'skip') return { skip: true };
     if (d === 'new') return { create: true, onCreate: id => { created[n] = id; } };
     if (d && d.startsWith('id:')) { const p = db.prepare('SELECT * FROM people WHERE id=?').get(d.slice(3)); if (p) return { p }; }
-    const byId = db.prepare('SELECT * FROM people WHERE id=?').get(main); if (byId) return { p: byId };
+    const idHit = db.prepare('SELECT * FROM people WHERE id=?').get(main); if (idHit) return { p: idHit };
     const al = db.prepare('SELECT p.* FROM person_aliases a JOIN people p ON p.id=a.person_id WHERE a.alias=?').get(n); if (al) return { p: al };
-    const all = db.prepare('SELECT * FROM people').all();
-    const exact = all.filter(p => norm(p.name) === n);
-    const card = p => personCard(db, p);
-    if (exact.length > 1) return { alert: { type: 'choose', key: n, name: main, title: `Há ${exact.length} pessoas chamadas "${main}". Qual é?`, candidates: exact.map(card) } };
-    if (exact.length === 1) return { p: exact[0] };
+    const all = db.prepare('SELECT * FROM people').all(), byId = Object.fromEntries(all.map(p => [p.id, p]));
     const aliasMap = {}; for (const a of db.prepare('SELECT alias, person_id FROM person_aliases').all()) (aliasMap[a.person_id] ||= []).push(a.alias);
+    // pais e cônjuge que a árvore já conhece (inclui ligações feitas por outros)
+    const links = db.prepare('SELECT child_id,parent_id,role FROM links').all();
+    const parentsOf = p => { const f = [p.father_id, p.mother_id].filter(id => byId[id]); for (const l of links) if (l.child_id === p.id && byId[l.parent_id] && !f.includes(l.parent_id)) f.push(l.parent_id); return f.map(id => byId[id]); };
+    // um nome do relato ("tia Bela", "Valdemar (marido da tia Bela)") é esta pessoa da árvore?
+    // Comparação estrita: "tia Maria" não é a "avó Maria"; só nome inteiro, apelido, nome alternativo
+    // ou nome quase igual com 2+ palavras (Manoel/Manuel Moreira).
+    const bare = x => norm(String(x || '').replace(/\([^)]*\)/g, ' ')).replace(/\s+/g, ' ').trim();
+    const isWho = (hint, q) => {
+      const h = norm(splitNick(hint).main), hb = bare(splitNick(hint).main);
+      if (decisions[h] === 'id:' + q.id || created[h] === q.id || (aliasMap[q.id] || []).includes(h)) return true;
+      const forms = [norm(q.name), bare(q.name), norm(q.nick), bare(q.nick)].filter(Boolean);
+      if (forms.includes(h) || forms.includes(hb)) return true;
+      return hb.split(' ').length > 1 && ['mesmo nome', 'nome quase igual'].includes(similar(hint, q, aliasMap[q.id]));
+    };
+    // etiquetas diferentes ("(filho da tia Bela)" x "(filho do Antônio do Rio)") = pessoas diferentes
+    const qual = x => { const m = String(x || '').match(/\(([^)]*)\)/); return m ? norm(m[1]) : ''; };
+    const lc = hints[n] || { parents: new Set(), spouses: new Set() };
+    // 'same': o relato e a árvore dizem os mesmos pais/cônjuge; 'diff': dizem pais/cônjuge diferentes; '': não dá para saber
+    const verdict = q => {
+      if (qual(main) && qual(q.name) && qual(main) !== qual(q.name)) return 'diff';
+      const qp = parentsOf(q), qs = q.spouse_id && byId[q.spouse_id];
+      if (lc.parents.size && qp.length) { if ([...lc.parents].some(h => qp.some(x => isWho(h, x)))) return 'same'; return 'diff'; }
+      if (lc.spouses.size && qs) { if ([...lc.spouses].some(h => isWho(h, qs))) return 'same'; return 'diff'; }
+      return '';
+    };
+    const card = p => personCard(db, p);
+    let exact = all.filter(p => norm(p.name) === n);
+    if (exact.length) {
+      const same = exact.filter(q => verdict(q) === 'same'); if (same.length === 1) return { p: same[0] };
+      exact = exact.filter(q => verdict(q) !== 'diff'); // filhos de outros pais não são esta pessoa
+      if (exact.length > 1) return { alert: { type: 'choose', key: n, name: main, title: `Há ${exact.length} pessoas chamadas "${main}". Qual é?`, candidates: exact.map(card) } };
+      if (exact.length === 1) return { p: exact[0] };
+    }
     const RANK = ['mesmo nome', 'nome alternativo', 'mesmo apelido', 'mesmo primeiro nome, sobrenome parcial', 'nome quase igual', 'sobrenome parcial', 'nome parecido'];
-    const cands = all.map(p => ({ p, why: similar(main, p, aliasMap[p.id]) })).filter(x => x.why).sort((a, b) => RANK.indexOf(a.why) - RANK.indexOf(b.why)).slice(0, 6);
+    let cands = all.map(p => ({ p, why: similar(main, p, aliasMap[p.id]) })).filter(x => x.why);
+    // o relato diz quem são os pais (ou o cônjuge): parecido com os mesmos pais = mesma pessoa; com outros pais = outra pessoa
+    const sameCtx = cands.filter(x => verdict(x.p) === 'same');
+    if (sameCtx.length === 1 && ['mesmo nome', 'nome alternativo', 'mesmo apelido', 'mesmo primeiro nome, sobrenome parcial', 'nome quase igual'].includes(sameCtx[0].why)) return { p: sameCtx[0].p };
+    // irmãos (mesma etiqueta ou mesmos pais) com nomes só parecidos são pessoas diferentes (Eduardo/Leonardo)
+    cands = cands.filter(x => !(x.why === 'nome parecido' && ((qual(main) && qual(main) === qual(x.p.name)) || verdict(x.p) === 'same')));
+    cands = cands.filter(x => verdict(x.p) !== 'diff').sort((a, b) => RANK.indexOf(a.why) - RANK.indexOf(b.why)).slice(0, 6);
     if (cands.length) return { alert: { type: ctx.nova ? 'duplicate' : 'same', key: n, name: main, title: ctx.nova ? `"${main}" vai ser criada, mas já existe alguém parecido. É a mesma pessoa?` : `"${main}" não está na árvore com esse nome. É a mesma pessoa?`, candidates: cands.map(x => ({ ...card(x.p), why: x.why })) } };
     if (ctx.nova && ctx.role === 'pessoa') return { create: true, onCreate: id => { created[n] = id; } };
     return { alert: { type: 'missing', key: n, name: main, title: `"${main}" não está na árvore e nenhuma pessoa parecida foi encontrada.`, candidates: [] } };
@@ -124,7 +176,7 @@ function runRelato(db, staged, { decisions = {}, apply = false, userId, newId, n
   for (const [k, v] of Object.entries(decisions)) (k.includes('|') ? div : ident)[k] = v;
   let result;
   const tx = db.transaction(() => {
-    result = runLote(db, staged.lote, { apply: true, userId, newId, now, resolver: makeResolver(db, ident, created), divergence: k => div[k], skipKeys: done });
+    result = runLote(db, staged.lote, { apply: true, userId, newId, now, resolver: makeResolver(db, ident, created, loteContext(staged.lote)), divergence: k => div[k], skipKeys: done });
     const alerts = result.rows.filter(r => r.alert);
     if (!apply) throw Object.assign(new Error('preview'), { preview: true });
     if (alerts.length) throw Object.assign(new Error('Ainda há alertas sem decisão.'), { status: 400 });
@@ -142,6 +194,9 @@ function runRelato(db, staged, { decisions = {}, apply = false, userId, newId, n
       const p = db.prepare('SELECT name FROM people WHERE id=?').get(d.slice(3));
       if (p && norm(p.name) !== n) db.prepare('INSERT OR REPLACE INTO person_aliases(alias,person_id,created_at) VALUES(?,?,?)').run(n, d.slice(3), now());
     }
+    // "É outra pessoa": não voltar a sugerir essas pessoas como duplicadas
+    for (const a of staged.lastAlerts || []) if (ident[a.key] === 'new' && created[a.key])
+      for (const c of a.candidates || []) { const [x, y] = [created[a.key], c.id].sort(); db.prepare('INSERT OR IGNORE INTO not_duplicates(a,b) VALUES(?,?)').run(x, y); }
     // alertas pulados ficam no painel de pendências
     for (const r of staged.lastAlerts || []) if (ident[r.key] === 'skip' && !db.prepare("SELECT 1 FROM pending WHERE kind='identity' AND relato_id=? AND title=? AND status='open'").get(staged.meta.id, r.title))
       db.prepare("INSERT INTO pending(kind,relato_id,title,data,status,created_at) VALUES('identity',?,?,?,'open',?)").run(staged.meta.id, r.title, JSON.stringify({ name: r.name, candidates: (r.candidates || []).map(c => c.id) }), now());
@@ -218,4 +273,4 @@ function readInboxFolder(dir) {
 // Assinatura do conteúdo, para saber se uma pasta mudou desde a última importação.
 const hashStaged = st => crypto.createHash('sha1').update(st.lote).update(st.material.map(f => f.name + f.data.length).join('|')).digest('hex');
 
-module.exports = { readFolder, runRelato, scanDuplicates, listInbox, readInboxFolder, hashStaged, similar, lev };
+module.exports = { loteContext, readFolder, runRelato, scanDuplicates, listInbox, readInboxFolder, hashStaged, similar, lev };

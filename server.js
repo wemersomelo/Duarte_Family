@@ -12,7 +12,7 @@ const bcrypt = require('bcryptjs');
 const { openDb } = require('./src/db');
 const { toGedcom } = require('./src/gedcom');
 const mail = require('./src/mail');
-const { runLote } = require('./src/lote');
+const { runLote, norm } = require('./src/lote');
 const relatos = require('./src/relatos');
 const sugestoes = require('./src/sugestoes');
 
@@ -902,6 +902,49 @@ app.post('/api/admin/suggestions/apply', needAdmin, (req, res) => {
   res.json({ ok: true, applied: list.length, aligned: extra });
 });
 app.post('/api/admin/suggestions/dismiss', needAdmin, (req, res) => { setSetting('nosug:' + String(req.body.key || '').slice(0, 40), '1'); res.json({ ok: true }); });
+// Juntar duas fichas da mesma pessoa (só o administrador, com confirmação).
+// Fica a ficha "keep"; a outra é apagada depois de passar tudo para ela. Nada se perde:
+// campos vazios são completados, valores diferentes viram nota, o nome da outra vira nome alternativo.
+app.post('/api/admin/merge', needAdmin, (req, res) => {
+  const keep = db.prepare('SELECT * FROM people WHERE id=?').get(String(req.body.keep || ''));
+  const gone = db.prepare('SELECT * FROM people WHERE id=?').get(String(req.body.remove || ''));
+  if (!keep || !gone) return res.status(404).json({ error: 'Pessoa não encontrada.' });
+  if (keep.id === gone.id) return res.status(400).json({ error: 'Escolha duas pessoas diferentes.' });
+  if ([keep.father_id, keep.mother_id].includes(gone.id) || [gone.father_id, gone.mother_id].includes(keep.id)) return res.status(400).json({ error: 'Uma é pai ou mãe da outra; não podem ser a mesma pessoa.' });
+  const nm = id => { const q = id && db.prepare('SELECT name FROM people WHERE id=?').get(id); return q ? q.name : id; };
+  const LBL = { name: 'nome', given: 'primeiro nome', nick: 'apelido', sex: 'sexo', birth: 'nascimento', birth_place: 'local de nascimento', death: 'falecimento', death_place: 'local de falecimento', father_id: 'pai', mother_id: 'mãe', spouse_id: 'cônjuge', marriage: 'casamento', marriage_place: 'local do casamento', color: 'cor/raça', origin: 'origem/etnia' };
+  const diffs = [], set = {};
+  db.transaction(() => {
+    for (const f of FIELDS) {
+      let a = keep[f] || '', b = gone[f] || '';
+      if (['father_id', 'mother_id', 'spouse_id'].includes(f) && b === keep.id) b = '';
+      if (!b || a === b) continue;
+      if (f === 'notes' || f === 'sources') { set[f] = a ? a + '\n' + b : b; continue; }
+      if (!a) set[f] = b; else diffs.push(`${LBL[f] || f}: "${['father_id', 'mother_id', 'spouse_id'].includes(f) ? nm(b) : b}"`);
+    }
+    if (!keep.photo_file_id && gone.photo_file_id) set.photo_file_id = gone.photo_file_id;
+    const cols = Object.keys(set);
+    if (cols.length) db.prepare(`UPDATE people SET ${cols.map(c => c + '=?').join(',')}, updated_at=? WHERE id=?`).run(...cols.map(c => set[c]), now(), keep.id);
+    if (diffs.length) db.prepare('INSERT INTO notes(person_id,kind,text,created_by,created_at) VALUES(?,?,?,?,?)').run(keep.id, 'info', `Juntado com outra ficha ("${gone.name}"), que dizia: ${diffs.join('; ')}.`, req.user.id, now());
+    // filhos, cônjuges e ligações passam para a ficha que fica
+    for (const k of ['father_id', 'mother_id', 'spouse_id']) db.prepare(`UPDATE people SET ${k}=? WHERE ${k}=? AND id<>?`).run(keep.id, gone.id, keep.id);
+    db.prepare('UPDATE people SET spouse_id=? WHERE id=? AND spouse_id=?').run('', keep.id, keep.id);
+    db.prepare('UPDATE links SET child_id=? WHERE child_id=?').run(keep.id, gone.id);
+    db.prepare('UPDATE links SET parent_id=? WHERE parent_id=?').run(keep.id, gone.id);
+    db.prepare('DELETE FROM links WHERE child_id=parent_id').run();
+    for (const t of ['notes', 'files', 'media_links']) db.prepare(`UPDATE ${t} SET person_id=? WHERE person_id=?`).run(keep.id, gone.id);
+    db.prepare('INSERT OR IGNORE INTO relato_people(relato_id,person_id) SELECT relato_id,? FROM relato_people WHERE person_id=?').run(keep.id, gone.id);
+    db.prepare('DELETE FROM relato_people WHERE person_id=?').run(gone.id);
+    db.prepare('UPDATE person_aliases SET person_id=? WHERE person_id=?').run(keep.id, gone.id);
+    const al = norm(gone.name); if (al && al !== norm(keep.name)) db.prepare('INSERT OR REPLACE INTO person_aliases(alias,person_id,created_at) VALUES(?,?,?)').run(al, keep.id, now());
+    if (!db.prepare('SELECT 1 FROM users WHERE person_id=?').get(keep.id)) db.prepare('UPDATE users SET person_id=? WHERE person_id=?').run(keep.id, gone.id); else db.prepare("UPDATE users SET person_id='' WHERE person_id=?").run(gone.id);
+    db.prepare('DELETE FROM not_duplicates WHERE a=? OR b=?').run(gone.id, gone.id);
+    db.prepare('DELETE FROM people WHERE id=?').run(gone.id);
+  })();
+  log(req, 'juntou duas fichas da mesma pessoa', keep.id, { ficou: keep.name, apagada: gone });
+  alignSiblings(req);
+  res.json({ ok: true, completed: Object.keys(set), conflicts: diffs });
+});
 app.get('/api/admin/duplicates', needAdmin, (req, res) => res.json({ pairs: relatos.scanDuplicates(db) }));
 app.post('/api/admin/duplicates/not', needAdmin, (req, res) => {
   const a = String(req.body.a || ''), b = String(req.body.b || '');

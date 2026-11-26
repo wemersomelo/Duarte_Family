@@ -280,6 +280,7 @@ function renderRecord() {
   ${mem.length ? noteList(mem) : '<p class="none">Nenhuma ainda. Conte uma história, uma lembrança ou algo que você aprendeu com esta pessoa.</p>'}
   <h4>Informações da família (${info.length})</h4>
   ${info.length ? noteList(info) : '<p class="none">Nenhuma ainda.</p>'}`}
+  ${me && me.role === 'admin' ? `<details class="relmore"><summary>Esta pessoa está duplicada?</summary><p class="note">Escolha a outra ficha da mesma pessoa. Fica esta ficha; a outra passa para ela os filhos, pais, notas, fotos e relatos e depois é apagada. Dados diferentes ficam em nota.</p><div class="actions"><select data-mergesel>${Object.values(people).filter(q => q.id !== p.id).sort(byName).map(q => `<option value="${esc(q.id)}">${esc(q.name)}${yr(q) !== '—' ? ' (' + esc(yr(q)) + ')' : ''}</option>`).join('')}</select><button type="button" data-act="merge">Juntar nesta ficha</button></div></details>` : ''}
   ${prel.length ? `<h4>Relatos que citam esta pessoa (${prel.length})</h4><ul class="mlinks">${prel.map(r => `<li><button type="button" class="link" data-relato="${esc(r.relatoId)}">${esc(r.fonte || r.relatoId)}</button><small>${esc(r.data || '')}</small></li>`).join('')}</ul>` : ''}`;
   const par = [P(p.fatherId), P(p.motherId)].filter(Boolean);
   // Primos: filhos dos irmãos do pai e da mãe.
@@ -301,6 +302,10 @@ document.addEventListener('click', async e => {
   if (a.dataset.act === 'edit') openForm(p.id);
   if (a.dataset.act === 'child') openForm(null, { childOf: p.id });
   if (a.dataset.act === 'sibling') openForm(null, { siblingOf: p.id });
+  if (a.dataset.act === 'merge') {
+    const other = a.parentElement.querySelector('[data-mergesel]').value;
+    confirmBtn(a).then(ok => ok && api('/api/admin/merge', { method: 'POST', body: { keep: p.id, remove: other } }).then(r => { load(); if (r.conflicts.length) alert('Juntado. Dados diferentes guardados em nota: ' + r.conflicts.join('; ')); }).catch(err => alertStatus(err)));
+  }
   if (a.dataset.act === 'spouse') openForm(null, { spouseOf: p.id });
   if (a.dataset.act === 'del') openForm(p.id, { confirmDel: true });
   if (a.dataset.act === 'note') openNote(p.id, 'info');
@@ -742,9 +747,10 @@ $('#adlg').addEventListener('click', async e => {
   if (e.target.closest('#dupBtn')) {
     $('#dupList').innerHTML = '<p class="note">Procurando…</p>';
     const d = await api('/api/admin/duplicates');
-    $('#dupList').innerHTML = d.pairs.length ? d.pairs.map(x => `<div class="alert"><p class="note">${esc(x.why)}</p>${cand(x.a)}<div class="actions small"><button type="button" data-go="${esc(x.a.id)}">Abrir</button></div></div>${cand(x.b)}<div class="actions small"><button type="button" data-go="${esc(x.b.id)}">Abrir</button></div></div><div class="actions"><button type="button" class="link" data-notdup="${esc(x.a.id)}|${esc(x.b.id)}">São pessoas diferentes</button></div></div>`).join('')
-      + '<p class="note">Se forem a mesma pessoa, corrija à mão: copie o que falta para uma das fichas e exclua a outra. O site nunca junta sozinho.</p>' : '<p class="none">Nenhum possível duplicado.</p>';
+    $('#dupList').innerHTML = d.pairs.length ? d.pairs.map(x => `<div class="alert"><p class="note">${esc(x.why)}</p>${cand(x.a)}<div class="actions small"><button type="button" data-go="${esc(x.a.id)}">Abrir</button></div></div>${cand(x.b)}<div class="actions small"><button type="button" data-go="${esc(x.b.id)}">Abrir</button></div></div><div class="actions"><button type="button" data-merge="${esc(x.a.id)}|${esc(x.b.id)}">São a mesma: juntar na 1ª</button><button type="button" data-merge="${esc(x.b.id)}|${esc(x.a.id)}">juntar na 2ª</button><button type="button" class="link" data-notdup="${esc(x.a.id)}|${esc(x.b.id)}">São pessoas diferentes</button></div></div>`).join('')
+      + '<p class="note">Juntar passa filhos, pais, notas, fotos e relatos para a ficha escolhida; dados diferentes ficam guardados em nota. O site nunca junta sozinho.</p>' : '<p class="none">Nenhum possível duplicado.</p>';
     return; }
+  const mg = e.target.closest('[data-merge]'); if (mg) { if (!(await confirmBtn(mg))) return; const [keep, remove] = mg.dataset.merge.split('|'); try { const r = await api('/api/admin/merge', { method: 'POST', body: { keep, remove } }); mg.closest('.alert').outerHTML = `<p class="hint">Juntado.${r.conflicts.length ? ' Dados diferentes guardados em nota: ' + esc(r.conflicts.join('; ')) : ''}</p>`; await load(); } catch (err) { $('#aErr').textContent = err.message; } return; }
   const nd = e.target.closest('[data-notdup]'); if (nd) { const [a, b] = nd.dataset.notdup.split('|'); await api('/api/admin/duplicates/not', { method: 'POST', body: { a, b } }); nd.closest('.alert').remove(); return; }
 });
 
