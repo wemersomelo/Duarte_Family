@@ -15,8 +15,8 @@ const ownsP = p => !!p && canWrite() && (me.role === 'admin' || (p.createdBy != 
 const canEdit = p => ownsP(p) || (isSelfP(p) && !isGuest());
 const y4 = s => (String(s || '').match(/\d{4}/) || [''])[0];
 const isDead = p => !!(p.death || p.deathPlace || (y4(p.birth) && +y4(p.birth) <= 1915));
-const yr = p => { const b = y4(p.birth), d = y4(p.death), out = []; if (b) out.push('★ ' + b); if (isDead(p)) out.push(d ? '✝ ' + d : '✝'); return out.join('  ') || '—'; };
-const dn = (p, n = p.name) => n + (isDead(p) ? '\u00a0✝' : '');
+const yr = p => { const b = y4(p.birth), d = y4(p.death), out = []; if (b) out.push('★\uFE0E ' + b); if (isDead(p)) out.push(d ? '✝\uFE0E ' + d : '✝\uFE0E'); return out.join('  ') || '—'; };
+const dn = (p, n = p.name) => n + (isDead(p) ? '\u00a0✝\uFE0E' : '');
 // Primeiro nome: o campo próprio ou a primeira palavra do nome completo.
 const firstName = p => (p.given || '').trim() || String(p.name).split(' ')[0];
 // Nome curto: primeiro nome + último sobrenome (ex.: Maria Wilsa Duarte).
@@ -223,8 +223,8 @@ function drawChart() {
       // Com apelido: apelido em destaque e o nome na segunda linha. Sem apelido: primeiro nome + sobrenome (completo no computador).
       const full = mob && g > 0 ? shortName(q) : (g === 0 || !mob ? q.name : shortName(q));
       const nk = nickOf(q), nm = nk || full, sub = nk ? (mob ? shortName(q) : q.name) : '';
-      const mt = mob && g > 0 ? meta.replace(/([★✝]) /g, '$1') : meta;
-      html += `<button type="button" class="card td${g === 0 ? ' focus main' : ''}" data-id="${esc(q.id)}" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px" title="${esc(q.name)}">${av}<span class="nm">${esc(nm)}${isDead(q) ? '<span class="x">\u00a0✝</span>' : ''}</span>${sub ? `<span class="fn">${esc(sub)}</span>` : ''}${mt ? `<span class="meta">${esc(mt)}</span>` : ''}</button>`;
+      const mt = mob && g > 0 ? meta.replace(/([★✝]\uFE0E?) /g, '$1') : meta;
+      html += `<button type="button" class="card td${g === 0 ? ' focus main' : ''}" data-id="${esc(q.id)}" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px" title="${esc(q.name)}">${av}<span class="nm">${esc(nm)}${isDead(q) ? '<span class="x">\u00a0✝\uFE0E</span>' : ''}</span>${sub ? `<span class="fn">${esc(sub)}</span>` : ''}${mt ? `<span class="meta">${esc(mt)}</span>` : ''}</button>`;
       if (g < G - 1) { place(q.fatherId, g + 1, i * 2, q.id, 'father', cx, y + h); place(q.motherId, g + 1, i * 2 + 1, q.id, 'mother', cx, y + h); }
     } else {
       html += `<button type="button" class="card td empty" data-add="${role}" data-child="${esc(childId)}" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px">+ ${role === 'father' ? 'Pai' : 'Mãe'}</button>`;
@@ -675,7 +675,7 @@ async function loadSuggestions() {
     : '<p class="none">Nenhuma sugestão: as notas já batem com as ligações da árvore.</p>';
 }
 const cand = c => `<div class="cand"><b>${esc(c.name)}</b>${c.nick ? ` (${esc(c.nick)})` : ''}${c.why ? ` <span class="tag">${esc(c.why)}</span>` : ''}
-  <div class="note">${[c.birth && '★ ' + c.birth, c.death && '✝ ' + c.death, c.father && 'pai: ' + c.father, c.mother && 'mãe: ' + c.mother, c.spouse && 'cônjuge: ' + c.spouse, c.relatos && c.relatos.length && 'relatos: ' + c.relatos.join(', ')].filter(Boolean).map(esc).join(' · ') || 'sem outros dados'}</div>`;
+  <div class="note">${[c.birth && '★\uFE0E ' + c.birth, c.death && '✝\uFE0E ' + c.death, c.father && 'pai: ' + c.father, c.mother && 'mãe: ' + c.mother, c.spouse && 'cônjuge: ' + c.spouse, c.relatos && c.relatos.length && 'relatos: ' + c.relatos.join(', ')].filter(Boolean).map(esc).join(' · ') || 'sem outros dados'}</div>`;
 function renderRel() {
   const d = rel.data, R = d.relato, decided = Object.entries(rel.decisions);
   const label = v => v === 'new' ? 'criar pessoa nova' : v === 'skip' ? 'pular por enquanto' : v === 'keep' ? 'manter o atual' : v.startsWith('id:') ? 'é ' + (P(v.slice(3))?.name || relNames[v.slice(3)] || 'a pessoa escolhida') : v;
