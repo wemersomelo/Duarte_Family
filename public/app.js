@@ -676,6 +676,15 @@ async function loadSuggestions() {
 }
 const cand = c => `<div class="cand"><b>${esc(c.name)}</b>${c.nick ? ` (${esc(c.nick)})` : ''}${c.why ? ` <span class="tag">${esc(c.why)}</span>` : ''}
   <div class="note">${[c.birth && '★\uFE0E ' + c.birth, c.death && '✝\uFE0E ' + c.death, c.father && 'pai: ' + c.father, c.mother && 'mãe: ' + c.mother, c.spouse && 'cônjuge: ' + c.spouse, c.relatos && c.relatos.length && 'relatos: ' + c.relatos.join(', ')].filter(Boolean).map(esc).join(' · ') || 'sem outros dados'}</div>`;
+// Atalhos para muitos alertas iguais: pessoas que o relato diz serem novas, ou citadas e ainda ausentes.
+function bulkHtml(alerts) {
+  const dup = alerts.filter(a => a.type === 'duplicate'), miss = alerts.filter(a => a.type === 'missing');
+  if (dup.length < 2 && miss.length < 2) return '';
+  return `<div class="alert"><p><b>Atalhos</b> <span class="note">confira a lista antes; dá para desfazer cada decisão</span></p><div class="actions">
+    ${dup.length > 1 ? `<button type="button" data-bulk="${esc(dup.map(a => a.key).join('\n'))}">Criar as ${dup.length} pessoas novas do relato (não são as parecidas)</button>` : ''}
+    ${miss.length > 1 ? `<button type="button" data-bulk="${esc(miss.map(a => a.key).join('\n'))}">Criar as ${miss.length} pessoas citadas que faltam</button>` : ''}</div>
+    <p class="note">${dup.length > 1 ? 'Novas com nome parecido a alguém da árvore: ' + dup.map(a => esc(a.name)).join(', ') + '. ' : ''}${miss.length > 1 ? 'Citadas e ainda ausentes: ' + miss.map(a => esc(a.name)).join(', ') + '.' : ''}</p></div>`;
+}
 function renderRel() {
   const d = rel.data, R = d.relato, decided = Object.entries(rel.decisions);
   const label = v => v === 'new' ? 'criar pessoa nova' : v === 'skip' ? 'pular por enquanto' : v === 'keep' ? 'manter o atual' : v.startsWith('id:') ? 'é ' + (P(v.slice(3))?.name || relNames[v.slice(3)] || 'a pessoa escolhida') : v;
@@ -694,7 +703,7 @@ function renderRel() {
     <p><b>${esc(R.fonte || R.id)}</b>${R.data ? ' · ' + esc(R.data) : ''} <span class="note">(${esc(R.id)})</span></p>
     ${R.existing ? `<p class="hint">Este relato já foi importado${R.importedAt ? ' em ' + esc(fmtDate(R.importedAt)) : ''}. Só as linhas que ainda não entraram serão aplicadas.</p>` : ''}
     ${R.material.length ? `<p class="note">Material: ${R.material.map(f => esc(f.name)).join(', ')} (fica guardado no relato, visível só para quem pode editar).</p>` : ''}
-    ${d.applied ? `<p class="hint"><b>Aplicado.</b> ${nOk} linha(s) entraram na árvore.</p>` : d.alerts.length ? `<h4>Primeiro, resolva ${d.alerts.length} alerta${d.alerts.length > 1 ? 's' : ''}</h4>${d.alerts.map(alertHtml).join('')}` : `<p class="hint">Sem alertas. Confira as linhas e toque em Aplicar.</p>`}
+    ${d.applied ? `<p class="hint"><b>Aplicado.</b> ${nOk} linha(s) entraram na árvore.</p>` : d.alerts.length ? `<h4>Primeiro, resolva ${d.alerts.length} alerta${d.alerts.length > 1 ? 's' : ''}</h4>${bulkHtml(d.alerts)}${d.alerts.map(alertHtml).join('')}` : `<p class="hint">Sem alertas. Confira as linhas e toque em Aplicar.</p>`}
     ${decided.length && !d.applied ? `<p class="note">Decisões: ${decided.map(([k, v]) => `${esc(k.includes('|') ? 'divergência' : k)} → ${esc(label(v))} <button type="button" class="link" data-undo="${esc(k)}">desfazer</button>`).join(' · ')}</p>` : ''}
     <h4>Linhas do lote</h4>
     <table class="tbl"><tbody>${d.rows.map(r => `<tr><td class="note">${r.n}</td><td><b>${esc(r.pessoa)}</b><br><span class="note">${esc(r.acao)} · ${esc(r.campo)}${r.valor ? ': ' + esc(r.valor) : ''}</span></td><td>${rowTxt(r)}</td></tr>`).join('')}</tbody></table>
@@ -722,6 +731,7 @@ $('#adlg').addEventListener('click', async e => {
   const ib = e.target.closest('[data-inbox]'); if (ib) { relStart(api('/api/admin/relatos/inbox', { method: 'POST', body: { folder: ib.dataset.inbox } })); return; }
   const ig = e.target.closest('[data-inboxignore]'); if (ig) { if (!(await confirmBtn(ig))) return; await api('/api/admin/relatos/inbox/ignore', { method: 'POST', body: { folder: ig.dataset.inboxignore } }).catch(err => $('#aErr').textContent = err.message); loadRelatos(); return; }
   const dc = e.target.closest('[data-dec]'); if (dc) { rel.decisions[dc.dataset.dec] = dc.dataset.val; relRun(false); return; }
+  const bk = e.target.closest('[data-bulk]'); if (bk) { if (!(await confirmBtn(bk))) return; for (const k of bk.dataset.bulk.split('\n')) rel.decisions[k] = 'new'; relRun(false); return; }
   const un = e.target.closest('[data-undo]'); if (un) { delete rel.decisions[un.dataset.undo]; relRun(false); return; }
   if (e.target.closest('#relApply')) { relRun(true); return; }
   if (e.target.closest('#relClose')) { rel = null; $('#relWork').innerHTML = ''; return; }
