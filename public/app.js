@@ -21,13 +21,19 @@ const dn = (p, n = p.name) => n + (isDead(p) ? '\u00a0✝' : '');
 const firstName = p => (p.given || '').trim() || String(p.name).split(' ')[0];
 // Nome curto: primeiro nome + último sobrenome (ex.: Maria Wilsa Duarte).
 const shortName = p => { const f = firstName(p), w = String(p.name).trim().split(/\s+/), last = w[w.length - 1]; return w.length > 1 && !f.split(' ').includes(last) ? f + ' ' + last : f; };
-// Apelidos como "Vó Floripes" ou "Avó Maria" dependem de quem vê: o "Vó" só aparece para os netos.
-// Para os outros, mostra só o nome ("Floripes"). Padrinho, Madrinha, Tia etc. ficam sempre.
-const GRAN = /^(av[óô]|v[óô]|vov[óô])\s+/i;
+// Apelidos de parentesco dependem de quem vê: "Vó Floripes" só para os netos, "Tia Fulô" só para os sobrinhos.
+// Para os outros, mostra o apelido sem o parentesco ("Floripes", "Fulô"). Padrinho, Madrinha etc. ficam sempre.
+const GRAN = /^(av[óô]|v[óô]|vov[óô])\s+/i, UNCLE = /^(tio|tia|titio|titia)\s+/i;
+function isGrandOf(p, r) { return [r.fatherId, r.motherId].some(id => P(id) && (P(id).fatherId === p.id || P(id).motherId === p.id)); }
+function isUncleOf(p, r) {
+  const parents = [r.fatherId, r.motherId].filter(id => P(id));
+  const sibs = new Set(parents.flatMap(id => siblingsOf(id).map(q => q.id)));
+  return sibs.has(p.id) || [...sibs].some(id => spousesOf(id).includes(p.id));
+}
 function nickOf(p) {
-  const n = String(p.nick || '').trim(), m = n.match(GRAN); if (!m) return n;
-  const r = P(rootPerson()), grand = r && [r.fatherId, r.motherId].some(id => P(id) && (P(id).fatherId === p.id || P(id).motherId === p.id));
-  if (grand) return n;
+  const n = String(p.nick || '').trim(), g = n.match(GRAN), u = n.match(UNCLE), m = g || u; if (!m) return n;
+  const r = P(rootPerson());
+  if (r && (g ? isGrandOf(p, r) : isUncleOf(p, r))) return n;
   const rest = n.slice(m[0].length); return norm(rest) === norm(firstName(p)) ? '' : rest;
 }
 const callName = p => nickOf(p) || firstName(p);
