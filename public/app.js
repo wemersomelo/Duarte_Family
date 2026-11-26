@@ -21,7 +21,16 @@ const dn = (p, n = p.name) => n + (isDead(p) ? '\u00a0✝' : '');
 const firstName = p => (p.given || '').trim() || String(p.name).split(' ')[0];
 // Nome curto: primeiro nome + último sobrenome (ex.: Maria Wilsa Duarte).
 const shortName = p => { const f = firstName(p), w = String(p.name).trim().split(/\s+/), last = w[w.length - 1]; return w.length > 1 && !f.split(' ').includes(last) ? f + ' ' + last : f; };
-const callName = p => p.nick || firstName(p);
+// Apelidos como "Vó Floripes" ou "Avó Maria" dependem de quem vê: o "Vó" só aparece para os netos.
+// Para os outros, mostra só o nome ("Floripes"). Padrinho, Madrinha, Tia etc. ficam sempre.
+const GRAN = /^(av[óô]|v[óô]|vov[óô])\s+/i;
+function nickOf(p) {
+  const n = String(p.nick || '').trim(), m = n.match(GRAN); if (!m) return n;
+  const r = P(rootPerson()), grand = r && [r.fatherId, r.motherId].some(id => P(id) && (P(id).fatherId === p.id || P(id).motherId === p.id));
+  if (grand) return n;
+  const rest = n.slice(m[0].length); return norm(rest) === norm(firstName(p)) ? '' : rest;
+}
+const callName = p => nickOf(p) || firstName(p);
 const byName = (a, b) => norm(a.name).localeCompare(norm(b.name));
 const childrenOf = id => Object.values(people).filter(p => p.fatherId === id || p.motherId === id);
 const spousesOf = id => {
@@ -186,7 +195,7 @@ function drawChart() {
       const meta = q.living ? '—' : [yr(q), g === 0 ? q.birthPlace : ''].filter(Boolean).join(' · ');
       // Com apelido: apelido em destaque e o nome na segunda linha. Sem apelido: primeiro nome + sobrenome (completo no computador).
       const full = mob && g > 0 ? shortName(q) : (g === 0 || !mob ? q.name : shortName(q));
-      const nm = q.nick || full, sub = q.nick ? (mob ? shortName(q) : q.name) : '';
+      const nk = nickOf(q), nm = nk || full, sub = nk ? (mob ? shortName(q) : q.name) : '';
       const mt = mob && g > 0 ? meta.replace(/([★✝]) /g, '$1') : meta;
       html += `<button type="button" class="card td${g === 0 ? ' focus main' : ''}" data-id="${esc(q.id)}" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px" title="${esc(q.name)}">${av}<span class="nm">${esc(nm)}${isDead(q) ? '<span class="x">\u00a0✝</span>' : ''}</span>${sub ? `<span class="fn">${esc(sub)}</span>` : ''}${mt ? `<span class="meta">${esc(mt)}</span>` : ''}</button>`;
       if (g < G - 1) { place(q.fatherId, g + 1, i * 2, q.id, 'father', cx, y + h); place(q.motherId, g + 1, i * 2 + 1, q.id, 'mother', cx, y + h); }
@@ -207,7 +216,7 @@ $('#gens').addEventListener('change', drawChart);
 let rt; addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(drawChart, 150); });
 
 /* ---------- ficha da pessoa ---------- */
-const chip = q => `<button type="button" class="chip" data-go="${esc(q.id)}">${esc(dn(q, q.nick ? q.name + ' (' + q.nick + ')' : q.name))}</button>`;
+const chip = q => `<button type="button" class="chip" data-go="${esc(q.id)}">${esc(dn(q, nickOf(q) ? q.name + ' (' + nickOf(q) + ')' : q.name))}</button>`;
 const chips = list => list.length ? `<div class="chips">${list.sort(byName).map(chip).join('')}</div>` : '<p class="none">Ninguém registrado ainda.</p>';
 function renderRecord() {
   const p = P(focus), slip = $('#slip'), kin = $('#kin');
@@ -227,7 +236,7 @@ function renderRecord() {
   const host = u => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return ''; } };
   const kindOf = u => /youtu\.?be/.test(u) ? 'YouTube' : /drive\.google|photos\.google/.test(u) ? 'Google' : /instagram/.test(u) ? 'Instagram' : /facebook|fb\.watch/.test(u) ? 'Facebook' : /vimeo/.test(u) ? 'Vimeo' : /whatsapp/.test(u) ? 'WhatsApp' : 'Link';
   const noteList = list => list.length ? `<ul class="notes">${list.map(n => `<li>${esc(n.text)}<small>${esc(who(n.createdBy))}, ${esc(fmtDate(n.createdAt))}${mine(n) ? ` · <button type="button" class="link" data-rmnote="${n.id}">remover</button>` : ''}</small></li>`).join('')}</ul>` : '';
-  slip.innerHTML = `<div class="phead">${p.photoFileId ? `<button type="button" class="pphoto" data-view="${esc(p.photoFileId)}" aria-label="Ver foto"><img src="/api/files/${encodeURIComponent(p.photoFileId)}" alt="Foto de ${esc(p.name)}"></button>` : ''}<div><h3 class="person">${esc(dn(p, p.nick || p.name))}</h3><p class="nick">${p.nick ? esc(p.name) : '&nbsp;'}</p></div></div>
+  slip.innerHTML = `<div class="phead">${p.photoFileId ? `<button type="button" class="pphoto" data-view="${esc(p.photoFileId)}" aria-label="Ver foto"><img src="/api/files/${encodeURIComponent(p.photoFileId)}" alt="Foto de ${esc(p.name)}"></button>` : ''}<div><h3 class="person">${esc(dn(p, nickOf(p) || p.name))}</h3><p class="nick">${nickOf(p) ? esc(p.name) : '&nbsp;'}</p></div></div>
   <dl>${row('Nascimento', p.birth)}${row('Local', p.birthPlace)}${row('Casamento', marr)}${row('Falecimento', p.death)}${row('Local', p.deathPlace)}${row('Cor/raça', COLOR[p.color])}${row('Origem/etnia', p.origin)}${row('Histórias', p.notes, 1)}${row('Fontes', p.sources, 1)}</dl>
   ${me && !isGuest() ? (myPerson() === p.id ? '<p class="mine">Esta pessoa é você. Para corrigir as suas datas, toque em <b>Editar meus dados</b>. <button type="button" class="link" data-act="notme">não sou eu</button></p>' : !myPerson() ? '<div class="actions small"><button type="button" class="primary" data-act="isme">Esta pessoa sou eu</button></div>' : '') : ''}
   ${!p.birth && !p.birthPlace && !p.notes ? '<p class="none">Ainda faltam informações sobre esta pessoa. Se você sabe algo, acrescente.</p>' : ''}
@@ -299,7 +308,7 @@ const q = $('#q'), res = $('#results');
 function search() {
   const t = norm(q.value.trim()); if (!t) { res.style.display = 'none'; return; }
   const hits = Object.values(people).filter(p => norm([p.name, p.nick, p.birthPlace, p.deathPlace, p.origin, COLOR[p.color], p.notes].join(' ')).includes(t)).sort(byName).slice(0, 30);
-  res.innerHTML = hits.length ? hits.map(p => `<button type="button" data-hit="${esc(p.id)}">${esc(dn(p))}<small>${esc([p.nick, yr(p), p.birthPlace].filter(Boolean).join(' · '))}</small></button>`).join('') : '<p class="none" style="padding:12px 14px;margin:0">Ninguém encontrado. Você pode adicionar essa pessoa.</p>';
+  res.innerHTML = hits.length ? hits.map(p => `<button type="button" data-hit="${esc(p.id)}">${esc(dn(p))}<small>${esc([nickOf(p), yr(p), p.birthPlace].filter(Boolean).join(' · '))}</small></button>`).join('') : '<p class="none" style="padding:12px 14px;margin:0">Ninguém encontrado. Você pode adicionar essa pessoa.</p>';
   res.style.display = 'block';
 }
 q.addEventListener('input', search); q.addEventListener('focus', search);
