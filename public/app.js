@@ -9,7 +9,10 @@ const P = id => (id && people[id]) ? people[id] : null;
 const canWrite = () => !!me && (me.role === 'member' || me.role === 'admin');
 const isGuest = () => !!me && me.role === 'guest';
 const canContribute = () => !!me && !isGuest();
-const canEdit = p => !!p && canWrite() && (me.role === 'admin' || (p.createdBy != null && p.createdBy === me.id));
+const isSelfP = p => !!p && !!me && !!me.personId && me.personId === p.id;
+const ownsP = p => !!p && canWrite() && (me.role === 'admin' || (p.createdBy != null && p.createdBy === me.id));
+// Editar: quem criou, o administrador, ou a própria pessoa.
+const canEdit = p => ownsP(p) || (isSelfP(p) && !isGuest());
 const y4 = s => (String(s || '').match(/\d{4}/) || [''])[0];
 const isDead = p => !!(p.death || p.deathPlace || (y4(p.birth) && +y4(p.birth) <= 1915));
 const yr = p => { const b = y4(p.birth), d = y4(p.death), out = []; if (b) out.push('★ ' + b); if (isDead(p)) out.push(d ? '✝ ' + d : '✝'); return out.join('  ') || '—'; };
@@ -197,6 +200,10 @@ function renderRecord() {
   const pn = notes.filter(n => n.personId === p.id);
   const pf = files.filter(f => f.personId === p.id);
   const ed = canEdit(p);
+  // Casamento: guardado na ficha da pessoa ou na do cônjuge.
+  const sp = P(p.spouseId), back = sp && (!sp.spouseId || sp.spouseId === p.id) ? sp : null;
+  const mD = p.marriage || back?.marriage || '', mP = p.marriagePlace || back?.marriagePlace || '';
+  const marr = (mD || mP) ? [mD, mP].filter(Boolean).join(' · ') + (sp ? ' (com ' + sp.name + ')' : '') : '';
   const mine = x => canWrite() && (me.role === 'admin' || x.createdBy === me.id);
   const info = pn.filter(n => n.kind !== 'memory'), mem = pn.filter(n => n.kind === 'memory');
   const pm = media.filter(m => m.personId === p.id);
@@ -205,13 +212,13 @@ function renderRecord() {
   const kindOf = u => /youtu\.?be/.test(u) ? 'YouTube' : /drive\.google|photos\.google/.test(u) ? 'Google' : /instagram/.test(u) ? 'Instagram' : /facebook|fb\.watch/.test(u) ? 'Facebook' : /vimeo/.test(u) ? 'Vimeo' : /whatsapp/.test(u) ? 'WhatsApp' : 'Link';
   const noteList = list => list.length ? `<ul class="notes">${list.map(n => `<li>${esc(n.text)}<small>${esc(who(n.createdBy))}, ${esc(fmtDate(n.createdAt))}${mine(n) ? ` · <button type="button" class="link" data-rmnote="${n.id}">remover</button>` : ''}</small></li>`).join('')}</ul>` : '';
   slip.innerHTML = `<div class="phead">${p.photoFileId ? `<button type="button" class="pphoto" data-view="${esc(p.photoFileId)}" aria-label="Ver foto"><img src="/api/files/${encodeURIComponent(p.photoFileId)}" alt="Foto de ${esc(p.name)}"></button>` : ''}<div><h3 class="person">${esc(dn(p))}</h3><p class="nick">${p.nick ? '“' + esc(p.nick) + '”' : '&nbsp;'}</p></div></div>
-  <dl>${row('Nascimento', p.birth)}${row('Local', p.birthPlace)}${row('Falecimento', p.death)}${row('Local', p.deathPlace)}${row('Cor/raça', COLOR[p.color])}${row('Origem/etnia', p.origin)}${row('Histórias', p.notes, 1)}${row('Fontes', p.sources, 1)}</dl>
-  ${me && !isGuest() ? (myPerson() === p.id ? '<p class="mine">Esta pessoa é você. <button type="button" class="link" data-act="notme">não sou eu</button></p>' : !myPerson() ? '<div class="actions small"><button type="button" class="primary" data-act="isme">Esta pessoa sou eu</button></div>' : '') : ''}
+  <dl>${row('Nascimento', p.birth)}${row('Local', p.birthPlace)}${row('Casamento', marr)}${row('Falecimento', p.death)}${row('Local', p.deathPlace)}${row('Cor/raça', COLOR[p.color])}${row('Origem/etnia', p.origin)}${row('Histórias', p.notes, 1)}${row('Fontes', p.sources, 1)}</dl>
+  ${me && !isGuest() ? (myPerson() === p.id ? '<p class="mine">Esta pessoa é você. Para corrigir as suas datas, toque em <b>Editar meus dados</b>. <button type="button" class="link" data-act="notme">não sou eu</button></p>' : !myPerson() ? '<div class="actions small"><button type="button" class="primary" data-act="isme">Esta pessoa sou eu</button></div>' : '') : ''}
   ${!p.birth && !p.birthPlace && !p.notes ? '<p class="none">Ainda faltam informações sobre esta pessoa. Se você sabe algo, acrescente.</p>' : ''}
   ${isGuest() ? '' : `<p class="by">Registrado por ${esc(who(p.createdBy))}</p>`}
   ${p.living ? '<p class="none">Dados de pessoas vivas (datas, lugares, fotos e lembranças) ficam visíveis só para quem tem convite.</p>' : ''}
   ${canContribute() ? `<div class="actions">${canWrite() ? '<button type="button" class="primary" data-act="note">+ Acrescentar informação</button>' : ''}<button type="button"${canWrite() ? '' : ' class="primary"'} data-act="memory">+ Deixar uma lembrança</button><button type="button" data-act="files">+ Fotos e documentos</button><button type="button" data-act="link">+ Vídeo ou link</button></div>` : ''}
-  ${canWrite() ? `<div class="actions small"><button type="button" data-act="child">+ Filho ou filha</button><button type="button" data-act="spouse">+ Cônjuge</button>${ed ? '<button type="button" data-act="edit">Editar</button><button type="button" class="danger" data-act="del">Excluir</button>' : ''}</div>` : ''}
+  ${canWrite() || ed ? `<div class="actions small">${ed ? `<button type="button"${isSelfP(p) ? ' class="primary"' : ''} data-act="edit">${isSelfP(p) ? 'Editar meus dados' : 'Editar'}</button>` : ''}${canWrite() ? '<button type="button" data-act="child">+ Filho ou filha</button><button type="button" data-act="spouse">+ Cônjuge</button>' : ''}${ownsP(p) ? '<button type="button" class="danger" data-act="del">Excluir</button>' : ''}</div>` : ''}
   ${p.living ? '' : `<h4>Fotos e documentos (${pf.length})</h4>
   ${pf.length ? `<div class="docs">${pf.map(f => `<div class="doc${f.id === p.photoFileId ? ' main' : ''}"><button type="button" class="thumb${f.mime === 'application/pdf' ? ' pdf' : ''}" data-view="${esc(f.id)}" ${isImg(f) ? `style="background-image:url('/api/files/${encodeURIComponent(f.id)}')"` : ''} aria-label="Abrir ${esc(f.name)}">${f.mime === 'application/pdf' ? 'PDF' : /hei[cf]/.test(f.mime) ? 'HEIC' : ''}</button><small title="${esc(f.caption || f.name)}">${esc(f.caption || f.name)}</small>${f.id === p.photoFileId ? '<small class="star">foto principal</small>' : ed && isImg(f) ? `<button type="button" class="link" data-mainphoto="${esc(f.id)}">usar como foto principal</button>` : ''}${mine(f) ? `<button type="button" class="link" data-rmfile="${esc(f.id)}">remover</button>` : ''}</div>`).join('')}</div>` : '<p class="none">Nenhum ainda.</p>'}
   <h4>Vídeos e links (${pm.length})</h4>
@@ -285,7 +292,7 @@ res.addEventListener('click', e => { const b = e.target.closest('[data-hit]'); i
 document.addEventListener('click', e => { if (!e.target.closest('.searchwrap')) res.style.display = 'none'; });
 
 /* ---------- formulário de pessoa ---------- */
-const FIELDS = ['name', 'nick', 'sex', 'birth', 'birthPlace', 'death', 'deathPlace', 'fatherId', 'motherId', 'spouseId', 'color', 'origin', 'notes', 'sources'];
+const FIELDS = ['name', 'nick', 'sex', 'birth', 'birthPlace', 'death', 'deathPlace', 'fatherId', 'motherId', 'spouseId', 'marriage', 'marriagePlace', 'color', 'origin', 'notes', 'sources'];
 const COLOR = { branca: 'Branca', preta: 'Preta', parda: 'Parda', amarela: 'Amarela', indigena: 'Indígena' };
 const dlg = $('#dlg'), form = $('#form');
 function fillSelect(sel, val, excl) {
@@ -294,7 +301,7 @@ function fillSelect(sel, val, excl) {
   sel.value = val || '';
 }
 function openForm(id, c = {}) {
-  if (!canWrite()) return; const p = id ? P(id) : {}; if (id && !canEdit(p)) return;
+  const p = id ? P(id) : {}; if (id ? !canEdit(p) : !canWrite()) return; if (c.confirmDel && !ownsP(p)) return;
   editing = id; ctx = c;
   $('#formTitle').textContent = c.confirmDel ? 'Excluir ' + p.name + '?' : id ? 'Editar ' + p.name : c.parentOf ? (c.parentRole === 'father' ? 'Pai de ' : 'Mãe de ') + P(c.parentOf).name : c.childOf ? 'Filho ou filha de ' + P(c.childOf).name : c.spouseOf ? 'Cônjuge de ' + P(c.spouseOf).name : 'Adicionar pessoa';
   for (const f of FIELDS) { const el = form.elements[f]; if (el.tagName !== 'SELECT' || f === 'sex' || f === 'color') el.value = p[f] || ''; }

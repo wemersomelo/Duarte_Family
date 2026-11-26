@@ -77,6 +77,9 @@ function toGedcom(people, title) {
     out.push(`0 ${f.id} FAM`);
     if (f.husb) out.push(line(1, 'HUSB', ids.get(f.husb)));
     if (f.wife) out.push(line(1, 'WIFE', ids.get(f.wife)));
+    const h = byId[f.husb] || {}, w = byId[f.wife] || {};
+    const mDate = h.marriage || w.marriage, mPlace = h.marriagePlace || w.marriagePlace;
+    if (f.husb && f.wife && (mDate || mPlace)) { out.push('1 MARR'); if (gedDate(mDate)) out.push(line(2, 'DATE', gedDate(mDate))); if (mPlace) out.push(line(2, 'PLAC', mPlace)); }
     for (const c of f.chil) out.push(line(1, 'CHIL', ids.get(c)));
   }
   out.push('0 TRLR');

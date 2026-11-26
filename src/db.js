@@ -125,6 +125,7 @@ function openDb(file) {
   if (!cols('notes').includes('kind')) db.exec(`ALTER TABLE notes ADD COLUMN kind TEXT NOT NULL DEFAULT 'info'`);
   if (!cols('invites').includes('email')) db.exec(`ALTER TABLE invites ADD COLUMN email TEXT`);
   for (const c of ['color', 'origin']) if (!cols('people').includes(c)) db.exec(`ALTER TABLE people ADD COLUMN ${c} TEXT DEFAULT ''`);
+  for (const c of ['marriage', 'marriage_place']) if (!cols('people').includes(c)) db.exec(`ALTER TABLE people ADD COLUMN ${c} TEXT DEFAULT ''`);
   if (!cols('users').includes('person_id')) db.exec(`ALTER TABLE users ADD COLUMN person_id TEXT NOT NULL DEFAULT ''`);
   if (!cols('people').includes('photo_file_id')) db.exec(`ALTER TABLE people ADD COLUMN photo_file_id TEXT DEFAULT ''`);
   db.prepare('DELETE FROM sessions WHERE expires < ?').run(Date.now());

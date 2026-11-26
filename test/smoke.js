@@ -126,6 +126,17 @@ function client() {
   assert.equal((await leitor('PUT', '/api/me/person', { personId: 'neto' })).status, 409, 'pessoa já ligada a outra conta');
   assert.equal((await leitor('PUT', '/api/me/person', { personId: 'nao-existe' })).status, 404);
   assert.equal((await anon('PUT', '/api/me/person', { personId: 'avo' })).status, 401);
+  // a própria pessoa corrige os seus dados (mesmo com acesso de leitura), mas não exclui
+  const prima = (await admin('POST', '/api/people', { name: 'Prima Teste', fatherId: 'avo' })).data.id;
+  const morta = (await admin('POST', '/api/people', { name: 'Falecida Teste', death: '2001' })).data.id;
+  assert.equal((await leitor('PUT', '/api/me/person', { personId: morta })).status, 400, 'não se identifica como falecido');
+  assert.equal((await leitor('PUT', '/api/people/' + prima, { birth: '1990' })).status, 403, 'antes de se identificar, leitor não edita');
+  assert.equal((await leitor('PUT', '/api/me/person', { personId: prima })).status, 200);
+  assert.equal((await leitor('PUT', '/api/people/' + prima, { birth: '02/03/1990', marriage: '10/10/2015', marriagePlace: 'Catuji, MG' })).status, 200, 'edita a própria ficha');
+  const pr = (await leitor('GET', '/api/tree')).data.people.find(x => x.id === prima);
+  assert.equal(pr.birth, '02/03/1990'); assert.equal(pr.marriage, '10/10/2015'); assert.equal(pr.marriagePlace, 'Catuji, MG');
+  assert.equal((await leitor('PUT', '/api/people/avo', { birth: '1900' })).status, 403, 'não edita outra pessoa');
+  assert.equal((await leitor('DELETE', '/api/people/' + prima)).status, 403, 'não exclui a própria ficha');
   const adminId = (await admin('GET', '/api/admin')).data.users.find(u => u.email === 'admin@ex.com').id;
   assert.equal((await admin('PUT', '/api/admin/users/' + adminId, { personId: 'avo' })).status, 200);
   assert.equal((await anon('GET', '/api/status')).data.defaultPerson, 'avo', 'visitante começa pela pessoa do admin');

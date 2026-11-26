@@ -116,6 +116,8 @@ function guestPerson(p) {
 const needWriter = (req, res, next) => req.user && req.user.role !== 'viewer' ? next() : res.status(403).json({ error: 'Seu acesso é só de leitura.' });
 const needAdmin = (req, res, next) => req.user && req.user.role === 'admin' ? next() : res.status(403).json({ error: 'Só o administrador pode fazer isso.' });
 const owns = (req, createdBy) => req.user.role === 'admin' || (createdBy != null && createdBy === req.user.id);
+// A própria pessoa (conta ligada a ela) também pode corrigir os seus dados, mesmo que outro parente tenha criado o registro.
+const isSelf = (req, p) => !!req.user.personId && req.user.personId === p.id;
 
 // Limite simples de tentativas de login.
 const attempts = new Map();
@@ -152,9 +154,9 @@ function log(req, action, target, detail) {
 }
 
 // ---------- utilidades ----------
-const FIELDS = ['name', 'nick', 'sex', 'birth', 'birth_place', 'death', 'death_place', 'father_id', 'mother_id', 'spouse_id', 'notes', 'sources', 'color', 'origin'];
+const FIELDS = ['name', 'nick', 'sex', 'birth', 'birth_place', 'death', 'death_place', 'father_id', 'mother_id', 'spouse_id', 'marriage', 'marriage_place', 'notes', 'sources', 'color', 'origin'];
 const COLORS = ['', 'branca', 'preta', 'parda', 'amarela', 'indigena'];
-const MAP = { birthPlace: 'birth_place', deathPlace: 'death_place', fatherId: 'father_id', motherId: 'mother_id', spouseId: 'spouse_id' };
+const MAP = { birthPlace: 'birth_place', deathPlace: 'death_place', fatherId: 'father_id', motherId: 'mother_id', spouseId: 'spouse_id', marriagePlace: 'marriage_place' };
 function clean(body) {
   const out = {};
   for (const [k, v] of Object.entries(body || {})) {
@@ -173,7 +175,7 @@ function personOut(p) {
   return {
     id: p.id, name: p.name, nick: p.nick, sex: p.sex, birth: p.birth, birthPlace: p.birth_place,
     death: p.death, deathPlace: p.death_place, fatherId: p.father_id, motherId: p.mother_id,
-    spouseId: p.spouse_id, notes: p.notes, sources: p.sources, color: p.color || '', origin: p.origin || '', photoFileId: p.photo_file_id || '', createdBy: p.created_by,
+    spouseId: p.spouse_id, marriage: p.marriage || '', marriagePlace: p.marriage_place || '', notes: p.notes, sources: p.sources, color: p.color || '', origin: p.origin || '', photoFileId: p.photo_file_id || '', createdBy: p.created_by,
     createdAt: p.created_at, updatedAt: p.updated_at
   };
 }
@@ -325,6 +327,7 @@ app.put('/api/me/person', needUser, (req, res) => {
   const pid = String(req.body.personId || '');
   if (pid && !exists(pid)) return res.status(404).json({ error: 'Pessoa não encontrada.' });
   if (pid && req.user.role !== 'admin') {
+    if (isDeceased(personOut(db.prepare('SELECT * FROM people WHERE id=?').get(pid)))) return res.status(400).json({ error: 'Esta pessoa já faleceu, então não pode ser você.' });
     const other = db.prepare('SELECT name FROM users WHERE person_id=? AND id<>?').get(pid, req.user.id);
     if (other) return res.status(409).json({ error: `Esta pessoa já está ligada à conta de ${other.name}. Fale com o administrador.` });
   }
@@ -351,10 +354,11 @@ app.post('/api/people', needWriter, (req, res) => {
   res.json({ id });
 });
 
-app.put('/api/people/:id', needWriter, (req, res) => {
+app.put('/api/people/:id', needUser, (req, res) => {
   const p = db.prepare('SELECT * FROM people WHERE id=?').get(req.params.id);
   if (!p) return res.status(404).json({ error: 'Pessoa não encontrada.' });
-  if (!owns(req, p.created_by)) return res.status(403).json({ error: 'Você só pode alterar o que você mesmo adicionou. Use "Acrescentar informação".' });
+  if (req.user.role === 'viewer' && !isSelf(req, p)) return res.status(403).json({ error: 'Seu acesso é só de leitura.' });
+  if (!owns(req, p.created_by) && !isSelf(req, p)) return res.status(403).json({ error: 'Você só pode alterar o que você mesmo adicionou. Use "Acrescentar informação".' });
   const d = clean(req.body);
   if ('name' in d && !d.name) return res.status(400).json({ error: 'O nome não pode ficar vazio.' });
   for (const k of ['father_id', 'mother_id', 'spouse_id']) if (d[k] && (d[k] === p.id || !exists(d[k]))) d[k] = '';
@@ -430,10 +434,11 @@ app.delete('/api/media-links/:id', needWriter, (req, res) => {
 
 // ---------- foto principal ----------
 // Quem criou o registro da pessoa (ou o administrador) escolhe a foto principal.
-app.put('/api/people/:id/photo', needWriter, (req, res) => {
+app.put('/api/people/:id/photo', needUser, (req, res) => {
   const p = db.prepare('SELECT * FROM people WHERE id=?').get(req.params.id);
   if (!p) return res.status(404).json({ error: 'Pessoa não encontrada.' });
-  if (!owns(req, p.created_by)) return res.status(403).json({ error: 'Só quem adicionou esta pessoa (ou o administrador) escolhe a foto principal.' });
+  if (req.user.role === 'viewer' && !isSelf(req, p)) return res.status(403).json({ error: 'Seu acesso é só de leitura.' });
+  if (!owns(req, p.created_by) && !isSelf(req, p)) return res.status(403).json({ error: 'Só quem adicionou esta pessoa (ou o administrador) escolhe a foto principal.' });
   const fileId = String(req.body.fileId || '');
   if (fileId) {
     const f = db.prepare('SELECT * FROM files WHERE id=? AND person_id=?').get(fileId, p.id);
