@@ -213,12 +213,40 @@ function runRelato(db, staged, { decisions = {}, apply = false, userId, newId, n
     const a = seen.get(r.alert.key);
     if (a) a.rows.push(r.n); else { const x = { ...r.alert, rows: [r.n] }; seen.set(r.alert.key, x); alerts.push(x); }
   }
+  for (const a of alerts) a.context = alertContext(a, result.rows, staged.relato);
   staged.lastAlerts = alerts;
   return {
     relato: { ...staged.meta, existing: !!existing, importedAt: existing ? existing.imported_at : null, material: staged.material.map(f => ({ name: f.name, size: f.data.length })), hasRelato: !!staged.relato },
-    alerts, rows: result.rows.map(r => ({ n: r.n, acao: r.acao, pessoa: r.pessoa, campo: r.campo, valor: r.valor, ok: r.ok, erro: r.erro, skipped: r.skipped, done: r.done, alert: r.alert ? r.alert.key : null })),
+    alerts, rows: result.rows.map(r => ({ n: r.n, acao: r.acao, pessoa: r.pessoa, campo: r.campo, valor: r.valor, fonte: r.fonte, conf: r.conf, ok: r.ok, erro: r.erro, skipped: r.skipped, done: r.done, alert: r.alert ? r.alert.key : null })),
     applied: apply
   };
+}
+
+
+// O que o relato diz sobre a pessoa de um alerta: as linhas do lote que a citam e os trechos do relato.md.
+function alertContext(a, rows, relatoText) {
+  const who = a.name || a.person || '';
+  const core = norm(who.replace(/\([^)]*\)/g, ' ')).trim();
+  const qual = norm((who.match(/\(([^)]*)\)/) || [])[1] || '').split(/\s+/).filter(w => w.length > 3 && !/^(filh|net|irma|casad|esposa|marido|confirm|completo|nome)/.test(w));
+  const has = (txt, w) => w && (' ' + norm(txt) + ' ').includes(' ' + w + ' ');
+  const own = new Set(a.rows);
+  const related = rows.filter(r => !own.has(r.n) && core && (has(r.pessoa, core) || has(r.valor, core))).map(r => r.n).slice(0, 12);
+  const excerpts = [];
+  if (relatoText && core) {
+    let section = '';
+    const lines = relatoText.split(/\r?\n/);
+    const scored = [];
+    lines.forEach((ln, i) => {
+      const h = ln.match(/^#{1,6}\s+(.*)/); if (h) { section = h[1].trim(); return; }
+      if (!ln.trim() || !has(ln, core)) return;
+      const score = 1 + qual.filter(w => has(ln, w)).length + (has(ln, norm(who)) ? 2 : 0);
+      scored.push({ i, score, section, text: ln.replace(/^\s*[-*|>]\s*/, '').replace(/\*\*/g, '').trim() });
+    });
+    scored.sort((x, y) => y.score - x.score || x.i - y.i);
+    for (const x of scored.slice(0, 6).sort((x, y) => x.i - y.i)) excerpts.push({ section: x.section, text: x.text.length > 500 ? x.text.slice(0, 500) + '…' : x.text });
+    if (scored.length > 6) excerpts.more = scored.length - 6;
+  }
+  return { related, excerpts, more: excerpts.more || 0 };
 }
 
 // ---------- varredura de duplicados em toda a árvore ----------

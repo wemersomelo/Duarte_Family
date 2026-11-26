@@ -124,7 +124,7 @@ function runLote(db, text, { apply, userId, newId, now, resolver, divergence, sk
   }
   const tx = db.transaction(() => {
     for (const row of parsed.rows) {
-      const out = { n: row.n, key: rowKey(row), acao: row.acao, pessoa: row.pessoa, campo: row.campo, valor: unmd(row.valor) };
+      const out = { n: row.n, key: rowKey(row), acao: row.acao, pessoa: row.pessoa, campo: row.campo, valor: unmd(row.valor), fonte: row.fonte, conf: row.conf };
       touched = new Set();
       if (skipKeys && skipKeys.has(out.key)) { out.done = 'já importada antes'; report.push(out); continue; }
       const sp = db.prepare('SAVEPOINT linha'); sp.run();

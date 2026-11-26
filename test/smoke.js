@@ -211,6 +211,17 @@ function client() {
   tc = (await admin('GET', '/api/tree')).data.people;
   assert.equal(tc.find(x => x.id === mariaJ).birthPlace, 'Catuji');
 
+  // alerta mostra as linhas e os trechos do relato que citam a pessoa
+  { const f = new FormData();
+    f.append('files', new Blob(['Ação,Pessoa,Campo,Valor,Fonte,Confiança\nATUALIZAR,Pedro Contexto,nascimento,1931,Fala da prima,Provável\nVÍNCULO,Ana Contexto,pai,Pedro Contexto,Fala da prima,Confirmado\n']), 'ctx2/lote.csv');
+    f.append('files', new Blob(['# Relato\n## 3. Família\n- O Pedro Contexto era tropeiro e casou em Itaipé.\n- Outra pessoa sem relação.\n']), 'ctx2/relato.md');
+    const r = (await admin('POST', '/api/admin/relatos/upload', f, true)).data;
+    const a = r.alerts.find(x => x.name === 'Pedro Contexto');
+    assert.ok(a && a.context, 'alerta com contexto ' + JSON.stringify(r.alerts));
+    assert.ok(a.context.excerpts.some(x => /tropeiro/.test(x.text) && x.section === '3. Família'), 'trecho do relato.md');
+    assert.ok(a.context.related.length || a.rows.length > 1, 'outras linhas que citam o nome');
+    assert.equal(r.rows[0].fonte, 'Fala da prima', 'fonte de cada linha'); }
+
   // juntar duas fichas da mesma pessoa
   const dupA = (await admin('POST', '/api/people', { name: 'Duplicada Teste', birth: '1950', fatherId: pai })).data.id;
   const dupB = (await admin('POST', '/api/people', { name: 'Duplicada T.', birth: '1951', birthPlace: 'Catuji' })).data.id;

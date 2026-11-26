@@ -693,13 +693,23 @@ function bulkHtml(alerts) {
 function renderRel() {
   const d = rel.data, R = d.relato, decided = Object.entries(rel.decisions);
   const label = v => v === 'new' ? 'criar pessoa nova' : v === 'skip' ? 'pular por enquanto' : v === 'keep' ? 'manter o atual' : v.startsWith('id:') ? 'é ' + (P(v.slice(3))?.name || relNames[v.slice(3)] || 'a pessoa escolhida') : v;
+  const rowById = n => d.rows.find(r => r.n === n);
+  const rowLine = r => r ? `<li><button type="button" class="link note" data-jump="${r.n}">linha ${r.n}</button> <b>${esc(r.pessoa)}</b> · ${esc(r.acao)} · ${esc(r.campo)}${r.valor ? ': ' + esc(r.valor) : ''}${r.fonte ? `<br><span class="note">fonte: ${esc(r.fonte)}${r.conf ? ' (' + esc(r.conf) + ')' : ''}</span>` : ''}</li>` : '';
+  const ctxHtml = a => { const c = a.context || { related: [], excerpts: [] };
+    return `<details class="ctx"><summary>Ver o que o relato diz</summary>
+      <p class="note">Linhas deste alerta:</p><ul>${a.rows.map(n => rowLine(rowById(n))).join('')}</ul>
+      ${c.related.length ? `<p class="note">Outras linhas que citam o mesmo nome:</p><ul>${c.related.map(n => rowLine(rowById(n))).join('')}</ul>` : ''}
+      ${c.excerpts.length ? `<p class="note">Trechos do relato:</p>${c.excerpts.map(x => `<blockquote>${x.section ? `<span class="note">${esc(x.section)}</span><br>` : ''}${esc(x.text)}</blockquote>`).join('')}${c.more ? `<p class="note">e mais ${c.more} trecho(s) com o mesmo nome.</p>` : ''}` : `<p class="note">${R.hasRelato ? 'O nome não aparece no texto do relato.' : 'Este relato veio sem relato.md.'}</p>`}
+    </details>`; };
+  const rowRefs = a => a.rows.map(n => `<button type="button" class="link" data-jump="${n}">${n}</button>`).join(', ');
   const alertHtml = a => a.type === 'divergence'
-    ? `<div class="alert"><p><b>${esc(a.title)}</b> <span class="note">(linha ${a.rows.join(', ')})</span></p>
+    ? `<div class="alert"><p><b>${esc(a.title)}</b> <span class="note">(linha ${rowRefs(a)})</span></p>
         <div class="cand"><b>Atual:</b> ${esc(a.current)}<div class="note">${esc(a.currentSource || 'sem fonte registrada')}</div></div>
         <div class="cand"><b>Novo:</b> ${esc(a.proposed)}<div class="note">${esc(a.proposedSource || 'sem fonte')}</div></div>
         <div class="actions"><button type="button" class="primary" data-dec="${esc(a.key)}" data-val="new">Usar o novo</button><button type="button" data-dec="${esc(a.key)}" data-val="keep">Manter o atual</button></div>
-        <p class="note">O outro valor fica guardado em nota, com a fonte.</p></div>`
-    : `<div class="alert"><p><b>${esc(a.title)}</b> <span class="note">(linha${a.rows.length > 1 ? 's' : ''} ${a.rows.join(', ')})</span></p>
+        <p class="note">O outro valor fica guardado em nota, com a fonte.</p>${ctxHtml(a)}</div>`
+    : `<div class="alert"><p><b>${esc(a.title)}</b> <span class="note">(linha${a.rows.length > 1 ? 's' : ''} ${rowRefs(a)})</span></p>
+        ${ctxHtml(a)}
         ${a.candidates.map(c => { relNames[c.id] = c.name; return `${cand(c)}<div class="actions small"><button type="button" class="primary" data-dec="${esc(a.key)}" data-val="id:${esc(c.id)}">É esta pessoa</button></div></div>`; }).join('')}
         <div class="actions"><button type="button" data-dec="${esc(a.key)}" data-val="new">${a.candidates.length ? 'É outra pessoa: criar nova' : 'Criar pessoa nova'}</button><button type="button" class="link" data-dec="${esc(a.key)}" data-val="skip">Pular por enquanto</button></div></div>`;
   const rowTxt = r => r.done ? `<span class="note">${esc(r.done)}</span>` : r.alert ? '<span class="note">aguardando o alerta acima</span>' : r.erro ? `<span class="err">${esc(r.erro)}</span>` : r.skipped ? `<span class="note">${esc(r.skipped)}</span>` : esc(r.ok);
@@ -711,7 +721,7 @@ function renderRel() {
     ${d.applied ? `<p class="hint"><b>Aplicado.</b> ${nOk} linha(s) entraram na árvore.</p>` : d.alerts.length ? `<h4>Primeiro, resolva ${d.alerts.length} alerta${d.alerts.length > 1 ? 's' : ''}</h4>${bulkHtml(d.alerts)}${d.alerts.map(alertHtml).join('')}` : `<p class="hint">Sem alertas. Confira as linhas e toque em Aplicar.</p>`}
     ${decided.length && !d.applied ? `<p class="note">Decisões: ${decided.map(([k, v]) => `${esc(k.includes('|') ? 'divergência' : k)} → ${esc(label(v))} <button type="button" class="link" data-undo="${esc(k)}">desfazer</button>`).join(' · ')}</p>` : ''}
     <h4>Linhas do lote</h4>
-    <table class="tbl"><tbody>${d.rows.map(r => `<tr><td class="note">${r.n}</td><td><b>${esc(r.pessoa)}</b><br><span class="note">${esc(r.acao)} · ${esc(r.campo)}${r.valor ? ': ' + esc(r.valor) : ''}</span></td><td>${rowTxt(r)}</td></tr>`).join('')}</tbody></table>
+    <table class="tbl"><tbody>${d.rows.map(r => `<tr id="rl-${r.n}"><td class="note">${r.n}</td><td><b>${esc(r.pessoa)}</b><br><span class="note">${esc(r.acao)} · ${esc(r.campo)}${r.valor ? ': ' + esc(r.valor) : ''}${r.fonte ? ' · fonte: ' + esc(r.fonte) : ''}</span></td><td>${rowTxt(r)}</td></tr>`).join('')}</tbody></table>
     <div class="actions">${d.applied ? '<button type="button" id="relClose">Fechar</button>' : `<button type="button" class="primary" id="relApply"${d.alerts.length || !nOk ? ' disabled' : ''}>Aplicar ${nOk} linha(s)</button><button type="button" id="relClose">Cancelar</button>`}</div>
   </div>`;
   $('#relWork').scrollIntoView({ block: 'start' });
@@ -735,6 +745,7 @@ $('#relform').addEventListener('change', e => {
 $('#adlg').addEventListener('click', async e => {
   const ib = e.target.closest('[data-inbox]'); if (ib) { relStart(api('/api/admin/relatos/inbox', { method: 'POST', body: { folder: ib.dataset.inbox } })); return; }
   const ig = e.target.closest('[data-inboxignore]'); if (ig) { if (!(await confirmBtn(ig))) return; await api('/api/admin/relatos/inbox/ignore', { method: 'POST', body: { folder: ig.dataset.inboxignore } }).catch(err => $('#aErr').textContent = err.message); loadRelatos(); return; }
+  const jp = e.target.closest('[data-jump]'); if (jp) { const tr = document.getElementById('rl-' + jp.dataset.jump); if (tr) { tr.scrollIntoView({ block: 'center' }); tr.classList.add('flash'); setTimeout(() => tr.classList.remove('flash'), 1600); } return; }
   const dc = e.target.closest('[data-dec]'); if (dc) { rel.decisions[dc.dataset.dec] = dc.dataset.val; relRun(false); return; }
   const bk = e.target.closest('[data-bulk]'); if (bk) { if (!(await confirmBtn(bk))) return; for (const k of bk.dataset.bulk.split('\n')) rel.decisions[k] = 'new'; relRun(false); return; }
   const un = e.target.closest('[data-undo]'); if (un) { delete rel.decisions[un.dataset.undo]; relRun(false); return; }
