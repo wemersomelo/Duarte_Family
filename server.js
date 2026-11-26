@@ -615,6 +615,25 @@ app.post('/api/admin/access-requests/:id/reject', needAdmin, (req, res) => {
   log(req, 'recusou pedido de acesso', r.email, { name: r.name });
   res.json({ ok: true });
 });
+// Cancelar: um pedido aguardando ou um convite aprovado que ainda não foi usado (o link do e-mail deixa de funcionar).
+app.post('/api/admin/access-requests/:id/cancel', needAdmin, (req, res) => {
+  const r = db.prepare('SELECT * FROM access_requests WHERE id=?').get(Number(req.params.id));
+  if (!r) return res.status(404).json({ error: 'Pedido não encontrado.' });
+  if (!['pending', 'approved'].includes(r.status)) return res.status(400).json({ error: 'Este pedido já não pode ser cancelado.' });
+  if (r.invite_token) db.prepare('DELETE FROM invites WHERE token=? AND used_by IS NULL').run(r.invite_token);
+  db.prepare("UPDATE access_requests SET status='cancelled', decided_by=?, decided_at=? WHERE id=?").run(req.user.id, now(), r.id);
+  log(req, 'cancelou pedido de acesso', r.email, { name: r.name, antes: r.status });
+  res.json({ ok: true });
+});
+// Tirar da lista um pedido já resolvido (o histórico guarda o registro).
+app.delete('/api/admin/access-requests/:id', needAdmin, (req, res) => {
+  const r = db.prepare('SELECT * FROM access_requests WHERE id=?').get(Number(req.params.id));
+  if (!r) return res.status(404).json({ error: 'Pedido não encontrado.' });
+  if (['pending', 'approved'].includes(r.status)) return res.status(400).json({ error: 'Cancele ou recuse o pedido antes de apagar.' });
+  db.prepare('DELETE FROM access_requests WHERE id=?').run(r.id);
+  log(req, 'apagou pedido de acesso da lista', r.email, { name: r.name, status: r.status });
+  res.json({ ok: true });
+});
 app.get('/api/admin/family-link', needAdmin, (req, res) => res.json({ token: getSetting('family_link') || null }));
 app.post('/api/admin/family-link', needAdmin, (req, res) => {
   const token = crypto.randomBytes(24).toString('base64url');

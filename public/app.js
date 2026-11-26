@@ -93,7 +93,8 @@ function showRequest(r) {
   const n = $('#notice'), msg = !r ? '' :
     r.status === 'pending' ? 'Seu pedido para participar está aguardando a aprovação do administrador.' :
     r.status === 'approved' ? (r.mailed ? `<b>Seu pedido foi aprovado!</b> Enviamos um e-mail para ${esc(r.email)}. Abra e toque no link para criar a sua senha. Se não encontrar, olhe na pasta de spam.` : '<b>Seu pedido foi aprovado!</b> O administrador vai te mandar o link para criar a sua senha.') :
-    r.status === 'rejected' ? 'Seu pedido não foi aprovado. Se achar que é um engano, fale com o administrador.' : '';
+    r.status === 'rejected' ? 'Seu pedido não foi aprovado. Se achar que é um engano, fale com o administrador.' :
+    r.status === 'cancelled' ? 'Seu pedido foi cancelado. Se achar que é um engano, fale com o administrador.' : '';
   n.innerHTML = msg; n.hidden = !msg;
 }
 async function start() {
@@ -413,7 +414,7 @@ $('#rform').addEventListener('submit', async e => {
 });
 
 /* ---------- administração ---------- */
-const REQ_STATUS = { pending: 'aguardando', approved: 'aprovado, convite enviado?', rejected: 'recusado', joined: 'entrou' };
+const REQ_STATUS = { pending: 'aguardando', approved: 'aprovado, falta criar a senha', rejected: 'recusado', joined: 'entrou', cancelled: 'cancelado' };
 async function loadRequests() {
   const d = await api('/api/admin/access-requests'), box = $('#requests');
   const pend = d.requests.filter(r => r.status === 'pending');
@@ -421,7 +422,7 @@ async function loadRequests() {
   $('#adminBtn').textContent = pend.length ? `Administrar (${pend.length})` : 'Administrar';
   box.innerHTML = d.requests.length ? `<table class="tbl"><tbody>${d.requests.map(r => `<tr><td><b>${esc(r.name)}</b><br><span class="note">${esc(r.email)}</span></td><td>${esc(r.relation)}${r.message ? `<br><span class="note">${esc(r.message)}</span>` : ''}</td><td class="note">${esc(fmtDate(r.createdAt))}</td><td>${r.status === 'pending'
     ? `<select data-reqrole="${r.id}"><option value="member">Pode adicionar</option><option value="viewer">Ver e deixar lembranças</option></select> <button type="button" class="primary" data-approve="${r.id}">Aprovar</button> <button type="button" class="link" data-reject="${r.id}">recusar</button>`
-    : `${esc(REQ_STATUS[r.status] || r.status)}${r.status === 'approved' && r.inviteToken ? ` <button type="button" class="link" data-copyurl="${esc(inviteUrl(r.inviteToken))}">copiar convite</button>` : ''}`}</td></tr>`).join('')}</tbody></table>` : '<p class="none">Nenhum pedido. Quem entra pelo link da família pode pedir para participar.</p>';
+    : `${esc(REQ_STATUS[r.status] || r.status)}${r.status === 'approved' && r.inviteToken ? ` <button type="button" class="link" data-copyurl="${esc(inviteUrl(r.inviteToken))}">copiar convite</button> <button type="button" class="link" data-reqcancel="${r.id}">cancelar convite</button>` : ''}${['rejected', 'cancelled', 'joined'].includes(r.status) ? ` <button type="button" class="link" data-reqdel="${r.id}">apagar da lista</button>` : ''}`}</td></tr>`).join('')}</tbody></table>` : '<p class="none">Nenhum pedido. Quem entra pelo link da família pode pedir para participar.</p>';
 }
 async function loadActivity() {
   const box = $('#activity');
@@ -479,6 +480,8 @@ $('#adlg').addEventListener('click', async e => {
       box.scrollIntoView({ block: 'nearest' }); loadRequests();
     } catch (err) { $('#aErr').textContent = err.message; }
     return; }
+  const rc = e.target.closest('[data-reqcancel]'); if (rc) { if (!(await confirmBtn(rc))) return; await api(`/api/admin/access-requests/${rc.dataset.reqcancel}/cancel`, { method: 'POST' }).catch(err => $('#aErr').textContent = err.message); loadRequests(); return; }
+  const rd = e.target.closest('[data-reqdel]'); if (rd) { if (!(await confirmBtn(rd))) return; await api(`/api/admin/access-requests/${rd.dataset.reqdel}`, { method: 'DELETE' }).catch(err => $('#aErr').textContent = err.message); loadRequests(); return; }
   const rj = e.target.closest('[data-reject]'); if (rj) { if (!(await confirmBtn(rj))) return; await api(`/api/admin/access-requests/${rj.dataset.reject}/reject`, { method: 'POST' }).catch(err => $('#aErr').textContent = err.message); loadRequests(); return; }
   if (e.target.closest('#famNew')) { if (e.target.closest('#famNew').textContent.startsWith('Trocar') && !(await confirmBtn(e.target.closest('#famNew')))) return; await api('/api/admin/family-link', { method: 'POST' }).catch(err => $('#aErr').textContent = err.message); loadFamilyLink(); return; }
   if (e.target.closest('#famOff')) { if (!(await confirmBtn(e.target.closest('#famOff')))) return; await api('/api/admin/family-link', { method: 'DELETE' }).catch(err => $('#aErr').textContent = err.message); loadFamilyLink(); return; }

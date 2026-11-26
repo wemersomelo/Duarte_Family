@@ -137,6 +137,18 @@ function client() {
   assert.equal((await client()('POST', '/api/invites/' + apr.token, { name: 'Outra', email: 'outra@ex.com', password: 'senha-forte-7' })).status, 400, 'convite preso ao e-mail do pedido');
   assert.equal((await client()('POST', '/api/invites/' + apr.token, { name: 'Prima Nova', email: 'nova@ex.com', password: 'senha-forte-7' })).status, 200);
   assert.equal((await admin('GET', '/api/admin/access-requests')).data.requests[0].status, 'joined');
+  // cancelar convite aprovado: o link deixa de funcionar; depois pode apagar da lista
+  const g2 = client(); await g2('GET', '/familia/' + famTok);
+  await g2('POST', '/api/access-requests', { name: 'Teste Cancela', email: 'cancela@ex.com', relation: 'primo' });
+  const rq2 = (await admin('GET', '/api/admin/access-requests')).data.requests.find(r => r.email === 'cancela@ex.com');
+  const apr2 = (await admin('POST', `/api/admin/access-requests/${rq2.id}/approve`, { role: 'viewer' })).data;
+  assert.equal((await tia('POST', `/api/admin/access-requests/${rq2.id}/cancel`)).status, 403, 'só admin cancela');
+  assert.equal((await admin('DELETE', `/api/admin/access-requests/${rq2.id}`)).status, 400, 'não apaga convite ativo');
+  assert.equal((await admin('POST', `/api/admin/access-requests/${rq2.id}/cancel`)).status, 200);
+  assert.equal((await client()('GET', '/api/invites/' + apr2.token)).status, 404, 'convite cancelado não funciona');
+  assert.equal((await g2('GET', '/api/status')).data.request.status, 'cancelled');
+  assert.equal((await admin('DELETE', `/api/admin/access-requests/${rq2.id}`)).status, 200);
+  assert.ok(!(await admin('GET', '/api/admin/access-requests')).data.requests.some(r => r.id === rq2.id));
   for (let i = 0; i < 3; i++) await guest('POST', '/api/access-requests', { name: 'Spam', email: `s${i}@ex.com`, relation: 'x' });
   assert.equal((await guest('POST', '/api/access-requests', { name: 'Spam', email: 's9@ex.com', relation: 'x' })).status, 429, 'limite de pedidos por dia');
 
