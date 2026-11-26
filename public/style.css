@@ -1,6 +1,6 @@
 /* Ideia: a página "Qualificação civil" de uma carteira de trabalho antiga,
    nomes escritos em tinta azul de cartório, sobre o verde da mata mineira. */
-:root{color-scheme:light dark;
+:root{color-scheme:light;
 --bg:light-dark(#F8EFE6,#2b2a22);--ink:light-dark(#3C3A2F,#F8EFE6);--mute:light-dark(#6f6a58,#c9bfae);
 --green:light-dark(#6E7B4A,#3C3A2F);--band-ink:#F8EFE6;--paper:light-dark(#fffaf4,#36342a);--line:light-dark(#e3d3c2,#57533f);
 --ink-blue:light-dark(#a94a2b,#E5A26F);--accent:light-dark(#C45E3A,#E5A26F);--soft:light-dark(#f2e3d4,#44412f);--danger:light-dark(#a3271b,#ff9c8f);
