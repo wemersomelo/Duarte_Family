@@ -259,7 +259,11 @@ function renderRecord() {
   <h4>Informações da família (${info.length})</h4>
   ${info.length ? noteList(info) : '<p class="none">Nenhuma ainda.</p>'}`}`;
   const par = [P(p.fatherId), P(p.motherId)].filter(Boolean);
-  kin.innerHTML = `<h4>Pais</h4>${chips(par)}<h4>Cônjuge</h4>${chips(spousesOf(p.id).map(P))}<h4>Filhos</h4>${chips(childrenOf(p.id))}<h4>Irmãos</h4>${chips(siblingsOf(p.id))}`;
+  // Primos: filhos dos irmãos do pai e da mãe.
+  const sibs = siblingsOf(p.id), skip = new Set([p.id, ...sibs.map(q => q.id)]);
+  const cousins = parId => { const seen = new Set(); return siblingsOf(parId).flatMap(u => childrenOf(u.id)).filter(c => !skip.has(c.id) && !seen.has(c.id) && seen.add(c.id)); };
+  const side = (label, parId) => { if (!P(parId)) return ''; const list = cousins(parId); return `<h4>${label}${list.length ? ` (${list.length})` : ''}</h4>${chips(list)}`; };
+  kin.innerHTML = `<h4>Pais</h4>${chips(par)}<h4>Cônjuge</h4>${chips(spousesOf(p.id).map(P))}<h4>Filhos</h4>${chips(childrenOf(p.id))}<h4>Irmãos</h4>${chips(sibs)}${side('Primos do lado do pai', p.fatherId)}${side('Primos do lado da mãe', p.motherId)}`;
 }
 document.addEventListener('click', async e => {
   const g = e.target.closest('[data-go]'); if (g) { closeAll(); go(g.dataset.go); return; }
