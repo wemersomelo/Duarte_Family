@@ -165,8 +165,29 @@ async function load() {
   }
 }
 
-function setFocus(id) { if (!P(id)) return; focus = id; if (location.hash !== '#' + id) history.replaceState(null, '', '#' + id); renderAll(); }
+// Caminho percorrido: o botão "Voltar" e o voltar do celular desfazem um passo de cada vez (usam o mesmo histórico).
+const trail = [];
+let firstFocus = null;
+function setFocus(id, back) {
+  if (!P(id)) return;
+  if (!firstFocus) firstFocus = focus || id;
+  if (!back && focus && focus !== id) { trail.push(focus); if (trail.length > 100) trail.shift(); history.pushState({ arvore: true }, '', '#' + id); }
+  else if (location.hash !== '#' + id) history.replaceState(history.state, '', '#' + id);
+  focus = id;
+  renderAll();
+}
+function goBack() {
+  if (history.state && history.state.arvore) { history.back(); return true; } // o popstate faz o resto
+  while (trail.length) { const id = trail.pop(); if (P(id) && id !== focus) { setFocus(id, true); return true; } }
+  return false;
+}
 function go(id) { setFocus(id); $('#fig').scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' }); }
+addEventListener('popstate', () => {
+  const h = decodeURIComponent(location.hash.slice(1)), id = P(h) ? h : firstFocus;
+  if (!P(id) || id === focus) return;
+  if (trail[trail.length - 1] === id) trail.pop();
+  setFocus(id, true);
+});
 
 /* ---------- gráfico de antepassados ---------- */
 const fig = $('#fig');
@@ -311,12 +332,14 @@ function renderIndex() {
   $('#allBtn').hidden = !fam || fam.size >= all.length;
   $('#allBtn').textContent = showAll ? (root === myPerson() ? 'Ver só a sua família' : 'Ver só a família de ' + first) : `Ver todas as pessoas (${all.length})`;
   $('#index').innerHTML = list.length ? list.map(p => `<li><button type="button" data-go="${esc(p.id)}"${p.id === root ? ' class="me"' : ''}>${esc(dn(p))} <span>${esc(yr(p))}</span></button></li>`).join('') : '<li class="none">A árvore ainda está vazia. Comece adicionando alguém.</li>';
+  $('#backBtn').hidden = !trail.some(id => P(id) && id !== focus);
   const home = $('#homeBtn'), r = rootPerson();
   home.hidden = !r || r === focus;
   home.textContent = r && r === myPerson() ? 'Voltar para mim' : 'Voltar ao início';
   $('#whoHint').hidden = !(me && !isGuest() && !myPerson());
 }
 $('#allBtn').addEventListener('click', () => { showAll = !showAll; renderIndex(); });
+$('#backBtn').addEventListener('click', () => { if (goBack()) scrollTo({ top: $('#chartTitle').offsetTop - 10, behavior: 'smooth' }); });
 $('#homeBtn').addEventListener('click', () => { const r = rootPerson(); if (r) { setFocus(r); scrollTo({ top: $('#chartTitle').offsetTop - 10, behavior: 'smooth' }); } });
 const q = $('#q'), res = $('#results');
 function search() {
