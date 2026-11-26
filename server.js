@@ -115,7 +115,7 @@ function isDeceased(p) {
 }
 function guestPerson(p) {
   if (isDeceased(p)) return { ...p, createdBy: null };
-  return { id: p.id, name: p.name, nick: p.nick, sex: p.sex, fatherId: p.fatherId, motherId: p.motherId, spouseId: p.spouseId, living: true, createdBy: null };
+  return { id: p.id, name: p.name, given: p.given, nick: p.nick, sex: p.sex, fatherId: p.fatherId, motherId: p.motherId, spouseId: p.spouseId, living: true, createdBy: null };
 }
 const needWriter = (req, res, next) => req.user && req.user.role !== 'viewer' ? next() : res.status(403).json({ error: 'Seu acesso é só de leitura.' });
 const needAdmin = (req, res, next) => req.user && req.user.role === 'admin' ? next() : res.status(403).json({ error: 'Só o administrador pode fazer isso.' });
@@ -158,7 +158,7 @@ function log(req, action, target, detail) {
 }
 
 // ---------- utilidades ----------
-const FIELDS = ['name', 'nick', 'sex', 'birth', 'birth_place', 'death', 'death_place', 'father_id', 'mother_id', 'spouse_id', 'marriage', 'marriage_place', 'notes', 'sources', 'color', 'origin'];
+const FIELDS = ['name', 'given', 'nick', 'sex', 'birth', 'birth_place', 'death', 'death_place', 'father_id', 'mother_id', 'spouse_id', 'marriage', 'marriage_place', 'notes', 'sources', 'color', 'origin'];
 const COLORS = ['', 'branca', 'preta', 'parda', 'amarela', 'indigena'];
 const MAP = { birthPlace: 'birth_place', deathPlace: 'death_place', fatherId: 'father_id', motherId: 'mother_id', spouseId: 'spouse_id', marriagePlace: 'marriage_place' };
 function clean(body) {
@@ -177,7 +177,7 @@ const newId = name => `${slug(name)}-${crypto.randomBytes(3).toString('hex')}`;
 const now = () => new Date().toISOString();
 function personOut(p) {
   return {
-    id: p.id, name: p.name, nick: p.nick, sex: p.sex, birth: p.birth, birthPlace: p.birth_place,
+    id: p.id, name: p.name, given: p.given || '', nick: p.nick, sex: p.sex, birth: p.birth, birthPlace: p.birth_place,
     death: p.death, deathPlace: p.death_place, fatherId: p.father_id, motherId: p.mother_id,
     spouseId: p.spouse_id, marriage: p.marriage || '', marriagePlace: p.marriage_place || '', notes: p.notes, sources: p.sources, color: p.color || '', origin: p.origin || '', photoFileId: p.photo_file_id || '', createdBy: p.created_by,
     createdAt: p.created_at, updatedAt: p.updated_at

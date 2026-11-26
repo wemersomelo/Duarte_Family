@@ -17,6 +17,11 @@ const y4 = s => (String(s || '').match(/\d{4}/) || [''])[0];
 const isDead = p => !!(p.death || p.deathPlace || (y4(p.birth) && +y4(p.birth) <= 1915));
 const yr = p => { const b = y4(p.birth), d = y4(p.death), out = []; if (b) out.push('★ ' + b); if (isDead(p)) out.push(d ? '✝ ' + d : '✝'); return out.join('  ') || '—'; };
 const dn = (p, n = p.name) => n + (isDead(p) ? '\u00a0✝' : '');
+// Primeiro nome: o campo próprio ou a primeira palavra do nome completo.
+const firstName = p => (p.given || '').trim() || String(p.name).split(' ')[0];
+// Nome curto: primeiro nome + último sobrenome (ex.: Maria Wilsa Duarte).
+const shortName = p => { const f = firstName(p), w = String(p.name).trim().split(/\s+/), last = w[w.length - 1]; return w.length > 1 && !f.split(' ').includes(last) ? f + ' ' + last : f; };
+const callName = p => p.nick || firstName(p);
 const byName = (a, b) => norm(a.name).localeCompare(norm(b.name));
 const childrenOf = id => Object.values(people).filter(p => p.fatherId === id || p.motherId === id);
 const spousesOf = id => {
@@ -158,12 +163,12 @@ function drawChart() {
   $('#gensWrap').hidden = mob;
   const G = mob ? 3 : +$('#gens').value, p = P(focus);
   if (!p) { fig.innerHTML = '<p class="none" style="padding:20px 0">Nenhuma pessoa selecionada.</p>'; fig.style.cssText = ''; return; }
-  $('#chartTitle').textContent = 'Antepassados de ' + (p.nick || p.name.split(' ')[0]);
+  $('#chartTitle').textContent = 'Antepassados de ' + callName(p);
   const slots = 2 ** (G - 1), M = mob ? 4 : 8, GX = mob ? 6 : 10;
   const avail = (fig.parentElement.clientWidth || innerWidth) - 2;
   const CW = Math.max(mob ? 78 : 104, Math.min(200, Math.floor((avail - 2 * M) / slots) - GX));
-  const CH = mob ? 72 : 66, RH = CH + (mob ? 46 : 54), TOP = mob ? 4 : 22;
-  const PW = Math.min(avail - 2 * M, mob ? 230 : 300), PH = mob ? 78 : 80;
+  const CH = mob ? 90 : 78, RH = CH + (mob ? 46 : 54), TOP = mob ? 4 : 22;
+  const PW = Math.min(avail - 2 * M, mob ? 230 : 300), PH = mob ? 90 : 92;
   const W = Math.max(slots * (CW + GX) + 2 * M, avail);
   const rowY = g => g === 0 ? TOP : TOP + PH + (mob ? 46 : 54) + (g - 1) * RH;
   const H = rowY(G - 1) + CH + 12;
@@ -171,7 +176,6 @@ function drawChart() {
   const labels = ['', 'Pais', 'Avós', 'Bisavós', 'Tataravós'];
   let html = '', lines = '';
   if (!mob) for (let g = 1; g < G; g++) html += `<div class="gen" style="left:${M}px;top:${rowY(g) - 20}px">${labels[g]}</div>`;
-  const short = n => { const a = String(n).split(' '); return a.length > 2 ? a[0] + ' ' + a[a.length - 1] : n; };
   const place = (id, g, i, childId, role, cx0, cy0) => {
     const n = 2 ** g, w = g === 0 ? PW : CW, h = g === 0 ? PH : CH;
     const cx = g === 0 ? W / 2 : (i + .5) * (W - 2 * M) / n + M, y = rowY(g), x = cx - w / 2;
@@ -180,9 +184,11 @@ function drawChart() {
     if (q) {
       const av = q.photoFileId ? `<img class="av" src="/api/files/${encodeURIComponent(q.photoFileId)}" alt="" loading="lazy">` : '';
       const meta = q.living ? '—' : [yr(q), g === 0 ? q.birthPlace : ''].filter(Boolean).join(' · ');
-      const nm = mob && g > 0 ? short(q.name) : q.name;
+      // Com apelido: apelido em destaque e o nome na segunda linha. Sem apelido: primeiro nome + sobrenome (completo no computador).
+      const full = mob && g > 0 ? shortName(q) : (g === 0 || !mob ? q.name : shortName(q));
+      const nm = q.nick || full, sub = q.nick ? (mob ? shortName(q) : q.name) : '';
       const mt = mob && g > 0 ? meta.replace(/([★✝]) /g, '$1') : meta;
-      html += `<button type="button" class="card td${g === 0 ? ' focus main' : ''}" data-id="${esc(q.id)}" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px" title="${esc(q.name)}">${av}<span class="nm">${esc(nm)}${isDead(q) ? '<span class="x">\u00a0✝</span>' : ''}</span>${mt ? `<span class="meta">${esc(mt)}</span>` : ''}</button>`;
+      html += `<button type="button" class="card td${g === 0 ? ' focus main' : ''}" data-id="${esc(q.id)}" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px" title="${esc(q.name)}">${av}<span class="nm">${esc(nm)}${isDead(q) ? '<span class="x">\u00a0✝</span>' : ''}</span>${sub ? `<span class="fn">${esc(sub)}</span>` : ''}${mt ? `<span class="meta">${esc(mt)}</span>` : ''}</button>`;
       if (g < G - 1) { place(q.fatherId, g + 1, i * 2, q.id, 'father', cx, y + h); place(q.motherId, g + 1, i * 2 + 1, q.id, 'mother', cx, y + h); }
     } else {
       html += `<button type="button" class="card td empty" data-add="${role}" data-child="${esc(childId)}" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px">+ ${role === 'father' ? 'Pai' : 'Mãe'}</button>`;
@@ -221,7 +227,7 @@ function renderRecord() {
   const host = u => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return ''; } };
   const kindOf = u => /youtu\.?be/.test(u) ? 'YouTube' : /drive\.google|photos\.google/.test(u) ? 'Google' : /instagram/.test(u) ? 'Instagram' : /facebook|fb\.watch/.test(u) ? 'Facebook' : /vimeo/.test(u) ? 'Vimeo' : /whatsapp/.test(u) ? 'WhatsApp' : 'Link';
   const noteList = list => list.length ? `<ul class="notes">${list.map(n => `<li>${esc(n.text)}<small>${esc(who(n.createdBy))}, ${esc(fmtDate(n.createdAt))}${mine(n) ? ` · <button type="button" class="link" data-rmnote="${n.id}">remover</button>` : ''}</small></li>`).join('')}</ul>` : '';
-  slip.innerHTML = `<div class="phead">${p.photoFileId ? `<button type="button" class="pphoto" data-view="${esc(p.photoFileId)}" aria-label="Ver foto"><img src="/api/files/${encodeURIComponent(p.photoFileId)}" alt="Foto de ${esc(p.name)}"></button>` : ''}<div><h3 class="person">${esc(dn(p))}</h3><p class="nick">${p.nick ? '“' + esc(p.nick) + '”' : '&nbsp;'}</p></div></div>
+  slip.innerHTML = `<div class="phead">${p.photoFileId ? `<button type="button" class="pphoto" data-view="${esc(p.photoFileId)}" aria-label="Ver foto"><img src="/api/files/${encodeURIComponent(p.photoFileId)}" alt="Foto de ${esc(p.name)}"></button>` : ''}<div><h3 class="person">${esc(dn(p, p.nick || p.name))}</h3><p class="nick">${p.nick ? esc(p.name) : '&nbsp;'}</p></div></div>
   <dl>${row('Nascimento', p.birth)}${row('Local', p.birthPlace)}${row('Casamento', marr)}${row('Falecimento', p.death)}${row('Local', p.deathPlace)}${row('Cor/raça', COLOR[p.color])}${row('Origem/etnia', p.origin)}${row('Histórias', p.notes, 1)}${row('Fontes', p.sources, 1)}</dl>
   ${me && !isGuest() ? (myPerson() === p.id ? '<p class="mine">Esta pessoa é você. Para corrigir as suas datas, toque em <b>Editar meus dados</b>. <button type="button" class="link" data-act="notme">não sou eu</button></p>' : !myPerson() ? '<div class="actions small"><button type="button" class="primary" data-act="isme">Esta pessoa sou eu</button></div>' : '') : ''}
   ${!p.birth && !p.birthPlace && !p.notes ? '<p class="none">Ainda faltam informações sobre esta pessoa. Se você sabe algo, acrescente.</p>' : ''}
@@ -276,7 +282,7 @@ function confirmBtn(btn) {
 function renderIndex() {
   const all = Object.values(people), root = rootPerson(), fam = familyOf(root);
   const list = (fam && !showAll ? all.filter(p => fam.has(p.id)) : all).sort(byName);
-  const first = root ? (P(root).nick || P(root).name.split(' ')[0]) : '';
+  const first = root ? callName(P(root)) : '';
   $('#indexTitle').textContent = fam && !showAll ? (root === myPerson() ? 'Sua família' : 'Família de ' + first) : 'Todas as pessoas';
   $('#count').textContent = list.length ? `(${list.length})` : '';
   $('#allBtn').hidden = !fam || fam.size >= all.length;
@@ -302,7 +308,7 @@ res.addEventListener('click', e => { const b = e.target.closest('[data-hit]'); i
 document.addEventListener('click', e => { if (!e.target.closest('.searchwrap')) res.style.display = 'none'; });
 
 /* ---------- formulário de pessoa ---------- */
-const FIELDS = ['name', 'nick', 'sex', 'birth', 'birthPlace', 'death', 'deathPlace', 'fatherId', 'motherId', 'spouseId', 'marriage', 'marriagePlace', 'color', 'origin', 'notes', 'sources'];
+const FIELDS = ['name', 'given', 'nick', 'sex', 'birth', 'birthPlace', 'death', 'deathPlace', 'fatherId', 'motherId', 'spouseId', 'marriage', 'marriagePlace', 'color', 'origin', 'notes', 'sources'];
 const COLOR = { branca: 'Branca', preta: 'Preta', parda: 'Parda', amarela: 'Amarela', indigena: 'Indígena' };
 const dlg = $('#dlg'), form = $('#form');
 function fillSelect(sel, val, excl) {
