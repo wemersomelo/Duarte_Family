@@ -38,6 +38,7 @@
     <h1 id="title">Árvore da Família</h1>
     <div class="menu">
       <span id="whoami" class="who"></span>
+      <button type="button" id="notifBtn" class="ghost" hidden>Avisos</button>
       <button type="button" id="adminBtn" class="ghost" hidden>Administrar</button>
       <button type="button" id="pwBtn" class="ghost">Senha</button>
       <button type="button" id="logoutBtn" class="ghost">Sair</button>
@@ -181,6 +182,13 @@
 </dialog>
 
 <!-- Senha -->
+<dialog id="avdlg" class="wide">
+  <div class="admin">
+  <div class="actions" style="justify-content:space-between;margin:0 0 8px"><h2 style="margin:0">Avisos</h2><button type="button" class="closeDlg">Fechar</button></div>
+  <p class="note">Quando alguém acrescenta, muda ou remove algo na ficha de um parente direto seu (ou na sua), você fica sabendo aqui. Se não for verdade, corrija ou avise o administrador, para a informação errada não se espalhar.</p>
+  <div id="avList"></div>
+  </div>
+</dialog>
 <dialog id="pdlg">
   <form id="pform">
     <h2>Trocar senha</h2>

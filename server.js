@@ -141,6 +141,13 @@ const isManager = (req, pid) => !!req.user && managerOf(pid) === req.user.id;
 // Parentes diretos de uma pessoa falecida podem corrigir a ficha dela: cônjuge, pais, irmãos,
 // filhos, netos e bisnetos. Vale para quem tem a conta ligada à própria ficha.
 function kinOfDeceased(myPid, ep) {
+  const out = kinOf(myPid, ep);
+  const dead = new Set(db.prepare('SELECT * FROM people').all().map(personOut).filter(isDeceased).map(p => p.id));
+  return new Set([...out].filter(id => dead.has(id)));
+}
+// Parentes diretos (vivos ou não) de quem está na ficha myPid: cônjuge, pais, avós, bisavós, irmãos e filhos.
+// Do ponto de vista da outra pessoa, myPid é o cônjuge, filho, neto, bisneto, irmão ou pai dela.
+function kinOf(myPid, ep) {
   const out = new Set(); if (!myPid) return out;
   ep = ep || effectiveParents();
   const me = ep[myPid]; if (!me) return out;
@@ -153,8 +160,7 @@ function kinOfDeceased(myPid, ep) {
     if ((me.f && c.f === me.f) || (me.m && c.m === me.m)) out.add(id); // meus irmãos
   }
   for (const r of db.prepare('SELECT id,spouse_id FROM people WHERE id=? OR spouse_id=?').all(myPid, myPid)) { if (r.id !== myPid) out.add(r.id); else if (r.spouse_id) out.add(r.spouse_id); }
-  const dead = new Set(db.prepare('SELECT * FROM people').all().map(personOut).filter(isDeceased).map(p => p.id));
-  return new Set([...out].filter(id => dead.has(id)));
+  return out;
 }
 // Contas dos parentes diretos de um falecido (para quem não pode corrigir saber com quem falar).
 function kinContacts(pid) {
@@ -201,6 +207,39 @@ setInterval(() => {
 function log(req, action, target, detail) {
   db.prepare('INSERT INTO activity(user_id,action,target,detail,at) VALUES(?,?,?,?,?)')
     .run(req.user ? req.user.id : null, action, String(target || '').slice(0, 200), detail ? JSON.stringify(detail).slice(0, 20000) : null, new Date().toISOString());
+  if (NOTIFY[action] && req.user) { try { notifyKin(req, action, String(target || ''), detail || {}); } catch (e) { console.error('aviso:', e.message); } }
+}
+// ---------- avisos: quando alguém mexe numa ficha, os parentes diretos dela e os administradores ficam sabendo ----------
+const NOTIFY = {
+  'acrescentou informação': 'acrescentou uma informação', 'deixou lembrança': 'deixou uma lembrança',
+  'editou pessoa': 'alterou dados', 'enviou arquivos': 'enviou fotos ou documentos', 'adicionou link': 'acrescentou um vídeo ou link',
+  'escolheu foto principal': 'trocou a foto de perfil', 'adicionou pessoa': 'cadastrou',
+  'removeu informação': 'removeu uma informação', 'removeu link': 'removeu um link', 'removeu arquivo': 'removeu uma foto ou documento'
+};
+const FIELD_LBL = { name: 'nome', given: 'primeiro nome', nick: 'apelido', sex: 'sexo', birth: 'nascimento', birth_place: 'local de nascimento', death: 'falecimento', death_place: 'local de falecimento', father_id: 'pai', mother_id: 'mãe', spouse_id: 'cônjuge', marriage: 'casamento', marriage_place: 'local do casamento', descendants: 'descendentes', notes: 'histórias', sources: 'fontes', color: 'cor/raça', origin: 'origem/etnia' };
+function notifyKin(req, action, pid, detail) {
+  const p = db.prepare('SELECT id,name FROM people WHERE id=?').get(pid); if (!p) return;
+  const nm = id => { const q = id && db.prepare('SELECT name FROM people WHERE id=?').get(id); return q ? q.name : (id || 'vazio'); };
+  let text = action === 'adicionou pessoa' ? `${req.user.name} cadastrou ${p.name} na árvore` : `${req.user.name} ${NOTIFY[action]} na ficha de ${p.name}`;
+  if (action === 'editou pessoa' && detail.depois) {
+    const ch = Object.keys(detail.depois).filter(k => String(detail.antes?.[k] ?? '') !== String(detail.depois[k] ?? '')).map(k => {
+      const ref = ['father_id', 'mother_id', 'spouse_id'].includes(k), a = detail.antes?.[k] || '', b = detail.depois[k] || '';
+      return k === 'notes' || k === 'sources' ? FIELD_LBL[k] : `${FIELD_LBL[k] || k}: ${ref ? nm(a) : a || 'vazio'} → ${ref ? nm(b) : b || 'vazio'}`;
+    });
+    if (!ch.length) return;
+    text += ': ' + ch.join('; ');
+  } else if (detail.text) text += `: "${String(detail.text).slice(0, 200)}"`;
+  else if (detail.url) text += `: ${detail.url}`;
+  const ep = effectiveParents();
+  const to = db.prepare("SELECT id,name,email,role,person_id FROM users WHERE active=1 AND id<>?").all(req.user.id)
+    .filter(u => u.role === 'admin' || (u.person_id && (u.person_id === pid || kinOf(u.person_id, ep).has(pid))));
+  const ins = db.prepare('INSERT INTO notifications(user_id,person_id,text,by_user,created_at) VALUES(?,?,?,?,?)');
+  for (const u of to) {
+    ins.run(u.id, pid, text, req.user.id, now());
+    // e-mail: no máximo um a cada 30 minutos por pessoa; o resto fica nos Avisos do site
+    const key = 'aviso_mail:' + u.id, last = Number(getSetting(key) || 0);
+    if (Date.now() - last > 30 * 60e3) { setSetting(key, String(Date.now())); mail.send(u.email, `Novidade na árvore: ${p.name}`, `${text}.\n\nSe não for verdade, corrija ou avise o administrador. Veja todos os avisos no site, no botão Avisos:\n${baseUrl(req)}/#${encodeURIComponent(pid)}`); }
+  }
 }
 
 // ---------- utilidades ----------
@@ -452,6 +491,14 @@ app.get('/api/people/:id/kin-contacts', needUser, (req, res) => {
   const admins = db.prepare("SELECT name FROM users WHERE role='admin' AND active=1").all().map(u => u.name);
   res.json({ contacts: kinContacts(p.id), admins });
 });
+app.get('/api/notifications', needUser, (req, res) => {
+  const list = db.prepare('SELECT id,person_id personId,text,created_at createdAt,read_at readAt FROM notifications WHERE user_id=? ORDER BY id DESC LIMIT 150').all(req.user.id);
+  res.json({ notifications: list, unread: list.filter(n => !n.readAt).length });
+});
+app.post('/api/notifications/read', needUser, (req, res) => {
+  db.prepare('UPDATE notifications SET read_at=? WHERE user_id=? AND read_at IS NULL').run(now(), req.user.id);
+  res.json({ ok: true });
+});
 app.put('/api/me/person', needUser, (req, res) => {
   const pid = String(req.body.personId || '');
   if (pid && !exists(pid)) return res.status(404).json({ error: 'Pessoa não encontrada.' });
@@ -581,7 +628,7 @@ app.post('/api/people/:id/notes', needUser, (req, res) => {
   if (!text) return res.status(400).json({ error: 'Escreva a informação.' });
   const kind = req.body.kind === 'memory' ? 'memory' : 'info';
   db.prepare('INSERT INTO notes(person_id,kind,text,created_by,created_at) VALUES(?,?,?,?,?)').run(req.params.id, kind, text, req.user.id, now());
-  log(req, kind === 'memory' ? 'deixou lembrança' : 'acrescentou informação', req.params.id);
+  log(req, kind === 'memory' ? 'deixou lembrança' : 'acrescentou informação', req.params.id, { text });
   res.json({ ok: true });
 });
 app.delete('/api/notes/:id', needUser, (req, res) => {

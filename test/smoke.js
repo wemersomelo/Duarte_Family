@@ -327,6 +327,17 @@ function client() {
     assert.equal((await nk('PUT', '/api/people/' + bis, { deathPlace: 'Itaipé' })).status, 200, 'bisneto corrige o bisavô');
     { const r = await nk('PUT', '/api/people/' + tioMorto, { deathPlace: 'X' }); assert.equal(r.status, 403, 'tio não é parente direto'); assert.match(r.data.error, /parentes diretos/); }
     { const k = (await nk('GET', `/api/people/${bis}/kin-contacts`)).data; assert.ok(k.contacts.includes('Neto'), 'lista quem pode corrigir'); }
+    // avisos: alguém acrescenta algo na ficha do avô -> o neto (parente direto) e o admin ficam sabendo; o primo não
+    await tia('POST', `/api/people/${av}/notes`, { text: 'o avô era tropeiro', kind: 'info' });
+    let nn = (await nk('GET', '/api/notifications')).data;
+    assert.ok(nn.unread >= 1 && nn.notifications.some(n => /tropeiro/.test(n.text) && n.personId === av), 'neto recebe aviso');
+    assert.ok((await admin('GET', '/api/notifications')).data.notifications.some(n => /tropeiro/.test(n.text)), 'admin recebe aviso');
+    assert.ok(!(await tia('GET', '/api/notifications')).data.notifications.some(n => /tropeiro/.test(n.text)), 'quem fez não recebe');
+    await admin('PUT', '/api/people/' + av, { birthPlace: 'Itaipé' });
+    nn = (await nk('GET', '/api/notifications')).data;
+    assert.ok(nn.notifications.some(n => /local de nascimento: vazio → Itaipé/.test(n.text)), 'aviso diz o que mudou');
+    await nk('POST', '/api/notifications/read');
+    assert.equal((await nk('GET', '/api/notifications')).data.unread, 0);
     assert.equal((await nk('PUT', '/api/people/' + primoMorto, { deathPlace: 'X' })).status, 403, 'primo não');
     assert.equal((await nk('PUT', '/api/people/' + tioVivo, { birth: '1951' })).status, 403, 'vivo não');
     assert.equal((await nk('DELETE', '/api/people/' + av)).status, 403, 'não exclui');

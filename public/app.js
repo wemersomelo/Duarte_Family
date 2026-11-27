@@ -144,6 +144,8 @@ async function start() {
   $('#whoami').textContent = me.name;
   $('#adminBtn').hidden = me.role !== 'admin';
   $('#pwBtn').hidden = isGuest();
+  $('#notifBtn').hidden = isGuest();
+  if (!isGuest()) loadNotifCount();
   $('#askBtn').hidden = !isGuest();
   { const n = (st.pendingRequests || 0) + (st.inboxNew || 0) + (st.suggestions || 0); $('#adminBtn').textContent = n ? `Administrar (${n})` : 'Administrar'; }
   $('#how').hidden = isGuest();
@@ -530,6 +532,17 @@ function openViewer(id) {
     f.mime === 'application/pdf' ? `<iframe src="${url}" title="${esc(f.name)}"></iframe>` : '<p class="none" style="padding:20px">Este formato não abre no navegador. Use "Baixar".</p>';
   $('#vdlg').showModal();
 }
+
+/* ---------- avisos ---------- */
+async function loadNotifCount() {
+  try { const d = await api('/api/notifications'); $('#notifBtn').textContent = d.unread ? `Avisos (${d.unread})` : 'Avisos'; $('#notifBtn').classList.toggle('hot', !!d.unread); return d; } catch { return null; }
+}
+$('#notifBtn').addEventListener('click', async () => {
+  const d = await loadNotifCount(); if (!d) return;
+  $('#avList').innerHTML = d.notifications.length ? `<ul class="notes">${d.notifications.map(n => `<li class="${n.readAt ? '' : 'unread'}">${esc(n.text)}<small>${esc(fmtDate(n.createdAt))}${n.personId && P(n.personId) ? ` · <button type="button" class="link" data-go="${esc(n.personId)}">ver a ficha</button>` : ''}</small></li>`).join('')}</ul>` : '<p class="none">Nenhum aviso ainda.</p>';
+  $('#avdlg').showModal();
+  if (d.unread) { await api('/api/notifications/read', { method: 'POST' }).catch(() => {}); $('#notifBtn').textContent = 'Avisos'; $('#notifBtn').classList.remove('hot'); }
+});
 
 /* ---------- senha ---------- */
 $('#pwBtn').addEventListener('click', () => { $('#pform').reset(); $('#pErr').textContent = ''; $('#pdlg').showModal(); });
