@@ -34,7 +34,7 @@
       <label class="f">Senha<input name="password" type="password" autocomplete="current-password" required minlength="8" maxlength="200"></label>
       <label class="f" id="fCode" hidden>Código que chegou no seu e-mail<input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="6 números"></label>
       <label class="check" id="fMail" hidden><input type="checkbox" name="emailUpdates" checked> Quero receber por e-mail as novidades da família (quando alguém acrescenta ou muda algo na ficha de um parente direto meu), num resumo por dia. Dá para mudar depois, em Avisos.</label>
-      <label class="f" id="fFamily" hidden>Nome da família (como vai aparecer no site)<input name="family" maxlength="80" placeholder="ex.: Família Silva Santos"></label>
+      <label class="f" id="fFamily" hidden>Nome da família (como vai aparecer no site)<input name="family" maxlength="80" placeholder="ex.: Família Silva Santos" autocomplete="off"></label>
       <label class="check" id="fAdult" hidden><input type="checkbox" name="adult"> Tenho 18 anos ou mais.</label>
       <label class="check" id="fTerms" hidden><input type="checkbox" name="terms"> Li e aceito os <a href="/termos" target="_blank">Termos de uso e a Política de privacidade</a>.</label>
       <label class="f" id="fKey" hidden>Chave de instalação (se configurada)<input name="setupKey" autocomplete="off" maxlength="200"></label>
@@ -119,31 +119,31 @@
 <dialog id="dlg">
   <form id="form">
     <h2 id="formTitle">Adicionar pessoa</h2>
-    <label class="f">Nome completo<input name="name" required maxlength="200"></label>
+    <label class="f">Nome completo<input name="name" required maxlength="200" autocomplete="off"></label>
     <div class="grid2">
-      <label class="f">Primeiro nome (como aparece na árvore, ex.: Maria Wilsa)<input name="given" maxlength="100"></label>
-      <label class="f">Como gosta de ser chamado(a) ou é conhecido(a) na família<input name="nick" maxlength="200" placeholder="ex.: Gabiru, Tia Branca, Padrinho Belo"></label>
-      <label class="f">Sexo<select name="sex"><option value="">Não informado</option><option value="m">Masculino</option><option value="f">Feminino</option></select></label>
-      <div class="f datef"><span>Nascimento</span><input name="birth" maxlength="60" placeholder="ex.: 01/01/1950, 1950, c. 1950"></div>
-      <label class="f">Local de nascimento<input name="birthPlace" maxlength="200" placeholder="Cidade, UF"></label>
-      <div class="f datef"><span>Falecimento</span><input name="death" maxlength="60" placeholder="ex.: 01/01/2010, 2010, falecido"></div>
-      <label class="f">Local de falecimento<input name="deathPlace" maxlength="200"></label>
+      <label class="f">Primeiro nome (como aparece na árvore, ex.: Maria Wilsa)<input name="given" maxlength="100" autocomplete="off"></label>
+      <label class="f">Como gosta de ser chamado(a) ou é conhecido(a) na família<input name="nick" maxlength="200" placeholder="ex.: Gabiru, Tia Branca, Padrinho Belo" autocomplete="off"></label>
+      <label class="f">Sexo<select name="sex" autocomplete="off"><option value="">Não informado</option><option value="m">Masculino</option><option value="f">Feminino</option></select></label>
+      <div class="f datef"><span>Nascimento</span><input name="birth" maxlength="60" placeholder="ex.: 01/01/1950, 1950, c. 1950" autocomplete="off"></div>
+      <label class="f">Local de nascimento<input name="birthPlace" maxlength="200" placeholder="Cidade, UF" autocomplete="off"></label>
+      <div class="f datef"><span>Falecimento</span><input name="death" maxlength="60" placeholder="ex.: 01/01/2010, 2010, falecido" autocomplete="off"></div>
+      <label class="f">Local de falecimento<input name="deathPlace" maxlength="200" autocomplete="off"></label>
       <p class="hint" id="sensHint" hidden>Cor/raça e origem/etnia de pessoas vivas são dados sensíveis: só a própria pessoa preenche, na ficha dela.</p>
-      <label class="f">Cor/raça (IBGE)<select name="color"><option value="">Não informado</option><option value="branca">Branca</option><option value="preta">Preta</option><option value="parda">Parda</option><option value="amarela">Amarela</option><option value="indigena">Indígena</option></select></label>
-      <label class="f">Origem/etnia (ex.: Krenak, africana, portuguesa)<input name="origin" maxlength="200"></label>
-      <label class="f">Pai<select name="fatherId"></select></label>
-      <label class="f">Mãe<select name="motherId"></select></label>
+      <label class="f">Cor/raça (IBGE)<select name="color" autocomplete="off"><option value="">Não informado</option><option value="branca">Branca</option><option value="preta">Preta</option><option value="parda">Parda</option><option value="amarela">Amarela</option><option value="indigena">Indígena</option></select></label>
+      <label class="f">Origem/etnia (ex.: Krenak, africana, portuguesa)<input name="origin" maxlength="200" autocomplete="off"></label>
+      <label class="f">Pai<select name="fatherId" autocomplete="off"></select></label>
+      <label class="f">Mãe<select name="motherId" autocomplete="off"></select></label>
     </div>
     <p class="note" id="parentHint" hidden>Os filhos ficam ligados ao pai e à mãe, casados ou não. Se este filho ou filha for de outra pessoa, troque aqui. Se não souber, deixe em branco.</p>
-    <label class="f">Cônjuge<select name="spouseId"></select></label>
+    <label class="f">Cônjuge<select name="spouseId" autocomplete="off"></select></label>
     <div class="grid2">
-      <div class="f datef"><span>Data do casamento</span><input name="marriage" maxlength="60" placeholder="ex.: 01/01/1980"></div>
-      <label class="f">Local do casamento<input name="marriagePlace" maxlength="200" placeholder="Cidade, UF"></label>
+      <div class="f datef"><span>Data do casamento</span><input name="marriage" maxlength="60" placeholder="ex.: 01/01/1980" autocomplete="off"></div>
+      <label class="f">Local do casamento<input name="marriagePlace" maxlength="200" placeholder="Cidade, UF" autocomplete="off"></label>
     </div>
-    <label class="f">Descendentes<select name="descendants"><option value="">Não informado (ou teve filhos)</option><option value="nao_teve">Não teve descendentes (não teve filhos)</option><option value="nao_deixou">Não deixou descendentes (teve filhos, mas nenhum deixou família)</option></select></label>
+    <label class="f">Descendentes<select name="descendants" autocomplete="off"><option value="">Não informado (ou teve filhos)</option><option value="nao_teve">Não teve descendentes (não teve filhos)</option><option value="nao_deixou">Não deixou descendentes (teve filhos, mas nenhum deixou família)</option></select></label>
     <p class="note">Por que duas opções: <b>"Não teve"</b> é quem nunca teve filhos; ali a linha da família termina e não há filhos para procurar. <b>"Não deixou"</b> é quem teve filhos, mas eles morreram sem ter filhos (por exemplo, o único filho morreu criança); esses filhos devem ser cadastrados, com nascimento e óbito, mas não adianta procurar netos. Se a pessoa teve filhos com família, deixe "Não informado".</p>
-    <label class="f">Histórias e observações<textarea name="notes" maxlength="5000"></textarea></label>
-    <label class="f">Fontes (documentos, quem contou)<textarea name="sources" maxlength="2000"></textarea></label>
+    <label class="f">Histórias e observações<textarea name="notes" maxlength="5000" autocomplete="off"></textarea></label>
+    <label class="f">Fontes (documentos, quem contou)<textarea name="sources" maxlength="2000" autocomplete="off"></textarea></label>
     <label class="check" id="minorWrap" hidden><input type="checkbox" name="minorConsent"> Esta pessoa é menor de idade. Tenho a autorização dos pais ou responsáveis para registrá-la (recomendamos só o nome e a ligação de família).</label>
     <div class="err" id="formErr"></div>
     <div class="actions">
@@ -159,7 +159,7 @@
   <form id="nform">
     <h2 id="nTitle">Acrescentar informação</h2>
     <p class="note" id="nHelp"></p>
-    <label class="f">Informação<textarea name="text" required maxlength="5000"></textarea></label>
+    <label class="f">Informação<textarea name="text" required maxlength="5000" autocomplete="off"></textarea></label>
     <div class="err" id="nErr"></div>
     <div class="actions"><button class="primary" type="submit">Salvar</button><button type="button" class="closeDlg">Cancelar</button></div>
   </form>
@@ -172,8 +172,8 @@
     <p class="note">Com uma conta você pode ver os dados de todos e deixar lembranças, fotos e informações. O administrador confere seu pedido e manda um convite para o seu e-mail ou WhatsApp.</p>
     <label class="f">Nome completo<input name="name" required maxlength="100" autocomplete="name"></label>
     <label class="f">E-mail<input name="email" type="email" required maxlength="120" autocomplete="email"></label>
-    <label class="f">Como você é da família (ex.: neta do Clemente, filho da Dilma)<input name="relation" required maxlength="200"></label>
-    <label class="f">Recado (opcional, ex.: seu WhatsApp)<textarea name="message" maxlength="1000"></textarea></label>
+    <label class="f">Como você é da família (ex.: neta do Clemente, filho da Dilma)<input name="relation" required maxlength="200" autocomplete="off"></label>
+    <label class="f">Recado (opcional, ex.: seu WhatsApp)<textarea name="message" maxlength="1000" autocomplete="off"></textarea></label>
     <div class="err" id="rErr"></div>
     <div class="actions"><button class="primary" type="submit">Enviar pedido</button><button type="button" class="closeDlg">Cancelar</button></div>
   </form>
@@ -184,8 +184,8 @@
   <form id="lform">
     <h2 id="lTitle">Vídeo ou link</h2>
     <p class="note">Cole o link de um vídeo (YouTube, Google Drive, WhatsApp, Facebook) ou de uma página sobre esta pessoa. Dica: no YouTube, um vídeo "não listado" só é visto por quem tem o link.</p>
-    <label class="f">Link<input name="url" type="url" inputmode="url" required maxlength="1000" placeholder="https://"></label>
-    <label class="f">Título (ex.: Festa de 100 anos da vó)<input name="title" maxlength="200"></label>
+    <label class="f">Link<input name="url" type="url" inputmode="url" required maxlength="1000" placeholder="https://" autocomplete="off"></label>
+    <label class="f">Título (ex.: Festa de 100 anos da vó)<input name="title" maxlength="200" autocomplete="off"></label>
     <div class="err" id="lErr"></div>
     <div class="actions"><button class="primary" type="submit">Salvar</button><button type="button" class="closeDlg">Cancelar</button></div>
   </form>
@@ -196,8 +196,8 @@
   <form id="xform">
     <h2>Esta pessoa está em outro livro?</h2>
     <p class="note">Se a família Lopes (por exemplo) descobriu que esta pessoa também está na árvore deles, peça a ligação aqui. O administrador do outro livro confirma antes de qualquer dado aparecer dos dois lados.</p>
-    <label class="f">Código do outro livro (deixe em branco se for o livro principal)<input name="toBook" maxlength="5" style="text-transform:uppercase" placeholder="ex.: K7P2Q"></label>
-    <label class="f">Nome dela, no outro livro<input name="guessName" required maxlength="200"></label>
+    <label class="f">Código do outro livro (deixe em branco se for o livro principal)<input name="toBook" maxlength="5" style="text-transform:uppercase" placeholder="ex.: K7P2Q" autocomplete="off"></label>
+    <label class="f">Nome dela, no outro livro<input name="guessName" required maxlength="200" autocomplete="off"></label>
     <div class="err" id="xErr"></div>
     <div class="actions"><button class="primary" type="submit">Enviar pedido</button><button type="button" class="closeDlg">Cancelar</button></div>
   </form>
@@ -209,7 +209,7 @@
     <h2 id="fTitle">Fotos e documentos</h2>
     <p class="note">Fotos de certidões, carteiras, identidades e retratos antigos. JPG, PNG, HEIC ou PDF, até 10 de cada vez.</p>
     <label class="f">Arquivos<input name="files" type="file" multiple accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf" required></label>
-    <label class="f">O que é (ex.: certidão de casamento)<input name="caption" maxlength="500"></label>
+    <label class="f">O que é (ex.: certidão de casamento)<input name="caption" maxlength="500" autocomplete="off"></label>
     <label class="check"><input type="checkbox" name="doc" value="1" checked> É documento (certidão, identidade, carteira, registro)</label>
     <p class="hint" id="fDocNote"><b>Por segurança, documentos não ficam expostos</b>, mesmo de quem já faleceu. O documento vai direto para o administrador, e só ele tem acesso à imagem; os dados que o documento confirma (datas, nomes, lugares) entram na ficha da pessoa, com a fonte. PDF é sempre documento. Desmarque só para fotos comuns (retratos, festas), que a família toda pode ver.</p>
     <div class="err" id="fErr"></div>
@@ -242,7 +242,7 @@
   <form id="repform">
     <h2>Denunciar ao administrador</h2>
     <p class="note">Conte o que está errado: informação falsa, ofensiva, ou que expõe alguém sem autorização. Só os administradores veem a denúncia, e eles decidem o que fazer.</p>
-    <label class="f">O que está errado<textarea name="reason" required minlength="5" maxlength="1000"></textarea></label>
+    <label class="f">O que está errado<textarea name="reason" required minlength="5" maxlength="1000" autocomplete="off"></textarea></label>
     <div class="err" id="repErr"></div>
     <div class="actions"><button class="primary" type="submit">Enviar</button><button type="button" class="closeDlg">Cancelar</button></div>
   </form>
@@ -252,10 +252,10 @@
     <h2>Ocê é fi <span class="sloganword">dequem</span>?</h2>
     <p class="note">Vamos começar a árvore por você e pelos seus pais. Depois é só ir subindo: avós, bisavós e os relatos da família.</p>
     <label class="f">Seu nome completo<input name="me" required maxlength="200" autocomplete="name"></label>
-    <label class="f">Como gosta de ser chamado ou é conhecido (opcional)<input name="nick" maxlength="100"></label>
-    <label class="f">Ano de nascimento (opcional)<input name="birth" maxlength="20" inputmode="numeric" placeholder="ex.: 1986"></label>
-    <label class="f">Nome do seu pai (se souber)<input name="father" maxlength="200"></label>
-    <label class="f">Nome da sua mãe (se souber)<input name="mother" maxlength="200"></label>
+    <label class="f">Como gosta de ser chamado ou é conhecido (opcional)<input name="nick" maxlength="100" autocomplete="off"></label>
+    <label class="f">Ano de nascimento (opcional)<input name="birth" maxlength="20" inputmode="numeric" placeholder="ex.: 1986" autocomplete="off"></label>
+    <label class="f">Nome do seu pai (se souber)<input name="father" maxlength="200" autocomplete="off"></label>
+    <label class="f">Nome da sua mãe (se souber)<input name="mother" maxlength="200" autocomplete="off"></label>
     <div class="err" id="onErr"></div>
     <div class="actions"><button class="primary" type="submit">Começar a árvore</button><button type="button" class="closeDlg">Depois</button></div>
   </form>
@@ -327,9 +327,9 @@
     </details>
     <details class="asec" data-sec="convites"><summary>Convidar parente</summary>
     <form id="iform" class="inline">
-      <select name="personId" aria-label="Quem é na árvore"></select>
-      <input name="label" placeholder="Para quem (ex.: tia Maria)" maxlength="100">
-      <select name="role"><option value="member">Pode adicionar</option><option value="viewer">Ver e deixar lembranças</option><option value="admin">Administrador</option></select>
+      <select name="personId" aria-label="Quem é na árvore" autocomplete="off"></select>
+      <input name="label" placeholder="Para quem (ex.: tia Maria)" maxlength="100" autocomplete="off">
+      <select name="role" autocomplete="off"><option value="member">Pode adicionar</option><option value="viewer">Ver e deixar lembranças</option><option value="admin">Administrador</option></select>
       <button class="primary" type="submit">Criar convite</button>
     </form>
     <div id="newInvite" class="newinv" hidden></div>
@@ -341,7 +341,7 @@
     </details>
     <details class="asec" data-sec="familia"><summary>Nome da família</summary>
     <p class="note">Aparece no topo, na tela de entrada e na aba do navegador, abaixo de "Dequem".</p>
-    <form id="famform" class="inline"><input name="name" maxlength="80" required><button class="primary" type="submit">Salvar</button></form>
+    <form id="famform" class="inline"><input name="name" maxlength="80" required autocomplete="off"><button class="primary" type="submit">Salvar</button></form>
     </details>
     <details class="asec" data-sec="usuarios"><summary>Pessoas com acesso</summary>
     <div id="idents"></div>
@@ -360,7 +360,7 @@
     <p class="note">Importa um arquivo JSON exportado desta árvore ou da versão anterior. Pessoas com o mesmo código são atualizadas.</p>
     <p class="note"><b>Lote de um relatório de entrevista:</b> cole a tabela "Lote para a árvore" (Ação | Pessoa | Campo | Valor | Fonte | Confiança) ou escolha o arquivo .csv. Primeiro aparece uma prévia; nada muda até você tocar em Aplicar. Nada é apagado: quando um dado muda, o anterior fica guardado em nota.</p>
     <form id="loteform">
-      <textarea name="text" rows="6" placeholder="| Ação | Pessoa | Campo | Valor | Fonte | Confiança |"></textarea>
+      <textarea name="text" rows="6" placeholder="| Ação | Pessoa | Campo | Valor | Fonte | Confiança |" autocomplete="off"></textarea>
       <div class="actions"><input name="file" type="file" accept=".csv,.md,.txt,text/csv,text/plain"><button type="submit" class="primary">Ver prévia</button></div>
     </form>
     <div id="lotePrev"></div>

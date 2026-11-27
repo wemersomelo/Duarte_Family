@@ -24,10 +24,14 @@ O propósito, que está nos termos, é ter conversas de família, juntar as pros
 ## Rodar e testar
 ```
 npm install
-npm test        # migration.js, smoke.js, security.js, books.js: tudo precisa passar
+npx playwright install chromium   # só na primeira vez
+npm test        # static, migration, smoke, security, books, crosslinks, ui: tudo precisa passar
 DATA_DIR=/tmp/x PORT=3000 node server.js
 ```
-Os testes usam pasta temporária e `SMTP_HOST=test` (os e-mails ficam em `mail.sent`). Toda funcionalidade nova ganha teste em `test/`.
+Os testes usam pasta temporária e `SMTP_HOST=test` (os e-mails ficam em `mail.sent`). Toda funcionalidade nova ganha teste em `test/`. Mudança de tela (HTML/CSS/app.js) ganha teste em `test/ui.js`
+(Playwright, navegador de verdade, escondido): não baste testar clicando você mesmo numa sessão de
+desenvolvimento, porque isso não fica guardado nem roda de novo sozinho da próxima vez. `test/static.js`
+é mais rápido e pega erros de HTML (ex.: dois elementos com o mesmo `id`) sem precisar abrir nada.
 
 ## Atualizar o servidor (o Leo faz)
 ```

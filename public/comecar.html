@@ -48,10 +48,10 @@
     <form id="bookform">
       <label class="f">Seu nome<input name="name" required maxlength="100" autocomplete="name"></label>
       <label class="f">E-mail<input name="email" type="email" required maxlength="120" autocomplete="email"></label>
-      <label class="f">Nome da família<input name="family" required maxlength="100" placeholder="ex.: Família Silva Santos"></label>
-      <label class="f">De onde é a família (cidade, estado)<input name="place" maxlength="120" placeholder="ex.: Itaipé, MG"></label>
-      <label class="f">Alguém da sua família já usa o Dequem? Quem? (opcional)<input name="relatives" maxlength="300" placeholder="ex.: minha prima Joana, de Catuji"></label>
-      <label class="f">Conte um pouco (opcional)<textarea name="message" maxlength="1500" placeholder="Quem você quer entrevistar primeiro? Até onde a família sabe?"></textarea></label>
+      <label class="f">Nome da família<input name="family" required maxlength="100" placeholder="ex.: Família Silva Santos" autocomplete="off"></label>
+      <label class="f">De onde é a família (cidade, estado)<input name="place" maxlength="120" placeholder="ex.: Itaipé, MG" autocomplete="off"></label>
+      <label class="f">Alguém da sua família já usa o Dequem? Quem? (opcional)<input name="relatives" maxlength="300" placeholder="ex.: minha prima Joana, de Catuji" autocomplete="off"></label>
+      <label class="f">Conte um pouco (opcional)<textarea name="message" maxlength="1500" placeholder="Quem você quer entrevistar primeiro? Até onde a família sabe?" autocomplete="off"></textarea></label>
       <label class="hp" aria-hidden="true">Site<input name="site" tabindex="-1" autocomplete="off"></label>
       <label class="check"><input type="checkbox" name="consent" required> Li e aceito os <a href="/termos" target="_blank">Termos de uso e a Política de privacidade</a>. Estes dados são usados só para responder ao meu pedido.</label>
       <div class="err" id="bookErr"></div>

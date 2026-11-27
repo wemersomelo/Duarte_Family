@@ -75,8 +75,9 @@ Precisa do Node.js 20 ou mais novo.
 
 ```bash
 npm install
+npx playwright install chromium   # só na primeira vez: baixa um navegador escondido para os testes
 npm start          # abre em http://localhost:3000
-npm test           # testa as regras de acesso
+npm test           # testa as regras de acesso, inclusive clicando na tela de verdade
 ```
 
 ### E-mail automático
