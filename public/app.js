@@ -548,6 +548,8 @@ $('#notifBtn').addEventListener('click', async () => {
 
 $('#avMail').addEventListener('change', e => api('/api/me/email-updates', { method: 'PUT', body: { on: e.target.checked } }).catch(err => alertStatus(err)));
 
+document.addEventListener('click', e => { if (e.target.closest('[data-themebtn]')) window.cycleTheme(); });
+
 /* ---------- senha ---------- */
 $('#pwBtn').addEventListener('click', () => { $('#pform').reset(); $('#pErr').textContent = ''; $('#pdlg').showModal(); });
 $('#pform').addEventListener('submit', async e => {

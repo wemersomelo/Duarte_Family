@@ -9,6 +9,7 @@
 /* Ideia: a página "Qualificação civil" de uma carteira de trabalho antiga,
    nomes escritos em tinta azul de cartório, sobre o verde da mata mineira. */
 :root{color-scheme:light;
+
 --bg:light-dark(#F8EFE6,#2b2a22);--ink:light-dark(#3C3A2F,#F8EFE6);--mute:light-dark(#6f6a58,#c9bfae);
 --green:light-dark(#6E7B4A,#3C3A2F);--band-ink:#F8EFE6;--paper:light-dark(#fffaf4,#36342a);--line:light-dark(#e3d3c2,#57533f);
 --ink-blue:light-dark(#a94a2b,#E5A26F);--accent:light-dark(#C45E3A,#E5A26F);--soft:light-dark(#f2e3d4,#44412f);--danger:light-dark(#a3271b,#ff9c8f);
@@ -208,12 +209,12 @@ body{font-variant-emoji:text}
 .ctx summary{cursor:pointer;color:var(--accent);font-weight:600;padding:4px 0}
 .ctx ul{margin:4px 0 8px;padding-left:18px}
 .ctx li{margin:3px 0}
-.ctx blockquote{margin:6px 0;padding:6px 10px;border-left:3px solid var(--line, #ccc);background:#fff;border-radius:4px;white-space:pre-wrap}
-tr.flash td{background:#fff3c4;transition:background .3s}
+.ctx blockquote{margin:6px 0;padding:6px 10px;border-left:3px solid var(--line, #ccc);background:var(--paper);border-radius:4px;white-space:pre-wrap}
+tr.flash td{background:light-dark(#fff3c4,#5a4a2a);transition:background .3s}
 
 .mlinks li.muted{opacity:.55}
 
-.asec{border:1px solid var(--line, #ddd);border-radius:8px;margin:8px 0;background:#fff}
+.asec{border:1px solid var(--line, #ddd);border-radius:8px;margin:8px 0;background:var(--paper)}
 .asec>summary{cursor:pointer;list-style:none;padding:12px 14px;font-weight:700;font-size:1.05em;display:flex;align-items:center;gap:8px}
 .asec>summary::-webkit-details-marker{display:none}
 .asec>summary::before{content:"▸";color:var(--accent);transition:transform .15s;display:inline-block}
@@ -249,3 +250,26 @@ label.check{display:flex;gap:8px;align-items:flex-start;margin:8px 0}
 .brandline::before,.brandline::after{content:"";width:34px;height:2px;background:var(--accent)}
 .brandtag{margin:6px 0 0;font:600 15px var(--sans);color:var(--ink)}
 .brandslogan{margin:4px 0 0;font:italic 400 15px var(--serif);color:var(--mute)}
+
+/* ---------- modo noturno (versão B): segue o aparelho ou a escolha da pessoa; theme.js põe data-theme ---------- */
+:root[data-theme="dark"]{color-scheme:dark}
+:root[data-theme="light"]{color-scheme:light}
+[data-theme="dark"] header.head{background:#3C3A2F;color:#F8EFE6;border-bottom:4px solid #C45E3A}
+[data-theme="dark"] header.head h1{color:#F8EFE6}
+[data-theme="dark"] .hsub{color:#e9dccd}
+[data-theme="dark"] .hline{color:#E5A26F}
+[data-theme="dark"] .hlogo{background:#F8EFE6;border-radius:50%;padding:8px;box-sizing:content-box;width:clamp(52px,9vw,72px);aspect-ratio:1;object-fit:contain}
+[data-theme="dark"] header button,[data-theme="dark"] header button.ghost{background:transparent;color:#F8EFE6;border-color:#ffffff44}
+[data-theme="dark"] header button.ghost:hover{border-color:#E5A26F;color:#E5A26F}
+[data-theme="dark"] #notifBtn.hot{background:#C45E3A;color:#fff;border-color:#C45E3A}
+[data-theme="dark"] header input{border:0;background:#F8EFE6;color:#3C3A2F}
+[data-theme="dark"] .how{background:#ffffff12;color:#F8EFE6}
+[data-theme="dark"] header .status,[data-theme="dark"] .who{color:#F8EFE6}
+[data-theme="dark"] header.head::after{opacity:.06;filter:grayscale(1) invert(1)}
+[data-theme="dark"] .auth{background:#3C3A2F}
+[data-theme="dark"] .auth::before{opacity:.06;filter:grayscale(1) invert(1)}
+[data-theme="dark"] .brandlogo{background:#F8EFE6;border-radius:50%;padding:16px;box-sizing:content-box;width:min(150px,44%);aspect-ratio:1;object-fit:contain}
+[data-theme="dark"] .brandline{color:#E5A26F}
+[data-theme="dark"] .auth::after{background:linear-gradient(90deg,#C45E3A 0 40%,#6E7B4A 40% 75%,#E5A26F 75%)}
+#themeBtn{min-width:38px;justify-content:center}
+.auththeme{margin-top:10px;text-align:center}

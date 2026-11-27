@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
-<meta name="color-scheme" content="light">
+<meta name="color-scheme" content="light dark">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#F8EFE6">
 <title>Family Book</title>
@@ -10,6 +10,7 @@
 <link rel="icon" href="/brand/icon-32.png" type="image/png" sizes="32x32">
 <link rel="icon" href="/brand/icon-192.png" type="image/png" sizes="192x192">
 <link rel="apple-touch-icon" href="/brand/icon-180.png">
+<script src="/theme.js"></script>
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
@@ -35,6 +36,7 @@
       <div class="err" id="authErr"></div>
       <button class="primary wide" type="submit" id="authBtn">Entrar</button>
     </form>
+    <p class="auththeme"><button type="button" class="link" data-themebtn>Tema</button></p>
     <p class="note" id="authHelp">Ainda não tem conta? Peça um convite ao administrador da árvore.</p>
   </div>
 </section>
@@ -48,6 +50,7 @@
       <span id="whoami" class="who"></span>
       <button type="button" id="notifBtn" class="ghost" hidden>Avisos</button>
       <button type="button" id="adminBtn" class="ghost" hidden>Administrar</button>
+      <button type="button" id="themeBtn" class="ghost" data-themebtn>Tema</button>
       <button type="button" id="pwBtn" class="ghost">Senha</button>
       <button type="button" id="logoutBtn" class="ghost">Sair</button>
     </div>
