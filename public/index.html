@@ -193,26 +193,31 @@
 <dialog id="adlg" class="wide">
   <div class="admin">
     <div class="actions" style="justify-content:space-between;margin:0 0 8px"><h2 style="margin:0">Administrar</h2><button type="button" class="closeDlg">Fechar</button></div>
-    <h3>Relatos de entrevista <span id="relCount" class="note"></span></h3>
+    <p class="note">Toque numa seção para abrir; toque de novo para fechar.</p>
+    <details class="asec" data-sec="relatos"><summary>Relatos de entrevista <span id="relCount" class="note"></span></summary>
     <div id="inbox"></div>
     <form id="relform" class="actions">
       <label class="btn">Escolher pasta do relato<input type="file" name="folder" webkitdirectory directory multiple hidden></label>
       <label class="btn">Escolher .zip<input type="file" name="zip" accept=".zip,application/zip" hidden></label>
     </form>
     <div id="relWork"></div>
-    <h3>Ligações sugeridas pelas notas <span id="sugCount" class="note"></span></h3>
-    <p class="note">O site lê as notas das fichas ("Irmã do Clemente", "casada com tio Joaquim", "filho da Joana") e sugere a ligação. Nada muda até você tocar em Ligar.</p>
-    <div id="sugList"></div>
-    <details class="relmore"><summary>Relatos já importados, pendências e duplicados</summary>
+    </details>
+    <details class="asec" data-sec="importados"><summary>Relatos já importados e pendências</summary>
       <div id="relList"></div>
       <h4>Pendências</h4><div id="pendList"></div>
-      <h4>Possíveis duplicados na árvore</h4>
+    </details>
+    <details class="asec" data-sec="sugestoes"><summary>Ligações sugeridas pelas notas <span id="sugCount" class="note"></span></summary>
+    <p class="note">O site lê as notas das fichas ("Irmã do Clemente", "casada com tio Joaquim", "filho da Joana") e sugere a ligação. Nada muda até você tocar em Ligar.</p>
+    <div id="sugList"></div>
+    </details>
+    <details class="asec" data-sec="duplicados"><summary>Possíveis duplicados na árvore</summary>
       <p class="note">Procura pessoas com nomes parecidos em toda a árvore. Nada é juntado: você decide caso a caso.</p>
       <button type="button" id="dupBtn">Procurar duplicados</button><div id="dupList"></div>
     </details>
-    <h3>Pedidos para participar <span id="reqCount" class="note"></span></h3>
+    <details class="asec" data-sec="pedidos"><summary>Pedidos para participar <span id="reqCount" class="note"></span></summary>
     <div id="requests"></div>
-    <h3>Convidar parente</h3>
+    </details>
+    <details class="asec" data-sec="convites"><summary>Convidar parente</summary>
     <form id="iform" class="inline">
       <select name="personId" aria-label="Quem é na árvore"></select>
       <input name="label" placeholder="Para quem (ex.: tia Maria)" maxlength="100">
@@ -221,19 +226,23 @@
     </form>
     <div id="newInvite" class="newinv" hidden></div>
     <div id="invites"></div>
-    <h3>Link da família (só ver, sem cadastro)</h3>
+    </details>
+    <details class="asec" data-sec="link"><summary>Link da família (só ver, sem cadastro)</summary>
     <p class="note">Um link único para mandar no grupo da família. Quem abre vê a árvore sem criar conta: dos falecidos aparece tudo; das pessoas vivas, só o nome e as ligações de família. Se o link se espalhar demais, troque: o antigo para de funcionar na hora.</p>
     <div id="famLink"></div>
-    <h3>Pessoas com acesso</h3>
+    </details>
+    <details class="asec" data-sec="usuarios"><summary>Pessoas com acesso</summary>
     <div id="users"></div>
-    <h3>Histórico</h3>
+    </details>
+    <details class="asec" data-sec="historico"><summary>Histórico</summary>
     <p class="note">Quem adicionou, mudou ou removeu o quê. Itens removidos ficam guardados no histórico, e fotos removidas vão para a pasta data/uploads/lixeira no servidor.</p>
     <button type="button" id="showActivity">Ver últimas 300 ações</button>
     <div id="activity" class="scroll"></div>
-    <h3>Cópias de segurança</h3>
+    </details>
+    <details class="asec" data-sec="copias"><summary>Cópias de segurança e importar</summary>
     <p class="note">Baixe uma cópia de vez em quando e guarde num lugar seguro. O arquivo GEDCOM abre em qualquer programa de genealogia.</p>
     <div class="actions"><a class="btn" href="/api/export.json">Baixar dados (JSON)</a><a class="btn" href="/api/export.ged">Baixar GEDCOM</a></div>
-    <h3>Importar</h3>
+    <h4>Importar</h4>
     <p class="note">Importa um arquivo JSON exportado desta árvore ou da versão anterior. Pessoas com o mesmo código são atualizadas.</p>
     <p class="note"><b>Lote de um relatório de entrevista:</b> cole a tabela "Lote para a árvore" (Ação | Pessoa | Campo | Valor | Fonte | Confiança) ou escolha o arquivo .csv. Primeiro aparece uma prévia; nada muda até você tocar em Aplicar. Nada é apagado: quando um dado muda, o anterior fica guardado em nota.</p>
     <form id="loteform">
@@ -243,6 +252,7 @@
     <div id="lotePrev"></div>
     <p class="note" style="margin-top:16px"><b>Cópia completa (.json)</b> exportada deste site:</p>
     <form id="impform" class="inline"><input name="file" type="file" accept="application/json,.json" required><button type="submit">Importar</button></form>
+    </details>
     <div class="err" id="aErr"></div>
   </div>
 </dialog>

@@ -560,7 +560,7 @@ async function loadAdmin() {
   const open = d.invites.filter(i => !i.usedBy && i.expires > Date.now());
   $('#invites').innerHTML = open.length ? `<p class="note">Convites ainda não usados (valem 30 dias):</p><table class="tbl"><tbody>${open.map(i => `<tr><td>${esc(i.label || 'sem nome')}</td><td>${ROLE[i.role]}</td><td><button type="button" class="link" data-copy="${esc(i.token)}">copiar link</button> <button type="button" class="link" data-revoke="${esc(i.token)}">cancelar</button></td></tr>`).join('')}</tbody></table>` : '';
 }
-$('#adminBtn').addEventListener('click', async () => { $('#newInvite').hidden = true; $('#adlg').showModal(); try { await loadAdmin(); } catch (err) { $('#aErr').textContent = err.message; } });
+$('#adminBtn').addEventListener('click', async () => { $('#newInvite').hidden = true; $('#adlg').showModal(); try { await loadAdmin(); for (const [sec, id] of [['relatos', '#relCount'], ['pedidos', '#reqCount'], ['sugestoes', '#sugCount']]) if ($(id).textContent.trim()) $(`.asec[data-sec="${sec}"]`).open = true; } catch (err) { $('#aErr').textContent = err.message; } });
 const inviteUrl = t => `${location.origin}/convite/${t}`;
 async function copy(text, btn) { try { await navigator.clipboard.writeText(text); if (btn) { const t = btn.textContent; btn.textContent = 'copiado'; setTimeout(() => btn.textContent = t, 2000); } } catch {} }
 $('#iform').addEventListener('submit', async e => {
@@ -733,6 +733,7 @@ async function relRun(apply) {
   catch (err) { $('#relWork').insertAdjacentHTML('afterbegin', `<p class="err">${esc(err.message)}</p>`); }
 }
 async function relStart(promise) {
+  $('.asec[data-sec="relatos"]').open = true;
   $('#relWork').innerHTML = '<p class="note">Lendo o relato…</p>';
   try { const d = await promise; rel = { token: d.token, decisions: {}, data: d }; renderRel(); }
   catch (err) { $('#relWork').innerHTML = `<p class="err">${esc(err.message)}</p>`; }

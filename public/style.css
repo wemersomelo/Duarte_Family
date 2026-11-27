@@ -192,3 +192,13 @@ body{font-variant-emoji:text}
 tr.flash td{background:#fff3c4;transition:background .3s}
 
 .mlinks li.muted{opacity:.55}
+
+.asec{border:1px solid var(--line, #ddd);border-radius:8px;margin:8px 0;background:#fff}
+.asec>summary{cursor:pointer;list-style:none;padding:12px 14px;font-weight:700;font-size:1.05em;display:flex;align-items:center;gap:8px}
+.asec>summary::-webkit-details-marker{display:none}
+.asec>summary::before{content:"▸";color:var(--accent);transition:transform .15s;display:inline-block}
+.asec[open]>summary::before{transform:rotate(90deg)}
+.asec[open]>summary{border-bottom:1px solid var(--line, #ddd)}
+.asec>*:not(summary){margin-left:14px;margin-right:14px}
+.asec>*:last-child{margin-bottom:12px}
+.asec .note:empty{display:none}
