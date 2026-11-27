@@ -13,7 +13,7 @@
 --bg:light-dark(#F8EFE6,#2b2a22);--ink:light-dark(#3C3A2F,#F8EFE6);--mute:light-dark(#6f6a58,#c9bfae);
 --green:light-dark(#6E7B4A,#3C3A2F);--band-ink:#F8EFE6;--paper:light-dark(#fffaf4,#36342a);--line:light-dark(#e3d3c2,#57533f);
 --ink-blue:light-dark(#a94a2b,#E5A26F);--accent:light-dark(#C45E3A,#E5A26F);--soft:light-dark(#f2e3d4,#44412f);--danger:light-dark(#a3271b,#ff9c8f);
---hand:"Segoe Print","Bradley Hand","Comic Neue","Patrick Hand",cursive;--serif:Merriweather,Georgia,"Times New Roman",serif;--sans:Montserrat,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+--serif:Merriweather,Georgia,"Times New Roman",serif;--sans:Montserrat,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 *{box-sizing:border-box;min-width:0}
 [hidden]{display:none!important}
 body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 var(--sans);overflow-x:clip}
@@ -57,19 +57,19 @@ button.danger{color:var(--danger)}
 background-image:repeating-linear-gradient(to bottom,transparent 0 23px,var(--line) 23px 24px);background-position:0 8px}
 .card:hover{border-color:var(--accent)}
 .card.focus{border:2px solid var(--accent);box-shadow:0 6px 18px #3C3A2F22}
-.card .nm{font:700 17px/24px var(--hand);color:var(--ink-blue);display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.card .nm{font:700 17px/24px var(--serif);color:var(--ink-blue);display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .card .meta{font-size:12px;line-height:24px;color:var(--mute);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .card.empty{background:transparent;border:1.5px dashed var(--line);color:var(--mute);display:grid;place-items:center;font-size:14px}
 .gen{position:absolute;top:0;font-size:12px;color:var(--mute);width:var(--cw)}
 .record{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:28px}
 @media(max-width:760px){.record{grid-template-columns:minmax(0,1fr)}}
 .slip{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:20px 22px}
-.slip h3.person{font:700 clamp(26px,4vw,34px)/1.1 var(--hand);color:var(--ink-blue);margin:0 0 4px}
+.slip h3.person{font:700 clamp(26px,4vw,34px)/1.15 var(--serif);color:var(--ink-blue);margin:0 0 4px}
 .nick{color:var(--mute);margin:0 0 14px}
 dl{display:grid;grid-template-columns:9em minmax(0,1fr);margin:0;border-top:1px solid var(--line)}
 dt,dd{padding:8px 0;border-bottom:1px dotted var(--line);margin:0}
 dt{font-size:13px;color:var(--mute);padding-top:10px}
-dd{font-family:var(--hand);font-size:18px;color:var(--ink-blue);white-space:pre-wrap}
+dd{font-family:var(--sans);font-weight:500;font-size:17px;color:var(--ink-blue);white-space:pre-wrap}
 dd.plain{font:15px/1.5 var(--sans);color:var(--ink)}
 .actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
 .kin h4,.slip h4{font:600 13px var(--sans);color:var(--mute);margin:18px 0 6px}
