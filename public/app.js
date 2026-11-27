@@ -210,6 +210,22 @@ let firstFocus = null;
 let anchor = null;
 const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 const pdlg = $('#carddlg');
+// Nunca duas janelas abertas ao mesmo tempo. Sem isso, um formulário (Editar, por exemplo) abre
+// por cima da ficha da pessoa: o botão "Fechar" dela continua visível atrás, mas o navegador não
+// deixa clicar nele (pertence à janela de trás, que fica "congelada" enquanto a de cima está
+// aberta) — e a pessoa sente que travou. Aqui a ficha fecha sozinha antes de qualquer outro
+// formulário abrir, e volta sozinha quando ele fechar (de qualquer jeito: botão ou Esc).
+const cardReopenStack = [];
+for (const d of document.querySelectorAll('dialog')) {
+  if (d === pdlg) continue;
+  const abrir = d.showModal.bind(d);
+  d.showModal = () => {
+    cardReopenStack.push(pdlg.open);
+    if (pdlg.open) pdlg.close();
+    abrir();
+  };
+  d.addEventListener('close', () => { if (cardReopenStack.pop()) pdlg.showModal(); });
+}
 function setFocus(id, back) {
   if (!P(id)) return;
   if (!firstFocus) firstFocus = focus || id;

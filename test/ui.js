@@ -66,6 +66,21 @@ async function setupData() {
   await page.locator('#carddlg .closeDlg').click();
   await page.waitForFunction(() => document.querySelector('#carddlg').open === false, null, { timeout: 5000 });
 
+  // Abrir "Editar" por cima do cartão: o cartão fecha sozinho (nunca duas janelas abertas ao
+  // mesmo tempo), e volta sozinho quando o formulário fecha — sem isso, o botão "Fechar" do
+  // cartão ficava visível atrás mas o clique não chegava nele (pertencia à janela de trás).
+  await page.locator('#fig button[data-id]').first().click();
+  await page.waitForSelector('#carddlg[open]');
+  await page.locator('#slip [data-act="edit"], #slip button:has-text("Editar")').first().click();
+  await page.waitForSelector('#dlg[open]');
+  assert.equal(await page.locator('#carddlg').evaluate(d => d.open), false, 'o cartão fecha sozinho enquanto o formulário está aberto');
+  await page.locator('#dlg .closeDlg').click();
+  await page.waitForSelector('#carddlg[open]');
+  assert.equal(await page.locator('#dlg').evaluate(d => d.open), false, 'o formulário fechou');
+  // E agora o "Fechar" do cartão, que antes podia ficar bloqueado, funciona de verdade.
+  await page.locator('#carddlg .closeDlg').click();
+  await page.waitForFunction(() => document.querySelector('#carddlg').open === false, null, { timeout: 5000 });
+
   // "Ver a árvore desta pessoa" recentra a árvore e fecha o cartão.
   await page.locator('#fig button[data-id]').first().click();
   await page.waitForSelector('#carddlg[open]');
