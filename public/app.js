@@ -255,7 +255,7 @@ function renderRecord() {
   if (!p) { slip.innerHTML = '<p class="none">Procure ou escolha uma pessoa na lista abaixo.</p>'; kin.innerHTML = ''; return; }
   const row = (k, v, plain) => v ? `<dt>${k}</dt><dd${plain ? ' class="plain"' : ''}>${esc(v)}</dd>` : '';
   const pn = notes.filter(n => n.personId === p.id);
-  const pf = files.filter(f => f.personId === p.id);
+  const pf = files.filter(f => f.personId === p.id && !f.profile); // a foto de perfil fica só na bolinha
   const ed = canEdit(p);
   const prel = relatoLinks.filter(r => r.personId === p.id);
   // Casamento: guardado na ficha da pessoa ou na do cônjuge.
@@ -304,7 +304,7 @@ function renderRecord() {
 }
 document.addEventListener('change', async e => {
   const inp = e.target.closest('[data-profilephoto]'); if (!inp || !inp.files.length) return;
-  const fd = new FormData(); fd.append('files', inp.files[0]); fd.append('caption', 'Foto de perfil'); fd.append('doc', '0'); inp.value = '';
+  const fd = new FormData(); fd.append('files', inp.files[0]); fd.append('caption', 'Foto de perfil'); fd.append('doc', '0'); fd.append('profile', '1'); inp.value = '';
   const box = inp.closest('.avatar'); if (box) box.classList.add('busy');
   try {
     const r = await api(`/api/people/${encodeURIComponent(focus)}/files`, { method: 'POST', body: fd });

@@ -372,6 +372,16 @@ function client() {
     await nk('PUT', '/api/me/person', { personId: '' });
     assert.equal((await admin('GET', '/api/tree')).data.people.find(x => x.id === av).deathPlace || '', '', 'desfeito'); }
 
+  { // foto de perfil não aparece em "Fotos e documentos"
+    const png1 = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+    const pp = (await admin('POST', '/api/people', { name: 'Perfil Teste' })).data.id;
+    const f = new FormData(); f.append('files', new Blob([png1], { type: 'image/png' }), 'eu.png'); f.append('profile', '1'); f.append('doc', '0');
+    const r = (await admin('POST', `/api/people/${pp}/files`, f, true)).data;
+    await admin('PUT', `/api/people/${pp}/photo`, { fileId: r.ids[0] });
+    const t = (await admin('GET', '/api/tree')).data;
+    const ff = t.files.find(x => x.id === r.ids[0]);
+    assert.ok(ff && ff.profile && !ff.doc, 'marcada como foto de perfil');
+    assert.equal(t.people.find(x => x.id === pp).photoFileId, r.ids[0]); }
   // juntar duas fichas da mesma pessoa
   const dupA = (await admin('POST', '/api/people', { name: 'Duplicada Teste', birth: '1950', fatherId: pai })).data.id;
   const dupB = (await admin('POST', '/api/people', { name: 'Duplicada T.', birth: '1951', birthPlace: 'Catuji' })).data.id;

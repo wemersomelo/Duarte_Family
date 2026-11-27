@@ -181,6 +181,11 @@ function openDb(file) {
   // passa a administrar a própria ficha e quem a cadastrou perde o direito de alterá-la.
   if (!cols('users').includes('person_ok')) db.exec(`ALTER TABLE users ADD COLUMN person_ok INTEGER NOT NULL DEFAULT 0`);
   // users.email_updates: 1 = quer receber por e-mail os avisos da família (perguntado ao criar a conta)
+  // files.profile: 1 = foto de perfil enviada pela bolinha; não aparece em "Fotos e documentos"
+  if (!cols('files').includes('profile')) {
+    db.exec(`ALTER TABLE files ADD COLUMN profile INTEGER NOT NULL DEFAULT 0`);
+    if (cols('people').includes('photo_file_id')) db.exec(`UPDATE files SET profile=1 WHERE caption='Foto de perfil' AND id IN (SELECT photo_file_id FROM people WHERE photo_file_id<>'')`);
+  }
   if (!cols('notifications').includes('mailed_at')) db.exec(`ALTER TABLE notifications ADD COLUMN mailed_at TEXT`);
   if (!cols('users').includes('email_updates')) db.exec(`ALTER TABLE users ADD COLUMN email_updates INTEGER NOT NULL DEFAULT 1`);
   if (!cols('people').includes('photo_file_id')) db.exec(`ALTER TABLE people ADD COLUMN photo_file_id TEXT DEFAULT ''`);

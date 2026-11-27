@@ -435,8 +435,8 @@ app.get('/api/tree', needUserOrGuest, (req, res) => {
   const mg = Object.fromEntries(db.prepare("SELECT person_id,id FROM users WHERE person_id<>'' AND person_ok=1 AND active=1").all().map(u => [u.person_id, u.id]));
   for (const p of people) p.managedBy = mg[p.id] || null;
   if (req.user && !req.guest && req.user.role !== 'viewer' && req.user.personOk) { const kin = kinOfDeceased(req.user.personId); for (const p of people) if (kin.has(p.id)) p.kinEdit = true; }
-  const files = db.prepare('SELECT id,person_id personId,original_name name,mime,size,caption,doc,created_by createdBy,created_at createdAt FROM files ORDER BY created_at').all()
-    .filter(f => canSeeDoc(req, { doc: f.doc })).map(f => ({ ...f, doc: !!f.doc }));
+  const files = db.prepare('SELECT id,person_id personId,original_name name,mime,size,caption,doc,profile,created_by createdBy,created_at createdAt FROM files ORDER BY created_at').all()
+    .filter(f => canSeeDoc(req, { doc: f.doc })).map(f => ({ ...f, doc: !!f.doc, profile: !!f.profile }));
   const users = db.prepare("SELECT id,name FROM users UNION ALL SELECT id, name || ' (conta removida)' FROM removed_users").all();
   // Relatos que citam cada pessoa (só para quem pode editar; os relatos são privados).
   const relatoLinks = req.user && req.user.role !== 'viewer' ? db.prepare(`SELECT rp.person_id personId, r.id relatoId, r.fonte, r.data, rp.hidden FROM relato_people rp JOIN relatos r ON r.id=rp.relato_id WHERE rp.hidden=0 OR (rp.hidden=1 AND ?) ORDER BY r.data`).all(req.user.role === 'admin' ? 1 : 0) : [];
@@ -726,16 +726,17 @@ app.post('/api/people/:id/files', needUser, (req, res) => {
     if (!exists(req.params.id)) { (req.files || []).forEach(f => fs.unlink(f.path, () => {})); return res.status(404).json({ error: 'Pessoa não encontrada.' }); }
     if (!req.files || !req.files.length) return res.status(400).json({ error: 'Envie fotos (JPG, PNG, HEIC) ou PDF.' });
     const caption = String(req.body.caption || '').trim().slice(0, 500);
-    const asDoc = String(req.body.doc ?? '1') !== '0'; // padrão: documento (restrito)
-    const ins = db.prepare('INSERT INTO files(id,person_id,stored_name,original_name,mime,size,caption,created_by,created_at,doc) VALUES(?,?,?,?,?,?,?,?,?,?)');
+    const asProfile = String(req.body.profile || '') === '1'; // foto de perfil: fica só na bolinha
+    const asDoc = !asProfile && String(req.body.doc ?? '1') !== '0'; // padrão: documento (restrito)
+    const ins = db.prepare('INSERT INTO files(id,person_id,stored_name,original_name,mime,size,caption,created_by,created_at,doc,profile) VALUES(?,?,?,?,?,?,?,?,?,?,?)');
     const ids = [];
     for (const f of req.files) {
       const info = await cleanImage(f);
       if (!info) { fs.unlink(f.path, () => {}); continue; }
       const fid = crypto.randomBytes(8).toString('hex'); ids.push(fid);
-      ins.run(fid, req.params.id, info.filename, String(f.originalname).slice(0, 200), info.mime, info.size, caption, req.user.id, now(), asDoc || info.mime === 'application/pdf' ? 1 : 0);
+      ins.run(fid, req.params.id, info.filename, String(f.originalname).slice(0, 200), info.mime, info.size, caption, req.user.id, now(), asDoc || info.mime === 'application/pdf' ? 1 : 0, asProfile && info.mime !== 'application/pdf' ? 1 : 0);
     }
-    log(req, 'enviou arquivos', req.params.id, { count: req.files.length });
+    log(req, asProfile ? 'enviou foto de perfil' : 'enviou arquivos', req.params.id, { count: req.files.length });
     res.json({ ok: true, count: req.files.length, ids });
   });
 });
