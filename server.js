@@ -129,6 +129,27 @@ function isDeceased(p) {
   const y = Number((String(p.birth || '').match(/\d{4}/) || [])[0]);
   return !!y && y <= DEAD_BEFORE;
 }
+// ---------- proteções dos termos de uso ----------
+// Menor de idade: vivo e nascido há menos de 18 anos.
+function isMinor(p) {
+  if (isDeceased(p)) return false;
+  const y = Number((String(p.birth || '').match(/\d{4}/) || [])[0]);
+  return !!y && y > new Date().getFullYear() - 18;
+}
+// O que os outros membros veem de quem é menor ou pediu para ocultar os dados: nome, apelido e ligações (e o ano, para o menor).
+function restrictedPerson(p, keepYear) {
+  const y = (String(p.birth || '').match(/\d{4}/) || [''])[0];
+  return { id: p.id, name: p.name, given: p.given, nick: p.nick, sex: p.sex, fatherId: p.fatherId, motherId: p.motherId, spouseId: p.spouseId,
+    birth: keepYear ? y : '', restricted: true, private: p.private, photoFileId: '', createdBy: p.createdBy, managedBy: p.managedBy };
+}
+// Pode ver os detalhes desta pessoa? (mesma regra da árvore)
+function canSeeDetails(req, row) {
+  if (!req.user || req.user.role === 'admin') return true;
+  const p = personOut(row), minor = isMinor(p), priv = p.private && !isDeceased(p);
+  if (!minor && !priv) return true;
+  const mine = req.user.personId;
+  return p.id === mine || row.created_by === req.user.id || (minor && !priv && mine && (p.fatherId === mine || p.motherId === mine));
+}
 function guestPerson(p) {
   if (isDeceased(p)) return { ...p, createdBy: null };
   return { id: p.id, name: p.name, given: p.given, nick: p.nick, sex: p.sex, fatherId: p.fatherId, motherId: p.motherId, spouseId: p.spouseId, living: true, createdBy: null };
@@ -286,7 +307,7 @@ function personOut(p) {
   return {
     id: p.id, name: p.name, given: p.given || '', nick: p.nick, sex: p.sex, birth: p.birth, birthPlace: p.birth_place,
     death: p.death, deathPlace: p.death_place, fatherId: p.father_id, motherId: p.mother_id,
-    spouseId: p.spouse_id, marriage: p.marriage || '', marriagePlace: p.marriage_place || '', descendants: p.descendants || '', notes: p.notes, sources: p.sources, color: p.color || '', origin: p.origin || '', photoFileId: p.photo_file_id || '', createdBy: p.created_by,
+    spouseId: p.spouse_id, marriage: p.marriage || '', marriagePlace: p.marriage_place || '', descendants: p.descendants || '', private: !!p.private, minorOk: !!p.minor_ok, notes: p.notes, sources: p.sources, color: p.color || '', origin: p.origin || '', photoFileId: p.photo_file_id || '', createdBy: p.created_by,
     createdAt: p.created_at, updatedAt: p.updated_at
   };
 }
@@ -296,6 +317,7 @@ function exists(id) { return !!db.prepare('SELECT 1 FROM people WHERE id=?').get
 app.get('/api/status', (req, res) => {
   const users = db.prepare('SELECT COUNT(*) n FROM users').get().n;
   const pending = req.user && req.user.role === 'admin' ? db.prepare("SELECT COUNT(*) n FROM access_requests WHERE status='pending'").get().n : 0;
+  const reportsN = req.user && req.user.role === 'admin' ? db.prepare("SELECT COUNT(*) n FROM reports WHERE status='open'").get().n : 0;
   const bookReqs = req.user && req.user.role === 'admin' ? db.prepare("SELECT COUNT(*) n FROM book_requests WHERE status='pending'").get().n : 0;
   // Quem pediu acesso neste aparelho vê em que pé está o pedido (o convite em si só chega pelo e-mail).
   let request = null;
@@ -306,7 +328,7 @@ app.get('/api/status', (req, res) => {
   }
   const inboxNew = req.user && req.user.role === 'admin' ? inboxState().filter(x => x.state !== 'importado').length : 0;
   let suggestionsN = 0; if (req.user && req.user.role === 'admin') try { suggestionsN = sugestoes.suggest(db, effectiveParents).length; } catch (e) { console.error(e); }
-  res.json({ request, inboxNew, suggestions: suggestionsN, needsSetup: users === 0, termsVersion: TERMS_VERSION, needsTerms: !!(req.user && (db.prepare('SELECT terms_version v FROM users WHERE id=?').get(req.user.id) || {}).v !== TERMS_VERSION), pendingRequests: pending, bookRequests: bookReqs, hubUrl: process.env.HUB_URL || '', user: req.user || (req.guest ? { id: null, name: 'Visitante', role: 'guest' } : null), familyName: familyName(), familySuggestion: BRAND.family, brand: BRAND, defaultPerson: startPerson() });
+  res.json({ request, inboxNew, suggestions: suggestionsN, needsSetup: users === 0, termsVersion: TERMS_VERSION, needsTerms: !!(req.user && (db.prepare('SELECT terms_version v FROM users WHERE id=?').get(req.user.id) || {}).v !== TERMS_VERSION), pendingRequests: pending, bookRequests: bookReqs, reports: reportsN, hubUrl: process.env.HUB_URL || '', user: req.user || (req.guest ? { id: null, name: 'Visitante', role: 'guest' } : null), familyName: familyName(), familySuggestion: BRAND.family, brand: BRAND, defaultPerson: startPerson() });
 });
 
 app.put('/api/admin/family-name', needAdmin, (req, res) => {
@@ -322,6 +344,7 @@ app.post('/api/setup', (req, res) => {
   const { name, email, password } = req.body || {};
   const err = checkAccount(name, email, password); if (err) return res.status(400).json({ error: err });
   if (!req.body.terms) return res.status(400).json({ error: 'Para criar a conta, aceite os Termos de uso e a Política de privacidade.' });
+  if (req.body.adult !== true) return res.status(400).json({ error: 'As contas são para maiores de 18 anos. Confirme a sua idade.' });
   const id = db.prepare('INSERT INTO users(name,email,pass_hash,role,created_at) VALUES(?,?,?,?,?)')
     .run(name.trim(), email.trim().toLowerCase(), bcrypt.hashSync(password, 10), 'admin', now()).lastInsertRowid;
   acceptTerms(id);
@@ -397,6 +420,7 @@ app.post('/api/invites/:token', (req, res) => {
   if (inv.email && String(email || '').trim().toLowerCase() !== inv.email) return res.status(400).json({ error: `Este convite é para o e-mail ${inv.email}.` });
   const err = checkAccount(name, email, password); if (err) return res.status(400).json({ error: err });
   if (!req.body.terms) return res.status(400).json({ error: 'Para criar a conta, aceite os Termos de uso e a Política de privacidade.' });
+  if (req.body.adult !== true) return res.status(400).json({ error: 'As contas são para maiores de 18 anos. Confirme a sua idade.' });
   const id = db.prepare('INSERT INTO users(name,email,pass_hash,role,created_at) VALUES(?,?,?,?,?)')
     .run(name.trim(), email.trim().toLowerCase(), bcrypt.hashSync(password, 10), inv.role, now()).lastInsertRowid;
   db.prepare('UPDATE users SET email_updates=? WHERE id=?').run(req.body.emailUpdates === false ? 0 : 1, id);
@@ -424,6 +448,63 @@ app.get(['/termos', '/privacidade'], (req, res) => {
   res.set('Cache-Control', 'no-cache').type('html').send(req.path === '/privacidade' ? html.replace('<main class="lp legal">', '<main class="lp legal" data-goto="privacidade">') : html);
 });
 const acceptTerms = (uid) => db.prepare('UPDATE users SET terms_version=?, terms_at=? WHERE id=?').run(TERMS_VERSION, now(), uid);
+// Direito de oposição: a própria pessoa (ou o administrador) oculta os dados dela dos outros membros.
+app.put('/api/people/:id/private', needUser, (req, res) => {
+  const p = db.prepare('SELECT * FROM people WHERE id=?').get(req.params.id);
+  if (!p) return res.status(404).json({ error: 'Pessoa não encontrada.' });
+  if (req.user.role !== 'admin' && !isSelf(req, p)) return res.status(403).json({ error: 'Só a própria pessoa (ou o administrador) escolhe isso.' });
+  db.prepare('UPDATE people SET private=?, updated_at=? WHERE id=?').run(req.body.on ? 1 : 0, now(), p.id);
+  log(req, req.body.on ? 'ocultou os dados da ficha' : 'mostrou os dados da ficha', p.id);
+  res.json({ ok: true });
+});
+// Denúncias: conteúdo que viola os termos (falso, ofensivo, exposição indevida). O administrador decide.
+app.post('/api/reports', needUser, (req, res) => {
+  const kind = String(req.body.kind || ''), target = String(req.body.target || '').slice(0, 100), reason = String(req.body.reason || '').trim().slice(0, 1000);
+  if (!['person', 'note', 'file', 'media'].includes(kind) || !target) return res.status(400).json({ error: 'Denúncia inválida.' });
+  if (reason.length < 5) return res.status(400).json({ error: 'Conte em poucas palavras o que está errado.' });
+  const recent = db.prepare("SELECT COUNT(*) n FROM reports WHERE by_user=? AND created_at>?").get(req.user.id, new Date(Date.now() - 864e5).toISOString()).n;
+  if (recent >= 20) return res.status(429).json({ error: 'Muitas denúncias hoje. Fale com o administrador.' });
+  const pid = kind === 'person' ? target : ((kind === 'note' ? db.prepare('SELECT person_id p FROM notes WHERE id=?') : kind === 'file' ? db.prepare('SELECT person_id p FROM files WHERE id=?') : db.prepare('SELECT person_id p FROM media_links WHERE id=?')).get(target) || {}).p || null;
+  db.prepare('INSERT INTO reports(kind,target,person_id,reason,by_user,created_at) VALUES(?,?,?,?,?,?)').run(kind, target, pid, reason, req.user.id, now());
+  const nm = pid && (db.prepare('SELECT name FROM people WHERE id=?').get(pid) || {}).name;
+  notifyAdmins(req, 'Denúncia', `${req.user.name} denunciou ${{ person: 'a ficha', note: 'uma informação', file: 'uma foto ou documento', media: 'um link' }[kind]}${nm ? ' de ' + nm : ''}: "${reason}". Veja em Administrar > Denúncias.`, pid);
+  log(req, 'fez uma denúncia', pid, { kind, target });
+  res.json({ ok: true });
+});
+app.get('/api/admin/reports', needAdmin, (req, res) => res.json({ reports: db.prepare("SELECT r.id,r.kind,r.target,r.person_id personId,r.reason,r.status,r.created_at createdAt,u.name byName FROM reports r LEFT JOIN users u ON u.id=r.by_user ORDER BY (r.status='open') DESC, r.id DESC LIMIT 200").all() }));
+app.post('/api/admin/reports/:id/close', needAdmin, (req, res) => { db.prepare("UPDATE reports SET status='closed', closed_at=?, closed_by=? WHERE id=?").run(now(), req.user.id, Number(req.params.id)); res.json({ ok: true }); });
+// Portabilidade: a pessoa baixa os dados dela (conta, ficha e o que acrescentou).
+app.get('/api/me/export', needUser, (req, res) => {
+  const u = db.prepare('SELECT id,name,email,role,person_id,email_updates,terms_version,terms_at,created_at FROM users WHERE id=?').get(req.user.id);
+  const out = {
+    exportado_em: now(), conta: u,
+    minha_ficha: u.person_id ? db.prepare('SELECT * FROM people WHERE id=?').get(u.person_id) : null,
+    pessoas_que_cadastrei: db.prepare('SELECT * FROM people WHERE created_by=?').all(u.id),
+    informacoes_e_lembrancas: db.prepare('SELECT id,person_id,kind,text,created_at FROM notes WHERE created_by=?').all(u.id),
+    fotos_e_documentos: db.prepare('SELECT id,person_id,original_name,mime,size,caption,created_at FROM files WHERE created_by=?').all(u.id),
+    links: db.prepare('SELECT id,person_id,url,title,created_at FROM media_links WHERE created_by=?').all(u.id),
+    avisos: db.prepare('SELECT text,created_at FROM notifications WHERE user_id=?').all(u.id),
+    historico: db.prepare('SELECT action,target,at FROM activity WHERE user_id=? ORDER BY id').all(u.id)
+  };
+  log(req, 'baixou os próprios dados', null);
+  res.set('Content-Disposition', 'attachment; filename="meus-dados.json"').json(out);
+});
+// Apagar a própria conta (com a senha). O que a pessoa acrescentou à árvore fica, com "(conta removida)".
+app.post('/api/me/delete', needUser, (req, res) => {
+  const u = db.prepare('SELECT * FROM users WHERE id=?').get(req.user.id);
+  if (!bcrypt.compareSync(String(req.body.password || ''), u.pass_hash)) return res.status(403).json({ error: 'Senha incorreta.' });
+  if (u.role === 'admin' && db.prepare("SELECT COUNT(*) n FROM users WHERE role='admin' AND active=1").get().n <= 1) return res.status(400).json({ error: 'Você é o único administrador. Passe a administração para outra pessoa antes de apagar a sua conta.' });
+  log(req, 'apagou a própria conta', 'usuário ' + u.id, { nome: u.name });
+  db.transaction(() => {
+    db.prepare('INSERT OR REPLACE INTO removed_users(id,name,email,removed_at) VALUES(?,?,?,?)').run(u.id, u.name, u.email, now());
+    db.prepare('DELETE FROM sessions WHERE user_id=?').run(u.id);
+    db.prepare('DELETE FROM resets WHERE user_id=?').run(u.id);
+    db.prepare('DELETE FROM notifications WHERE user_id=?').run(u.id);
+    db.prepare('DELETE FROM users WHERE id=?').run(u.id);
+  })();
+  res.setHeader('Set-Cookie', `sid=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${COOKIE_SECURE ? '; Secure' : ''}`);
+  res.json({ ok: true });
+});
 app.post('/api/me/accept-terms', needUser, (req, res) => { acceptTerms(req.user.id); log(req, 'aceitou os termos', null, { versao: TERMS_VERSION }); res.json({ ok: true, version: TERMS_VERSION }); });
 
 // ---------- pedidos de livro: famílias de fora pedem a árvore delas (página /comecar) ----------
@@ -526,8 +607,20 @@ app.get('/api/tree', needUserOrGuest, (req, res) => {
   const mg = Object.fromEntries(db.prepare("SELECT person_id,id FROM users WHERE person_id<>'' AND person_ok=1 AND active=1").all().map(u => [u.person_id, u.id]));
   for (const p of people) p.managedBy = mg[p.id] || null;
   if (req.user && !req.guest && req.user.role !== 'viewer' && req.user.personOk) { const kin = kinOfDeceased(req.user.personId); for (const p of people) if (kin.has(p.id)) p.kinEdit = true; }
+  // Menores e quem pediu para ocultar os dados: os outros membros veem só nome e ligações.
+  // Veem tudo: o administrador, a própria pessoa, quem cadastrou e, no caso do menor, pai e mãe.
+  let hiddenIds = new Set();
+  if (req.user && !req.guest && req.user.role !== 'admin') {
+    const mine = req.user.personId;
+    people = people.map(p => {
+      const minor = isMinor(p), priv = p.private && !isDeceased(p);
+      if (!minor && !priv) return p;
+      if (p.id === mine || p.createdBy === req.user.id || (minor && !priv && mine && (p.fatherId === mine || p.motherId === mine))) return p;
+      hiddenIds.add(p.id); return restrictedPerson(p, minor && !priv);
+    });
+  }
   const files = db.prepare('SELECT id,person_id personId,original_name name,mime,size,caption,doc,profile,created_by createdBy,created_at createdAt FROM files ORDER BY created_at').all()
-    .filter(f => canSeeDoc(req, { doc: f.doc })).map(f => ({ ...f, doc: !!f.doc, profile: !!f.profile }));
+    .filter(f => canSeeDoc(req, { doc: f.doc }) && (!hiddenIds.has(f.personId) || f.createdBy === req.user?.id)).map(f => ({ ...f, doc: !!f.doc, profile: !!f.profile }));
   const users = db.prepare("SELECT id,name FROM users UNION ALL SELECT id, name || ' (conta removida)' FROM removed_users").all();
   // Relatos que citam cada pessoa (só para quem pode editar; os relatos são privados).
   const relatoLinks = req.user && req.user.role !== 'viewer' ? db.prepare(`SELECT rp.person_id personId, r.id relatoId, r.fonte, r.data, rp.hidden FROM relato_people rp JOIN relatos r ON r.id=rp.relato_id WHERE rp.hidden=0 OR (rp.hidden=1 AND ?) ORDER BY r.data`).all(req.user.role === 'admin' ? 1 : 0) : [];
@@ -545,7 +638,8 @@ app.get('/api/tree', needUserOrGuest, (req, res) => {
       me: { id: null, name: 'Visitante', role: 'guest' }
     });
   }
-  res.json({ people, notes, files, media, users, relatoLinks, me: req.user });
+  const visible = x => !hiddenIds.has(x.personId) || x.createdBy === req.user.id;
+  res.json({ people, notes: notes.filter(visible), files, media: media.filter(visible), users, relatoLinks, me: req.user });
 });
 
 // Cada conta pode dizer quem ela é na árvore.
@@ -683,9 +777,22 @@ if (!getSetting('irmaos_alinhados_v1')) { try { const n = alignSiblings({ user: 
 const parentsOf = id => { const c = effectiveParents()[id] || {}; return [c.f, c.m]; };
 
 // ---------- pessoas ----------
+// Regras dos termos ao gravar uma ficha: menor só com autorização dos responsáveis;
+// cor/raça e origem de pessoa viva só a própria pessoa preenche (dado sensível, consentimento explícito).
+function termsCheck(req, before, d) {
+  const after = personOut({ ...(before || {}), ...d });
+  if (isMinor(after) && !(before && before.minor_ok) && req.body.minorConsent !== true)
+    return { status: 400, body: { error: 'Esta pessoa é menor de idade. Para registrar, confirme que você tem a autorização dos pais ou responsáveis.', code: 'minor' } };
+  const sensitive = ['color', 'origin'].filter(k => k in d && d[k] && d[k] !== (before ? before[k] || '' : ''));
+  if (sensitive.length && !isDeceased(after) && !(before && isSelf(req, before)))
+    return { status: 400, body: { error: 'Cor/raça e origem/etnia de pessoas vivas são dados sensíveis: só a própria pessoa preenche, na ficha dela.', code: 'sensitive' } };
+  return null;
+}
 app.post('/api/people', needWriter, (req, res) => {
   const d = clean(req.body);
   if (!d.name) return res.status(400).json({ error: 'Escreva pelo menos o nome.' });
+  { const bad = termsCheck(req, null, d); if (bad) return res.status(bad.status).json(bad.body); }
+  if (req.body.minorConsent === true) d.minor_ok = 1;
   for (const k of ['father_id', 'mother_id', 'spouse_id']) if (d[k] && !exists(d[k])) d[k] = '';
   const id = newId(d.name), t = now();
   const cols = Object.keys(d);
@@ -708,6 +815,8 @@ app.put('/api/people/:id', needUser, (req, res) => {
   if (!canManagePerson(req, p) && isDeceased(personOut(p))) { const k = kinContacts(p.id); return res.status(403).json({ error: `Só os parentes diretos de ${p.name} (cônjuge, pais, irmãos, filhos, netos e bisnetos) ou o administrador podem alterar esta ficha. ${k.length ? 'Entre em contato com: ' + k.join(', ') + '.' : 'Nenhum parente direto tem conta ainda; fale com o administrador.'}` }); }
   if (!canManagePerson(req, p)) return res.status(403).json({ error: managerOf(p.id) ? 'Esta ficha agora é administrada pela própria pessoa. Use "Acrescentar informação".' : 'Você só pode alterar o que você mesmo adicionou. Use "Acrescentar informação".' });
   const d = clean(req.body);
+  { const bad = termsCheck(req, p, d); if (bad) return res.status(bad.status).json(bad.body); }
+  if (req.body.minorConsent === true) d.minor_ok = 1;
   if ('name' in d && !d.name) return res.status(400).json({ error: 'O nome não pode ficar vazio.' });
   for (const k of ['father_id', 'mother_id', 'spouse_id']) if (d[k] && (d[k] === p.id || !exists(d[k]))) d[k] = '';
   const cols = Object.keys(d);
@@ -865,6 +974,7 @@ app.get('/api/files/:id', needUserOrGuest, (req, res) => {
     if (!p || !isDeceased(personOut(p))) return res.status(404).end();
   }
   if (!canSeeDoc(req, f)) return res.status(404).end();
+  if (req.user && f.created_by !== req.user.id) { const pr = db.prepare('SELECT * FROM people WHERE id=?').get(f.person_id); if (pr && !canSeeDetails(req, pr)) return res.status(404).end(); }
   const file = path.join(UPLOAD_DIR, path.basename(f.stored_name));
   res.set('Content-Type', f.mime);
   res.set('X-Frame-Options', 'SAMEORIGIN');

@@ -112,6 +112,10 @@ function openDb(file) {
       id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, email TEXT NOT NULL, family TEXT, place TEXT,
       message TEXT, ip TEXT, status TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL, done_at TEXT
     );
+    CREATE TABLE IF NOT EXISTS reports (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, target TEXT NOT NULL, person_id TEXT, reason TEXT NOT NULL,
+      by_user INTEGER, status TEXT NOT NULL DEFAULT 'open', created_at TEXT NOT NULL, closed_at TEXT, closed_by INTEGER
+    );
     CREATE TABLE IF NOT EXISTS removed_users (
       id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT, removed_at TEXT NOT NULL
     );
@@ -194,6 +198,10 @@ function openDb(file) {
   for (const c of ['terms_version', 'terms_at']) if (!cols('users').includes(c)) db.exec(`ALTER TABLE users ADD COLUMN ${c} TEXT`);
   if (!cols('book_requests').includes('relatives')) db.exec(`ALTER TABLE book_requests ADD COLUMN relatives TEXT`);
   if (!cols('book_requests').includes('terms_version')) db.exec(`ALTER TABLE book_requests ADD COLUMN terms_version TEXT`);
+  // people.private: 1 = a pessoa (viva) pediu para ocultar os seus dados dos outros membros (direito de oposição)
+  if (!cols('people').includes('private')) db.exec(`ALTER TABLE people ADD COLUMN private INTEGER NOT NULL DEFAULT 0`);
+  // people.minor_ok: alguém declarou ter autorização dos responsáveis para registrar este menor de idade
+  if (!cols('people').includes('minor_ok')) db.exec(`ALTER TABLE people ADD COLUMN minor_ok INTEGER NOT NULL DEFAULT 0`);
   if (!cols('notifications').includes('mailed_at')) db.exec(`ALTER TABLE notifications ADD COLUMN mailed_at TEXT`);
   if (!cols('users').includes('email_updates')) db.exec(`ALTER TABLE users ADD COLUMN email_updates INTEGER NOT NULL DEFAULT 1`);
   if (!cols('people').includes('photo_file_id')) db.exec(`ALTER TABLE people ADD COLUMN photo_file_id TEXT DEFAULT ''`);

@@ -33,6 +33,7 @@
       <label class="f">Senha<input name="password" type="password" autocomplete="current-password" required minlength="8" maxlength="200"></label>
       <label class="check" id="fMail" hidden><input type="checkbox" name="emailUpdates" checked> Quero receber por e-mail as novidades da família (quando alguém acrescenta ou muda algo na ficha de um parente direto meu), num resumo por dia. Dá para mudar depois, em Avisos.</label>
       <label class="f" id="fFamily" hidden>Nome da família (como vai aparecer no site)<input name="family" maxlength="80" placeholder="ex.: Família Silva Santos"></label>
+      <label class="check" id="fAdult" hidden><input type="checkbox" name="adult"> Tenho 18 anos ou mais.</label>
       <label class="check" id="fTerms" hidden><input type="checkbox" name="terms"> Li e aceito os <a href="/termos" target="_blank">Termos de uso e a Política de privacidade</a>.</label>
       <label class="f" id="fKey" hidden>Chave de instalação (se configurada)<input name="setupKey" autocomplete="off" maxlength="200"></label>
       <div class="err" id="authErr"></div>
@@ -111,6 +112,7 @@
       <label class="f">Local de nascimento<input name="birthPlace" maxlength="200" placeholder="Cidade, UF"></label>
       <div class="f datef"><span>Falecimento</span><input name="death" maxlength="60" placeholder="ex.: 01/01/2010, 2010, falecido"></div>
       <label class="f">Local de falecimento<input name="deathPlace" maxlength="200"></label>
+      <p class="hint" id="sensHint" hidden>Cor/raça e origem/etnia de pessoas vivas são dados sensíveis: só a própria pessoa preenche, na ficha dela.</p>
       <label class="f">Cor/raça (IBGE)<select name="color"><option value="">Não informado</option><option value="branca">Branca</option><option value="preta">Preta</option><option value="parda">Parda</option><option value="amarela">Amarela</option><option value="indigena">Indígena</option></select></label>
       <label class="f">Origem/etnia (ex.: Krenak, africana, portuguesa)<input name="origin" maxlength="200"></label>
       <label class="f">Pai<select name="fatherId"></select></label>
@@ -125,6 +127,7 @@
     <p class="note">Por que duas opções: <b>"Não teve"</b> é quem nunca teve filhos; ali a linha da família termina e não há filhos para procurar. <b>"Não deixou"</b> é quem teve filhos, mas eles morreram sem ter filhos (por exemplo, o único filho morreu criança); esses filhos devem ser cadastrados, com nascimento e óbito, mas não adianta procurar netos. Se a pessoa teve filhos com família, deixe "Não informado".</p>
     <label class="f">Histórias e observações<textarea name="notes" maxlength="5000"></textarea></label>
     <label class="f">Fontes (documentos, quem contou)<textarea name="sources" maxlength="2000"></textarea></label>
+    <label class="check" id="minorWrap" hidden><input type="checkbox" name="minorConsent"> Esta pessoa é menor de idade. Tenho a autorização dos pais ou responsáveis para registrá-la (recomendamos só o nome e a ligação de família).</label>
     <div class="err" id="formErr"></div>
     <div class="actions">
       <button class="primary" type="submit" id="saveBtn">Salvar</button>
@@ -206,6 +209,15 @@
     <div class="actions"><button type="button" class="primary" id="termsOk">Li e aceito</button><button type="button" id="termsNo">Agora não (sair)</button></div>
   </div>
 </dialog>
+<dialog id="repdlg">
+  <form id="repform">
+    <h2>Denunciar ao administrador</h2>
+    <p class="note">Conte o que está errado: informação falsa, ofensiva, ou que expõe alguém sem autorização. Só os administradores veem a denúncia, e eles decidem o que fazer.</p>
+    <label class="f">O que está errado<textarea name="reason" required minlength="5" maxlength="1000"></textarea></label>
+    <div class="err" id="repErr"></div>
+    <div class="actions"><button class="primary" type="submit">Enviar</button><button type="button" class="closeDlg">Cancelar</button></div>
+  </form>
+</dialog>
 <dialog id="ondlg">
   <form id="onform">
     <h2>Ocê é fi <span class="sloganword">dequem</span>?</h2>
@@ -235,6 +247,12 @@
     <div class="err" id="pErr"></div>
     <div class="actions"><button class="primary" type="submit">Salvar</button><button type="button" class="closeDlg">Cancelar</button></div>
   </form>
+  <details class="relmore acct"><summary>Meus dados e minha conta</summary>
+    <p class="note">Seus direitos pelos <a href="/termos#direitos" target="_blank">termos</a>: baixar uma cópia dos seus dados ou apagar a sua conta. Ao apagar, o que você acrescentou à árvore da família continua, com "(conta removida)".</p>
+    <div class="actions small"><a class="btn" href="/api/me/export">Baixar meus dados</a></div>
+    <form id="delform"><label class="f">Para apagar a conta, digite a sua senha<input name="password" type="password" autocomplete="current-password" required></label>
+    <div class="err" id="delErr"></div><button type="submit" class="danger">Apagar minha conta</button></form>
+  </details>
 </dialog>
 
 <!-- Administração -->
@@ -261,6 +279,10 @@
     <details class="asec" data-sec="duplicados"><summary>Possíveis duplicados na árvore</summary>
       <p class="note">Procura pessoas com nomes parecidos em toda a árvore. Nada é juntado: você decide caso a caso.</p>
       <button type="button" id="dupBtn">Procurar duplicados</button><div id="dupList"></div>
+    </details>
+    <details class="asec" data-sec="denuncias"><summary>Denúncias <span id="repCount" class="note"></span></summary>
+    <p class="note">Conteúdo que alguém da família apontou como falso, ofensivo ou exposto sem autorização. Abra a ficha, corrija, oculte ou remova o que for preciso e depois marque como resolvida.</p>
+    <div id="repList"></div>
     </details>
     <details class="asec" data-sec="livros"><summary>Famílias pedindo um livro <span id="bookCount" class="note"></span></summary>
     <p class="note">Pedidos feitos na página pública <a href="/comecar" target="_blank">/comecar</a>. Para atender: crie o livro no servidor com <code>scripts/novo-livro.sh</code> e mande o endereço e a senha de instalação para a pessoa.</p>

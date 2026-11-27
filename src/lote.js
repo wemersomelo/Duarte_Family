@@ -39,6 +39,8 @@ function parseRows(text) {
   return { rows: rows.slice(h + 1).map((r, i) => ({ n: i + 1, acao: unmd(r[idx.acao]), pessoa: unmd(r[idx.pessoa]), campo: unmd(r[idx.campo]), valor: String(r[idx.valor] || '').trim(), fonte: unmd(r[idx.fonte]), conf: unmd(r[idx.conf]) })).filter(r => r.pessoa || r.valor) };
 }
 
+// pessoa viva? (sem falecimento e nascida depois de 1915)
+const livingRow = p => !String(p.death || '').trim() && !String(p.death_place || '').trim() && !(Number((String(p.birth || '').match(/\d{4}/) || [])[0]) <= Number(process.env.FALECIDOS_ATE_ANO || 1915) && /\d{4}/.test(String(p.birth || '')));
 // ---------- campos ----------
 const FIELD = [
   [/^(nome|nome completo|nome correto)$/, 'name'], [/^primeiro nome$/, 'given'],
@@ -189,6 +191,7 @@ function runLote(db, text, { apply, userId, newId, now, resolver, divergence, sk
           out.ok = done.length ? 'mesmos pais · ' + done.join('; ') : `irmãos: já têm os mesmos pais`;
         }
         else if (f === 'descendants') { const t = norm(v); const d = /deixou/.test(t) ? 'nao_deixou' : /^(nao|sem|nenhum|nunca|0)/.test(t) || t === 'nao teve' ? 'nao_teve' : /^(sim|teve|tem)/.test(t) ? '' : null; if (d === null) throw new Error('descendentes: escreva "não teve" ou "não deixou"'); out.ok = setField(p, 'descendants', d, row); addSource(p.id, 'descendentes', row); }
+        else if ((f === 'color' || f === 'origin') && livingRow(p)) throw new Error('cor/raça e origem de pessoa viva só a própria pessoa preenche (dado sensível); fica de fora');
         else if (f === 'color') { const c = COLOR[norm(v)]; if (!c) throw new Error('cor/raça deve ser branca, preta, parda, amarela ou indígena'); out.ok = setField(p, 'color', c, row); addSource(p.id, 'cor/raça', row); }
         else if (f === 'sex') { const s = /^f|^mulher/.test(norm(v)) ? 'f' : /^m|^homem/.test(norm(v)) ? 'm' : ''; out.ok = setField(p, 'sex', s, row); }
         else if (f) { out.ok = setField(p, f, v, row); addSource(p.id, `${LABEL[f]} ${v}`, row); }

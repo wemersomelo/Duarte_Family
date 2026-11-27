@@ -327,3 +327,6 @@ body.landing{background:var(--bg)}
 @keyframes fadein{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 .fadein{animation:fadein .35s ease-out}
 @media (prefers-reduced-motion: reduce){::view-transition-group(*),::view-transition-old(*),::view-transition-new(*){animation:none!important}.fadein{animation:none}}
+
+.acct{margin:14px 0 4px;padding:0 4px}
+#delform{margin-top:10px}

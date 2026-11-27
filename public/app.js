@@ -72,7 +72,7 @@ async function api(path, opts = {}) {
   if (o.body && !(o.body instanceof FormData)) { o.headers = { 'Content-Type': 'application/json', ...(o.headers || {}) }; o.body = JSON.stringify(o.body); }
   const r = await fetch(path, o);
   let data = {}; try { data = await r.json(); } catch {}
-  if (!r.ok) { const e = new Error(data.error || 'Algo deu errado.'); e.status = r.status; throw e; }
+  if (!r.ok) { const e = new Error(data.error || 'Algo deu errado.'); e.status = r.status; e.code = data.code; throw e; }
   return data;
 }
 
@@ -89,7 +89,7 @@ function showAuth(mode, info = {}) {
   $('#fKey').hidden = mode !== 'setup';
   $('#fFamily').hidden = mode !== 'setup'; if (mode === 'setup' && !$('#authForm').elements.family.value) $('#authForm').elements.family.value = familySuggestion;
   $('#fMail').hidden = mode !== 'invite';
-  $('#fTerms').hidden = !(mode === 'invite' || mode === 'setup'); $('#authForm').elements.terms.required = mode === 'invite' || mode === 'setup';
+  $('#fTerms').hidden = !(mode === 'invite' || mode === 'setup'); $('#fAdult').hidden = $('#fTerms').hidden; $('#authForm').elements.adult.required = !$('#fAdult').hidden; $('#authForm').elements.terms.required = mode === 'invite' || mode === 'setup';
   f.elements.name.required = mode !== 'login' && mode !== 'reset';
   f.elements.password.autocomplete = mode === 'login' ? 'current-password' : 'new-password';
   $('#authBtn').textContent = mode === 'login' ? 'Entrar' : mode === 'reset' ? 'Salvar nova senha' : 'Criar conta';
@@ -102,7 +102,7 @@ function showAuth(mode, info = {}) {
 }
 $('#authForm').addEventListener('submit', async e => {
   e.preventDefault();
-  const f = e.target, body = { name: f.elements.name.value, email: f.elements.email.value, password: f.elements.password.value, setupKey: f.elements.setupKey.value, family: f.elements.family.value, terms: f.elements.terms.checked, emailUpdates: f.elements.emailUpdates.checked };
+  const f = e.target, body = { name: f.elements.name.value, email: f.elements.email.value, password: f.elements.password.value, setupKey: f.elements.setupKey.value, family: f.elements.family.value, terms: f.elements.terms.checked, adult: f.elements.adult.checked, emailUpdates: f.elements.emailUpdates.checked };
   $('#authErr').textContent = '';
   try {
     if (authMode === 'login') await api('/api/login', { method: 'POST', body });
@@ -153,7 +153,7 @@ async function start() {
   $('#notifBtn').hidden = isGuest();
   if (!isGuest()) loadNotifCount();
   $('#askBtn').hidden = !isGuest();
-  { const n = (st.pendingRequests || 0) + (st.inboxNew || 0) + (st.suggestions || 0) + (st.bookRequests || 0); $('#adminBtn').textContent = n ? `Administrar (${n})` : 'Administrar'; }
+  { const n = (st.pendingRequests || 0) + (st.inboxNew || 0) + (st.suggestions || 0) + (st.bookRequests || 0) + (st.reports || 0); $('#adminBtn').textContent = n ? `Administrar (${n})` : 'Administrar'; }
   $('#how').hidden = isGuest();
   $('#addBtn').hidden = !canWrite();
   await load();
@@ -285,27 +285,31 @@ function renderRecord() {
   const isImg = f => /^image\/(jpeg|png|webp)$/.test(f.mime);
   const host = u => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return ''; } };
   const kindOf = u => /youtu\.?be/.test(u) ? 'YouTube' : /drive\.google|photos\.google/.test(u) ? 'Google' : /instagram/.test(u) ? 'Instagram' : /facebook|fb\.watch/.test(u) ? 'Facebook' : /vimeo/.test(u) ? 'Vimeo' : /whatsapp/.test(u) ? 'WhatsApp' : 'Link';
-  const noteList = list => list.length ? `<ul class="notes">${list.map(n => `<li>${esc(n.text)}<small>${esc(who(n.createdBy))}, ${esc(fmtDate(n.createdAt))}${mine(n) ? ` · <button type="button" class="link" data-rmnote="${n.id}">remover</button>` : ''}</small></li>`).join('')}</ul>` : '';
+  const rep = (k, id) => me && !isGuest() ? ` · <button type="button" class="link" data-report="${k}" data-target="${esc(id)}">denunciar</button>` : '';
+  const noteList = list => list.length ? `<ul class="notes">${list.map(n => `<li>${esc(n.text)}<small>${esc(who(n.createdBy))}, ${esc(fmtDate(n.createdAt))}${mine(n) ? ` · <button type="button" class="link" data-rmnote="${n.id}">remover</button>` : ''}${n.createdBy !== me?.id ? rep('note', n.id) : ''}</small></li>`).join('')}</ul>` : '';
   const initials = (nickOf(p) || p.name || '?').replace(/\([^)]*\)/g, '').trim().split(/\s+/).filter(w => w.length > 2 || /^[A-ZÀ-Ú]/.test(w)).slice(0, 2).map(w => w[0].toUpperCase()).join('') || '?';
   const canPhoto = !!ed;
   const avatar = `<div class="avatar${p.photoFileId ? ' has' : ''}">${p.photoFileId ? `<button type="button" class="pphoto" data-view="${esc(p.photoFileId)}" aria-label="Ampliar a foto"><img src="/api/files/${encodeURIComponent(p.photoFileId)}" alt="Foto de ${esc(p.name)}"></button>` : canPhoto ? `<label class="pphoto empty" aria-label="Pôr foto de perfil"><span>${esc(initials)}</span><input type="file" accept="image/*" data-profilephoto hidden></label>` : `<div class="pphoto empty"><span>${esc(initials)}</span></div>`}${canPhoto ? `<label class="pcam" title="${p.photoFileId ? 'Trocar a foto de perfil' : 'Pôr foto de perfil'}" aria-label="${p.photoFileId ? 'Trocar a foto de perfil' : 'Pôr foto de perfil'}">+<input type="file" accept="image/*" data-profilephoto hidden></label>` : ''}</div>`;
   slip.innerHTML = `<div class="phead">${avatar}<div><h3 class="person">${esc(dn(p, nickOf(p) || p.name))}</h3><p class="nick">${nickOf(p) ? esc(p.name) : '&nbsp;'}</p></div></div>
   <dl>${row('Nascimento', p.birth)}${row('Local', p.birthPlace)}${row('Casamento', marr)}${row('Falecimento', p.death)}${row('Local', p.deathPlace)}${row('Descendentes', DESC[p.descendants])}${row('Cor/raça', COLOR[p.color])}${row('Origem/etnia', p.origin)}${row('Histórias', p.notes, 1)}${row('Fontes', p.sources, 1)}</dl>
   ${me && !isGuest() ? (myPerson() === p.id ? '<p class="mine">Esta pessoa é você. Para corrigir as suas datas, toque em <b>Editar meus dados</b>. <button type="button" class="link" data-act="notme">não sou eu</button></p>' : !myPerson() ? '<div class="actions small"><button type="button" class="primary" data-act="isme">Esta pessoa sou eu</button></div>' : '') : ''}
-  ${!p.birth && !p.birthPlace && !p.notes ? '<p class="none">Ainda faltam informações sobre esta pessoa. Se você sabe algo, acrescente.</p>' : ''}
+  ${p.restricted ? `<p class="hint">${p.private ? 'Esta pessoa pediu para ocultar os dados dela.' : 'Esta pessoa é menor de idade.'} Você vê só o nome e as ligações de família.</p>` : ''}
+  ${me && !isGuest() && (isSelfP(p) || me.role === 'admin') && !isDead(p) ? `<p class="note">${p.private ? '<b>Dados ocultos:</b> os outros membros veem só o nome e as ligações.' : 'Os membros da família veem os dados desta ficha.'} <button type="button" class="link" data-act="private" data-to="${p.private ? 0 : 1}">${p.private ? 'mostrar de novo' : (isSelfP(p) ? 'ocultar meus dados' : 'ocultar os dados')}</button></p>` : ''}
+  ${!p.restricted && !p.birth && !p.birthPlace && !p.notes ? '<p class="none">Ainda faltam informações sobre esta pessoa. Se você sabe algo, acrescente.</p>' : ''}
   ${isGuest() ? '' : `<p class="by">Registrado por ${esc(who(p.createdBy))}${p.managedBy ? ` · ficha administrada pela própria pessoa${p.managedBy === me.id ? ' (você)' : ''}` : ''}</p>`}
   ${p.living ? '<p class="none">Dados de pessoas vivas (datas, lugares, fotos e lembranças) ficam visíveis só para quem tem convite.</p>' : ''}
   ${canContribute() ? `<div class="actions">${canWrite() ? '<button type="button" class="primary" data-act="note">+ Acrescentar informação</button>' : ''}<button type="button"${canWrite() ? '' : ' class="primary"'} data-act="memory">+ Deixar uma lembrança</button><button type="button" data-act="files">+ Fotos e documentos</button><button type="button" data-act="link">+ Vídeo ou link</button></div>` : ''}
   ${!ed && isDead(p) && canContribute() && !isGuest() ? '<div class="actions small"><button type="button" data-act="kinask">Corrigir dados</button></div><div id="kinMsg"></div>' : ''}
   ${canWrite() || ed ? `<div class="actions small">${ed ? `<button type="button"${isSelfP(p) ? ' class="primary"' : ''} data-act="edit">${isSelfP(p) ? 'Editar meus dados' : 'Editar'}</button>` : ''}${canWrite() ? (p.fatherId || p.motherId ? '<button type="button" data-act="sibling">+ Irmão ou irmã</button>' : '') + '<button type="button" data-act="child">+ Filho ou filha</button><button type="button" data-act="spouse">+ Cônjuge</button>' : ''}${ownsP(p) ? '<button type="button" class="danger" data-act="del">Excluir</button>' : ''}</div>` : ''}
   ${p.living ? '' : `<h4>Fotos e documentos (${pf.length})</h4>
-  ${pf.length ? `<div class="docs">${pf.map(f => `<div class="doc${f.id === p.photoFileId ? ' main' : ''}"><button type="button" class="thumb${f.mime === 'application/pdf' ? ' pdf' : ''}" data-view="${esc(f.id)}" ${isImg(f) ? `style="background-image:url('/api/files/${encodeURIComponent(f.id)}')"` : ''} aria-label="Abrir ${esc(f.name)}">${f.mime === 'application/pdf' ? 'PDF' : /hei[cf]/.test(f.mime) ? 'HEIC' : ''}</button><small title="${esc(f.caption || f.name)}">${esc(f.caption || f.name)}</small>${f.doc ? '<small class="docb" title="Só o administrador vê">documento · só você vê</small>' : ''}${f.id === p.photoFileId ? '<small class="star">foto principal</small>' : ed && isImg(f) && !f.doc ? `<button type="button" class="link" data-mainphoto="${esc(f.id)}">usar como foto principal</button>` : ''}${me.role === 'admin' && f.mime !== 'application/pdf' ? `<button type="button" class="link" data-docflag="${esc(f.id)}" data-to="${f.doc ? 0 : 1}">${f.doc ? 'liberar como foto' : 'marcar como documento'}</button>` : ''}${mine(f) ? `<button type="button" class="link" data-rmfile="${esc(f.id)}">remover</button>` : ''}</div>`).join('')}</div>` : '<p class="none">Nenhum ainda.</p>'}
+  ${pf.length ? `<div class="docs">${pf.map(f => `<div class="doc${f.id === p.photoFileId ? ' main' : ''}"><button type="button" class="thumb${f.mime === 'application/pdf' ? ' pdf' : ''}" data-view="${esc(f.id)}" ${isImg(f) ? `style="background-image:url('/api/files/${encodeURIComponent(f.id)}')"` : ''} aria-label="Abrir ${esc(f.name)}">${f.mime === 'application/pdf' ? 'PDF' : /hei[cf]/.test(f.mime) ? 'HEIC' : ''}</button><small title="${esc(f.caption || f.name)}">${esc(f.caption || f.name)}</small>${f.doc ? '<small class="docb" title="Só o administrador vê">documento · só você vê</small>' : ''}${f.id === p.photoFileId ? '<small class="star">foto principal</small>' : ed && isImg(f) && !f.doc ? `<button type="button" class="link" data-mainphoto="${esc(f.id)}">usar como foto principal</button>` : ''}${me.role === 'admin' && f.mime !== 'application/pdf' ? `<button type="button" class="link" data-docflag="${esc(f.id)}" data-to="${f.doc ? 0 : 1}">${f.doc ? 'liberar como foto' : 'marcar como documento'}</button>` : ''}${mine(f) ? `<button type="button" class="link" data-rmfile="${esc(f.id)}">remover</button>` : ''}${f.createdBy !== me?.id && me && !isGuest() ? `<button type="button" class="link" data-report="file" data-target="${esc(f.id)}">denunciar</button>` : ''}</div>`).join('')}</div>` : '<p class="none">Nenhum ainda.</p>'}
   <h4>Vídeos e links (${pm.length})</h4>
-  ${pm.length ? `<ul class="mlinks">${pm.map(m => `<li><a href="${esc(m.url)}" target="_blank" rel="noopener noreferrer"><span class="tag">${esc(kindOf(m.url))}</span>${esc(m.title || host(m.url))}</a><small>${esc(host(m.url))} · ${esc(who(m.createdBy))}, ${esc(fmtDate(m.createdAt))}${mine(m) ? ` · <button type="button" class="link" data-rmlink="${m.id}">remover</button>` : ''}</small></li>`).join('')}</ul>` : '<p class="none">Nenhum ainda.</p>'}
+  ${pm.length ? `<ul class="mlinks">${pm.map(m => `<li><a href="${esc(m.url)}" target="_blank" rel="noopener noreferrer"><span class="tag">${esc(kindOf(m.url))}</span>${esc(m.title || host(m.url))}</a><small>${esc(host(m.url))} · ${esc(who(m.createdBy))}, ${esc(fmtDate(m.createdAt))}${mine(m) ? ` · <button type="button" class="link" data-rmlink="${m.id}">remover</button>` : ''}${m.createdBy !== me?.id ? rep('media', m.id) : ''}</small></li>`).join('')}</ul>` : '<p class="none">Nenhum ainda.</p>'}
   <h4>Lembranças da família (${mem.length})</h4>
   ${mem.length ? noteList(mem) : '<p class="none">Nenhuma ainda. Conte uma história, uma lembrança ou algo que você aprendeu com esta pessoa.</p>'}
   <h4>Informações da família (${info.length})</h4>
   ${info.length ? noteList(info) : '<p class="none">Nenhuma ainda.</p>'}`}
+  ${me && !isGuest() ? `<p class="note">Algo falso, ofensivo ou exposto sem autorização nesta ficha? <button type="button" class="link" data-report="person" data-target="${esc(p.id)}">Denunciar ao administrador</button></p>` : ''}
   ${me && me.role === 'admin' ? `<details class="relmore"><summary>Esta pessoa está duplicada?</summary><p class="note">Escolha a outra ficha da mesma pessoa. Fica esta ficha; a outra passa para ela os filhos, pais, notas, fotos e relatos e depois é apagada. Dados diferentes ficam em nota.</p><div class="actions"><select data-mergesel>${Object.values(people).filter(q => q.id !== p.id).sort(byName).map(q => `<option value="${esc(q.id)}">${esc(q.name)}${yr(q) !== '—' ? ' (' + esc(yr(q)) + ')' : ''}</option>`).join('')}</select><button type="button" data-act="merge">Juntar nesta ficha</button></div></details>` : ''}
   ${prel.length ? `<h4>Relatos que citam esta pessoa (${prel.length})</h4><ul class="mlinks">${prel.map(r => `<li${r.hidden ? ' class="muted"' : ''}><button type="button" class="link" data-relato="${esc(r.relatoId)}">${esc(r.fonte || r.relatoId)}</button><small>${esc(r.data || '')}${r.hidden ? ' · oculto: só você vê' : ''}${me.role === 'admin' ? ` · <button type="button" class="link" data-relp="${r.hidden ? 'show' : 'hide'}" data-rel="${esc(r.relatoId)}">${r.hidden ? 'mostrar' : 'ocultar'}</button> · <button type="button" class="link" data-relp="remove" data-rel="${esc(r.relatoId)}">apagar</button>` : ''}</small></li>`).join('')}</ul>${me.role === 'admin' ? '<p class="note">Ocultar tira o relato da ficha para os outros, e você continua vendo. Apagar tira a citação desta ficha de vez, e ela não volta se o relato for importado de novo. Nos dois casos, o relato e os dados que ele trouxe continuam no site.</p>' : ''}` : ''}`;
   const par = [P(p.fatherId), P(p.motherId)].filter(Boolean);
@@ -340,6 +344,7 @@ document.addEventListener('click', async e => {
   const df = e.target.closest('[data-docflag]'); if (df) { if (df.dataset.to === '0' && !(await confirmBtn(df))) return; await api('/api/files/' + df.dataset.docflag, { method: 'PUT', body: { doc: df.dataset.to === '1' } }).catch(err => alertStatus(err)); load(); return; }
   const rf = e.target.closest('[data-rmfile]'); if (rf) { if (await confirmBtn(rf)) { await api('/api/files/' + rf.dataset.rmfile, { method: 'DELETE' }).catch(err => alertStatus(err)); load(); } return; }
   const rp = e.target.closest('[data-relp]'); if (rp) { if (rp.dataset.relp === 'remove' && !(await confirmBtn(rp))) return; await api('/api/admin/relato-people', { method: 'POST', body: { relatoId: rp.dataset.rel, personId: focus, action: rp.dataset.relp } }).catch(err => alertStatus(err)); load(); return; }
+  const rpb = e.target.closest('[data-report]'); if (rpb) { repTarget = { kind: rpb.dataset.report, target: rpb.dataset.target }; $('#repform').reset(); $('#repErr').textContent = ''; $('#repdlg').showModal(); return; }
   const c = e.target.closest('.closeDlg'); if (c) { c.closest('dialog').close(); return; }
   const a = e.target.closest('[data-act]'); if (!a) return; const p = P(focus); if (!p) return;
   if (a.dataset.act === 'edit') openForm(p.id);
@@ -355,6 +360,7 @@ document.addEventListener('click', async e => {
   if (a.dataset.act === 'memory') openNote(p.id, 'memory');
   if (a.dataset.act === 'link') openLink(p.id);
   if (a.dataset.act === 'files') openFiles(p.id);
+  if (a.dataset.act === 'private') { api(`/api/people/${encodeURIComponent(p.id)}/private`, { method: 'PUT', body: { on: a.dataset.to === '1' } }).then(load).catch(err => alertStatus(err)); return; }
   if (a.dataset.act === 'kinask') {
     api(`/api/people/${encodeURIComponent(p.id)}/kin-contacts`).then(r => {
       $('#kinMsg').innerHTML = `<div class="hint"><p><b>Só os parentes diretos de ${esc(p.name)}</b> (cônjuge, pais, irmãos, filhos, netos e bisnetos) ou o administrador podem alterar esta ficha.</p>
@@ -472,6 +478,7 @@ function openForm(id, c = {}) {
   $('#formTitle').textContent = c.confirmDel ? 'Excluir ' + p.name + '?' : id ? 'Editar ' + p.name : c.parentOf ? (c.parentRole === 'father' ? 'Pai de ' : 'Mãe de ') + P(c.parentOf).name : c.childOf ? 'Filho ou filha de ' + P(c.childOf).name : c.spouseOf ? 'Cônjuge de ' + P(c.spouseOf).name : c.siblingOf ? 'Irmão ou irmã de ' + P(c.siblingOf).name : 'Adicionar pessoa';
   for (const f of FIELDS) { const el = form.elements[f]; if (el.tagName !== 'SELECT' || f === 'sex' || f === 'color' || f === 'descendants') el.value = p[f] || ''; }
   document.querySelectorAll('.datef').forEach(b => b.load());
+  form.elements.minorConsent.checked = false; formRules();
   fillSelect(form.elements.fatherId, p.fatherId, id); fillSelect(form.elements.motherId, p.motherId, id); fillSelect(form.elements.spouseId, p.spouseId, id);
   if (c.childOf) { const par = P(c.childOf); form.elements[par.sex === 'f' ? 'motherId' : 'fatherId'].value = par.id; const sp = spousesOf(par.id)[0]; if (sp) form.elements[par.sex === 'f' ? 'fatherId' : 'motherId'].value = sp; }
   if (c.parentOf) { form.elements.sex.value = c.parentRole === 'father' ? 'm' : 'f'; const ch = P(c.parentOf), other = c.parentRole === 'father' ? ch.motherId : ch.fatherId; if (P(other)) form.elements.spouseId.value = other; }
@@ -483,9 +490,21 @@ function openForm(id, c = {}) {
   $('#formErr').textContent = c.confirmDel ? 'A pessoa será removida para toda a família. As informações e documentos ligados a ela continuam guardados.' : '';
   dlg.showModal(); if (c.confirmDel) $('#delBtn').focus(); else form.elements.name.focus();
 }
+// Regras dos termos no formulário: menor de idade e dados sensíveis de pessoas vivas.
+const yNow = new Date().getFullYear();
+function formRules() {
+  const b = Number((String(form.elements.birth.value).match(/\d{4}/) || [])[0]), dead = !!(form.elements.death.value.trim() || form.elements.deathPlace.value.trim()) || (b && b <= 1915);
+  const minor = !dead && b && b > yNow - 18;
+  $('#minorWrap').hidden = !minor || (editing && P(editing)?.minorOk);
+  const p = editing ? P(editing) : null, selfOrDead = dead || (p && isSelfP(p));
+  for (const k of ['color', 'origin']) form.elements[k].disabled = !selfOrDead && !(p && p[k]);
+  $('#sensHint').hidden = selfOrDead;
+}
+form.addEventListener('input', formRules); form.addEventListener('change', formRules);
 form.addEventListener('submit', async e => {
   e.preventDefault(); if (ctx.confirmDel) return;
   const d = {}; for (const f of FIELDS) d[f] = String(form.elements[f].value || '').trim();
+  if (form.elements.minorConsent.checked) d.minorConsent = true;
   if (!d.name) { $('#formErr').textContent = 'Escreva pelo menos o nome.'; return; }
   $('#saveBtn').disabled = true; $('#formErr').textContent = 'Salvando…';
   try {
@@ -495,7 +514,7 @@ form.addEventListener('submit', async e => {
       if (!ctx.parentOf && !ctx.childOf && !ctx.spouseOf && !ctx.siblingOf) focus = r.id;
     }
     dlg.close(); await load();
-  } catch (err) { $('#formErr').textContent = err.message; }
+  } catch (err) { $('#formErr').textContent = err.message; if (err.code === 'minor') $('#minorWrap').hidden = false; }
   finally { $('#saveBtn').disabled = false; }
 });
 $('#delBtn').addEventListener('click', async () => {
@@ -561,6 +580,13 @@ $('#termsOk').addEventListener('click', async () => { try { await api('/api/me/a
 $('#termsNo').addEventListener('click', async () => { await api('/api/logout', { method: 'POST' }).catch(() => {}); location.reload(); });
 $('#termsdlg').addEventListener('cancel', e => e.preventDefault()); // não fecha com Esc
 
+let repTarget = null;
+$('#repform').addEventListener('submit', async e => {
+  e.preventDefault();
+  try { await api('/api/reports', { method: 'POST', body: { ...repTarget, reason: e.target.elements.reason.value } }); $('#repdlg').close(); $('#status').textContent = 'Denúncia enviada ao administrador. Obrigado.'; }
+  catch (err) { $('#repErr').textContent = err.message; }
+});
+
 /* ---------- avisos ---------- */
 async function loadNotifCount() {
   try { const d = await api('/api/notifications'); $('#notifBtn').textContent = d.unread ? `Avisos (${d.unread})` : 'Avisos'; $('#notifBtn').classList.toggle('hot', !!d.unread); return d; } catch { return null; }
@@ -583,6 +609,12 @@ $('#pform').addEventListener('submit', async e => {
   e.preventDefault(); const f = e.target;
   try { await api('/api/password', { method: 'POST', body: { current: f.elements.current.value, password: f.elements.password.value } }); $('#pdlg').close(); $('#status').textContent = 'Senha alterada.'; }
   catch (err) { $('#pErr').textContent = err.message; }
+});
+$('#delform').addEventListener('submit', async e => {
+  e.preventDefault(); const b = e.target.querySelector('button.danger');
+  if (!(await confirmBtn(b))) return;
+  try { await api('/api/me/delete', { method: 'POST', body: { password: e.target.elements.password.value } }); location.href = '/'; }
+  catch (err) { $('#delErr').textContent = err.message; }
 });
 $('#logoutBtn').addEventListener('click', async () => { await api('/api/logout', { method: 'POST' }).catch(() => {}); me = null; showAuth('login'); });
 
@@ -632,6 +664,12 @@ async function loadFamilyLink() {
     <div class="actions"><button type="button" id="famNew">Trocar link (o atual para de funcionar)</button><button type="button" class="danger" id="famOff">Desligar link</button></div>`
     : `<p class="none">Nenhum link ativo.</p><div class="actions"><button type="button" class="primary" id="famNew">Criar link da família</button></div>`;
 }
+async function loadReports() {
+  const d = await api('/api/admin/reports'); const open = d.reports.filter(r => r.status === 'open');
+  $('#repCount').textContent = open.length ? `(${open.length} abertas)` : '';
+  const K = { person: 'a ficha', note: 'uma informação', file: 'uma foto ou documento', media: 'um link' };
+  $('#repList').innerHTML = d.reports.length ? d.reports.map(r => `<div class="alert"><p><b>${esc(r.byName || 'conta removida')}</b> denunciou ${K[r.kind]}${r.personId && P(r.personId) ? ` de <button type="button" class="link" data-go="${esc(r.personId)}">${esc(P(r.personId).name)}</button>` : ''} <span class="note">${esc(fmtDate(r.createdAt))}${r.status === 'closed' ? ' · resolvida' : ''}</span></p><p>"${esc(r.reason)}"</p>${r.status === 'open' ? `<div class="actions small"><button type="button" data-repclose="${r.id}">Marcar como resolvida</button></div>` : ''}</div>`).join('') : '<p class="none">Nenhuma denúncia.</p>';
+}
 async function loadBookRequests() {
   const d = await api('/api/admin/book-requests');
   const pend = d.requests.filter(r => r.status === 'pending');
@@ -642,7 +680,7 @@ async function loadBookRequests() {
     <div class="actions small">${r.status === 'pending' ? `<button type="button" data-bookreq="${r.id}" data-act2="done">Marcar como atendido</button>` : `<button type="button" class="link" data-bookreq="${r.id}" data-act2="reopen">reabrir</button>`}<button type="button" class="link danger" data-bookreq="${r.id}" data-act2="delete">apagar</button></div></div>`).join('') : '<p class="none">Nenhum pedido ainda. Divulgue o endereço /comecar.</p>';
 }
 async function loadAdmin() {
-  loadBookRequests().catch(() => {});
+  loadBookRequests().catch(() => {}); loadReports().catch(() => {});
   $('#famform').elements.name.value = familyName;
   $('#aErr').textContent = '';
   loadFamilyLink().catch(err => $('#aErr').textContent = err.message);
@@ -657,7 +695,7 @@ async function loadAdmin() {
   const open = d.invites.filter(i => !i.usedBy && i.expires > Date.now());
   $('#invites').innerHTML = open.length ? `<p class="note">Convites ainda não usados (valem 30 dias):</p><table class="tbl"><tbody>${open.map(i => `<tr><td>${esc(i.label || 'sem nome')}</td><td>${ROLE[i.role]}</td><td><button type="button" class="link" data-copy="${esc(i.token)}">copiar link</button> <button type="button" class="link" data-revoke="${esc(i.token)}">cancelar</button></td></tr>`).join('')}</tbody></table>` : '';
 }
-$('#adminBtn').addEventListener('click', async () => { $('#newInvite').hidden = true; $('#adlg').showModal(); try { await loadAdmin(); for (const [sec, id] of [['relatos', '#relCount'], ['pedidos', '#reqCount'], ['sugestoes', '#sugCount'], ['livros', '#bookCount']]) if ($(id).textContent.trim()) $(`.asec[data-sec="${sec}"]`).open = true; } catch (err) { $('#aErr').textContent = err.message; } });
+$('#adminBtn').addEventListener('click', async () => { $('#newInvite').hidden = true; $('#adlg').showModal(); try { await loadAdmin(); for (const [sec, id] of [['relatos', '#relCount'], ['pedidos', '#reqCount'], ['sugestoes', '#sugCount'], ['livros', '#bookCount'], ['denuncias', '#repCount']]) if ($(id).textContent.trim()) $(`.asec[data-sec="${sec}"]`).open = true; } catch (err) { $('#aErr').textContent = err.message; } });
 const inviteUrl = t => `${location.origin}/convite/${t}`;
 async function copy(text, btn) { try { await navigator.clipboard.writeText(text); if (btn) { const t = btn.textContent; btn.textContent = 'copiado'; setTimeout(() => btn.textContent = t, 2000); } } catch {} }
 $('#iform').addEventListener('submit', async e => {
@@ -694,6 +732,7 @@ $('#adlg').addEventListener('click', async e => {
   const rj = e.target.closest('[data-reject]'); if (rj) { if (!(await confirmBtn(rj))) return; await api(`/api/admin/access-requests/${rj.dataset.reject}/reject`, { method: 'POST' }).catch(err => $('#aErr').textContent = err.message); loadRequests(); return; }
   if (e.target.closest('#famNew')) { if (e.target.closest('#famNew').textContent.startsWith('Trocar') && !(await confirmBtn(e.target.closest('#famNew')))) return; await api('/api/admin/family-link', { method: 'POST' }).catch(err => $('#aErr').textContent = err.message); loadFamilyLink(); return; }
   if (e.target.closest('#famOff')) { if (!(await confirmBtn(e.target.closest('#famOff')))) return; await api('/api/admin/family-link', { method: 'DELETE' }).catch(err => $('#aErr').textContent = err.message); loadFamilyLink(); return; }
+  const rpc = e.target.closest('[data-repclose]'); if (rpc) { await api(`/api/admin/reports/${rpc.dataset.repclose}/close`, { method: 'POST' }).catch(err => $('#aErr').textContent = err.message); loadReports(); return; }
   const br = e.target.closest('[data-bookreq]'); if (br) { if (br.dataset.act2 === 'delete' && !(await confirmBtn(br))) return; await api(`/api/admin/book-requests/${br.dataset.bookreq}/${br.dataset.act2}`, { method: 'POST' }).catch(err => $('#aErr').textContent = err.message); loadBookRequests(); return; }
   const pk = e.target.closest('[data-personok]'); if (pk) { await api('/api/admin/users/' + pk.dataset.personok, { method: 'PUT', body: { personId: pk.dataset.pid } }).catch(err => $('#aErr').textContent = err.message); await loadAdmin(); load(); return; }
   const du = e.target.closest('[data-deluser]'); if (du) { if (!(await confirmBtn(du))) return; await api('/api/admin/users/' + du.dataset.deluser, { method: 'DELETE' }).catch(err => $('#aErr').textContent = err.message); await loadAdmin(); load(); return; }
