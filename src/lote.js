@@ -46,6 +46,7 @@ const FIELD = [
   [/^(nascimento|data de nascimento|nasceu)$/, 'birth'], [/^(local de nascimento|naturalidade|nasceu em)$/, 'birth_place'],
   [/^(falecimento|obito|data de falecimento|data de obito|morte)$/, 'death'], [/^(local de falecimento|local de obito|sepultamento|local de sepultamento)$/, 'death_place'],
   [/^(casamento|data de casamento|data do casamento)$/, 'marriage'], [/^(local de casamento|local do casamento)$/, 'marriage_place'],
+  [/^(descendentes|descendencia|sem descendentes|sem filhos|deixou descendentes)$/, 'descendants'],
   [/^(cor|cor\/raca|raca)$/, 'color'], [/^(origem|etnia|origem\/etnia)$/, 'origin'],
   [/^pai$/, 'father_id'], [/^(mae)$/, 'mother_id'], [/^pais$/, 'parents'],
   [/^(conjuge|esposa|esposo|marido|mulher|casou com)$/, 'spouse_id'], [/^(filh[oa]s?|filho\/filha)$/, 'child'],
@@ -53,7 +54,7 @@ const FIELD = [
   [/^(nota|notas|observacao|informacao|info)$/, 'note'], [/^(lembranca|memoria|historia|causo)$/, 'memory']
 ];
 const fieldOf = campo => { const c = norm(campo); for (const [re, f] of FIELD) if (re.test(c)) return f; return null; };
-const LABEL = { name: 'nome', given: 'primeiro nome', nick: 'apelido', sex: 'sexo', birth: 'nascimento', birth_place: 'local de nascimento', death: 'falecimento', death_place: 'local de falecimento', marriage: 'casamento', marriage_place: 'local do casamento', color: 'cor/raça', origin: 'origem/etnia', father_id: 'pai', mother_id: 'mãe', spouse_id: 'cônjuge' };
+const LABEL = { name: 'nome', given: 'primeiro nome', nick: 'apelido', sex: 'sexo', birth: 'nascimento', birth_place: 'local de nascimento', death: 'falecimento', death_place: 'local de falecimento', marriage: 'casamento', marriage_place: 'local do casamento', descendants: 'descendentes', color: 'cor/raça', origin: 'origem/etnia', father_id: 'pai', mother_id: 'mãe', spouse_id: 'cônjuge' };
 const COLOR = { branca: 'branca', branco: 'branca', preta: 'preta', preto: 'preta', parda: 'parda', pardo: 'parda', amarela: 'amarela', amarelo: 'amarela', indigena: 'indigena' };
 // "Donato ("velho Donato")" -> nome "Donato" e apelido "velho Donato"
 function splitNick(v) { const m = unmd(v).match(/^(.*?)\s*\(\s*["“]([^"”]+)["”]\s*\)\s*$/); return m ? { main: m[1].trim(), nick: m[2].trim() } : { main: unmd(v), nick: '' }; }
@@ -187,6 +188,7 @@ function runLote(db, text, { apply, userId, newId, now, resolver, divergence, sk
           addSource(p.id, 'irmão(ã) ' + t.p.name, row);
           out.ok = done.length ? 'mesmos pais · ' + done.join('; ') : `irmãos: já têm os mesmos pais`;
         }
+        else if (f === 'descendants') { const t = norm(v); const d = /deixou/.test(t) ? 'nao_deixou' : /^(nao|sem|nenhum|nunca|0)/.test(t) || t === 'nao teve' ? 'nao_teve' : /^(sim|teve|tem)/.test(t) ? '' : null; if (d === null) throw new Error('descendentes: escreva "não teve" ou "não deixou"'); out.ok = setField(p, 'descendants', d, row); addSource(p.id, 'descendentes', row); }
         else if (f === 'color') { const c = COLOR[norm(v)]; if (!c) throw new Error('cor/raça deve ser branca, preta, parda, amarela ou indígena'); out.ok = setField(p, 'color', c, row); addSource(p.id, 'cor/raça', row); }
         else if (f === 'sex') { const s = /^f|^mulher/.test(norm(v)) ? 'f' : /^m|^homem/.test(norm(v)) ? 'm' : ''; out.ok = setField(p, 'sex', s, row); }
         else if (f) { out.ok = setField(p, f, v, row); addSource(p.id, `${LABEL[f]} ${v}`, row); }

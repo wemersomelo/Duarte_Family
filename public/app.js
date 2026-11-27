@@ -265,7 +265,7 @@ function renderRecord() {
   const kindOf = u => /youtu\.?be/.test(u) ? 'YouTube' : /drive\.google|photos\.google/.test(u) ? 'Google' : /instagram/.test(u) ? 'Instagram' : /facebook|fb\.watch/.test(u) ? 'Facebook' : /vimeo/.test(u) ? 'Vimeo' : /whatsapp/.test(u) ? 'WhatsApp' : 'Link';
   const noteList = list => list.length ? `<ul class="notes">${list.map(n => `<li>${esc(n.text)}<small>${esc(who(n.createdBy))}, ${esc(fmtDate(n.createdAt))}${mine(n) ? ` · <button type="button" class="link" data-rmnote="${n.id}">remover</button>` : ''}</small></li>`).join('')}</ul>` : '';
   slip.innerHTML = `<div class="phead">${p.photoFileId ? `<button type="button" class="pphoto" data-view="${esc(p.photoFileId)}" aria-label="Ver foto"><img src="/api/files/${encodeURIComponent(p.photoFileId)}" alt="Foto de ${esc(p.name)}"></button>` : ''}<div><h3 class="person">${esc(dn(p, nickOf(p) || p.name))}</h3><p class="nick">${nickOf(p) ? esc(p.name) : '&nbsp;'}</p></div></div>
-  <dl>${row('Nascimento', p.birth)}${row('Local', p.birthPlace)}${row('Casamento', marr)}${row('Falecimento', p.death)}${row('Local', p.deathPlace)}${row('Cor/raça', COLOR[p.color])}${row('Origem/etnia', p.origin)}${row('Histórias', p.notes, 1)}${row('Fontes', p.sources, 1)}</dl>
+  <dl>${row('Nascimento', p.birth)}${row('Local', p.birthPlace)}${row('Casamento', marr)}${row('Falecimento', p.death)}${row('Local', p.deathPlace)}${row('Descendentes', DESC[p.descendants])}${row('Cor/raça', COLOR[p.color])}${row('Origem/etnia', p.origin)}${row('Histórias', p.notes, 1)}${row('Fontes', p.sources, 1)}</dl>
   ${me && !isGuest() ? (myPerson() === p.id ? '<p class="mine">Esta pessoa é você. Para corrigir as suas datas, toque em <b>Editar meus dados</b>. <button type="button" class="link" data-act="notme">não sou eu</button></p>' : !myPerson() ? '<div class="actions small"><button type="button" class="primary" data-act="isme">Esta pessoa sou eu</button></div>' : '') : ''}
   ${!p.birth && !p.birthPlace && !p.notes ? '<p class="none">Ainda faltam informações sobre esta pessoa. Se você sabe algo, acrescente.</p>' : ''}
   ${isGuest() ? '' : `<p class="by">Registrado por ${esc(who(p.createdBy))}</p>`}
@@ -287,7 +287,7 @@ function renderRecord() {
   const sibs = siblingsOf(p.id), skip = new Set([p.id, ...sibs.map(q => q.id)]);
   const cousins = parId => { const seen = new Set(); return siblingsOf(parId).flatMap(u => childrenOf(u.id)).filter(c => !skip.has(c.id) && !seen.has(c.id) && seen.add(c.id)); };
   const side = (label, parId) => { if (!P(parId)) return ''; const list = cousins(parId); return `<h4>${label}${list.length ? ` (${list.length})` : ''}</h4>${chips(list)}`; };
-  kin.innerHTML = `<h4>Pais</h4>${chips(par)}<h4>Cônjuge</h4>${chips(spousesOf(p.id).map(P))}<h4>Filhos</h4>${chips(childrenOf(p.id))}<h4>Irmãos</h4>${chips(sibs)}${side('Primos do lado do pai', p.fatherId)}${side('Primos do lado da mãe', p.motherId)}`;
+  kin.innerHTML = `<h4>Pais</h4>${chips(par)}<h4>Cônjuge</h4>${chips(spousesOf(p.id).map(P))}<h4>Filhos</h4>${p.descendants && !childrenOf(p.id).length ? `<p class="none">${DESC[p.descendants]}.</p>` : chips(childrenOf(p.id)) + (p.descendants ? `<p class="none">${DESC[p.descendants]}.</p>` : '')}<h4>Irmãos</h4>${chips(sibs)}${side('Primos do lado do pai', p.fatherId)}${side('Primos do lado da mãe', p.motherId)}`;
 }
 document.addEventListener('click', async e => {
   const g = e.target.closest('[data-go]'); if (g) { closeAll(); go(g.dataset.go); return; }
@@ -359,7 +359,8 @@ res.addEventListener('click', e => { const b = e.target.closest('[data-hit]'); i
 document.addEventListener('click', e => { if (!e.target.closest('.searchwrap')) res.style.display = 'none'; });
 
 /* ---------- formulário de pessoa ---------- */
-const FIELDS = ['name', 'given', 'nick', 'sex', 'birth', 'birthPlace', 'death', 'deathPlace', 'fatherId', 'motherId', 'spouseId', 'marriage', 'marriagePlace', 'color', 'origin', 'notes', 'sources'];
+const FIELDS = ['name', 'given', 'nick', 'sex', 'birth', 'birthPlace', 'death', 'deathPlace', 'fatherId', 'motherId', 'spouseId', 'marriage', 'marriagePlace', 'descendants', 'color', 'origin', 'notes', 'sources'];
+const DESC = { nao_teve: 'Não teve descendentes', nao_deixou: 'Não deixou descendentes' };
 const COLOR = { branca: 'Branca', preta: 'Preta', parda: 'Parda', amarela: 'Amarela', indigena: 'Indígena' };
 const dlg = $('#dlg'), form = $('#form');
 function fillSelect(sel, val, excl) {
@@ -409,7 +410,7 @@ function openForm(id, c = {}) {
   const p = id ? P(id) : {}; if (id ? !canEdit(p) : !canWrite()) return; if (c.confirmDel && !ownsP(p)) return;
   editing = id; ctx = c;
   $('#formTitle').textContent = c.confirmDel ? 'Excluir ' + p.name + '?' : id ? 'Editar ' + p.name : c.parentOf ? (c.parentRole === 'father' ? 'Pai de ' : 'Mãe de ') + P(c.parentOf).name : c.childOf ? 'Filho ou filha de ' + P(c.childOf).name : c.spouseOf ? 'Cônjuge de ' + P(c.spouseOf).name : c.siblingOf ? 'Irmão ou irmã de ' + P(c.siblingOf).name : 'Adicionar pessoa';
-  for (const f of FIELDS) { const el = form.elements[f]; if (el.tagName !== 'SELECT' || f === 'sex' || f === 'color') el.value = p[f] || ''; }
+  for (const f of FIELDS) { const el = form.elements[f]; if (el.tagName !== 'SELECT' || f === 'sex' || f === 'color' || f === 'descendants') el.value = p[f] || ''; }
   document.querySelectorAll('.datef').forEach(b => b.load());
   fillSelect(form.elements.fatherId, p.fatherId, id); fillSelect(form.elements.motherId, p.motherId, id); fillSelect(form.elements.spouseId, p.spouseId, id);
   if (c.childOf) { const par = P(c.childOf); form.elements[par.sex === 'f' ? 'motherId' : 'fatherId'].value = par.id; const sp = spousesOf(par.id)[0]; if (sp) form.elements[par.sex === 'f' ? 'fatherId' : 'motherId'].value = sp; }

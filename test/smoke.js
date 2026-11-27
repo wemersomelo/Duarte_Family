@@ -222,6 +222,16 @@ function client() {
     assert.ok(a.context.related.length || a.rows.length > 1, 'outras linhas que citam o nome');
     assert.equal(r.rows[0].fonte, 'Fala da prima', 'fonte de cada linha'); }
 
+  // marcador "não teve / não deixou descendentes"
+  { const id = (await admin('POST', '/api/people', { name: 'Sem Filhos Teste', descendants: 'nao_teve' })).data.id;
+    let t = (await admin('GET', '/api/tree')).data.people.find(x => x.id === id); assert.equal(t.descendants, 'nao_teve');
+    await admin('PUT', '/api/people/' + id, { descendants: 'qualquer' });
+    t = (await admin('GET', '/api/tree')).data.people.find(x => x.id === id); assert.equal(t.descendants, '', 'valor inválido vira vazio');
+    const f = new FormData(); f.append('files', new Blob(['Ação,Pessoa,Campo,Valor,Fonte,Confiança\nATUALIZAR,Sem Filhos Teste,descendentes,não deixou,Fala,Confirmado\n']), 'desc/lote.csv');
+    const r = (await admin('POST', '/api/admin/relatos/upload', f, true)).data;
+    await admin('POST', '/api/admin/relatos/run', { token: r.token, apply: true });
+    t = (await admin('GET', '/api/tree')).data.people.find(x => x.id === id); assert.equal(t.descendants, 'nao_deixou', 'pelo lote'); }
+
   // juntar duas fichas da mesma pessoa
   const dupA = (await admin('POST', '/api/people', { name: 'Duplicada Teste', birth: '1950', fatherId: pai })).data.id;
   const dupB = (await admin('POST', '/api/people', { name: 'Duplicada T.', birth: '1951', birthPlace: 'Catuji' })).data.id;

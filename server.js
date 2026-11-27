@@ -171,7 +171,7 @@ function log(req, action, target, detail) {
 }
 
 // ---------- utilidades ----------
-const FIELDS = ['name', 'given', 'nick', 'sex', 'birth', 'birth_place', 'death', 'death_place', 'father_id', 'mother_id', 'spouse_id', 'marriage', 'marriage_place', 'notes', 'sources', 'color', 'origin'];
+const FIELDS = ['name', 'given', 'nick', 'sex', 'birth', 'birth_place', 'death', 'death_place', 'father_id', 'mother_id', 'spouse_id', 'marriage', 'marriage_place', 'descendants', 'notes', 'sources', 'color', 'origin'];
 const COLORS = ['', 'branca', 'preta', 'parda', 'amarela', 'indigena'];
 const MAP = { birthPlace: 'birth_place', deathPlace: 'death_place', fatherId: 'father_id', motherId: 'mother_id', spouseId: 'spouse_id', marriagePlace: 'marriage_place' };
 function clean(body) {
@@ -183,6 +183,7 @@ function clean(body) {
   }
   if ('sex' in out && !['', 'm', 'f'].includes(out.sex)) out.sex = '';
   if ('color' in out && !COLORS.includes(out.color)) out.color = '';
+  if ('descendants' in out && !['', 'nao_teve', 'nao_deixou'].includes(out.descendants)) out.descendants = '';
   return out;
 }
 const slug = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'pessoa';
@@ -192,7 +193,7 @@ function personOut(p) {
   return {
     id: p.id, name: p.name, given: p.given || '', nick: p.nick, sex: p.sex, birth: p.birth, birthPlace: p.birth_place,
     death: p.death, deathPlace: p.death_place, fatherId: p.father_id, motherId: p.mother_id,
-    spouseId: p.spouse_id, marriage: p.marriage || '', marriagePlace: p.marriage_place || '', notes: p.notes, sources: p.sources, color: p.color || '', origin: p.origin || '', photoFileId: p.photo_file_id || '', createdBy: p.created_by,
+    spouseId: p.spouse_id, marriage: p.marriage || '', marriagePlace: p.marriage_place || '', descendants: p.descendants || '', notes: p.notes, sources: p.sources, color: p.color || '', origin: p.origin || '', photoFileId: p.photo_file_id || '', createdBy: p.created_by,
     createdAt: p.created_at, updatedAt: p.updated_at
   };
 }
@@ -912,7 +913,7 @@ app.post('/api/admin/merge', needAdmin, (req, res) => {
   if (keep.id === gone.id) return res.status(400).json({ error: 'Escolha duas pessoas diferentes.' });
   if ([keep.father_id, keep.mother_id].includes(gone.id) || [gone.father_id, gone.mother_id].includes(keep.id)) return res.status(400).json({ error: 'Uma é pai ou mãe da outra; não podem ser a mesma pessoa.' });
   const nm = id => { const q = id && db.prepare('SELECT name FROM people WHERE id=?').get(id); return q ? q.name : id; };
-  const LBL = { name: 'nome', given: 'primeiro nome', nick: 'apelido', sex: 'sexo', birth: 'nascimento', birth_place: 'local de nascimento', death: 'falecimento', death_place: 'local de falecimento', father_id: 'pai', mother_id: 'mãe', spouse_id: 'cônjuge', marriage: 'casamento', marriage_place: 'local do casamento', color: 'cor/raça', origin: 'origem/etnia' };
+  const LBL = { name: 'nome', given: 'primeiro nome', nick: 'apelido', sex: 'sexo', birth: 'nascimento', birth_place: 'local de nascimento', death: 'falecimento', death_place: 'local de falecimento', father_id: 'pai', mother_id: 'mãe', spouse_id: 'cônjuge', marriage: 'casamento', marriage_place: 'local do casamento', descendants: 'descendentes', color: 'cor/raça', origin: 'origem/etnia' };
   const diffs = [], set = {};
   db.transaction(() => {
     for (const f of FIELDS) {
