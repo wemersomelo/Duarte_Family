@@ -46,7 +46,7 @@ function client() {
   const jpgGps = await sharp({ create: { width: 20, height: 20, channels: 3, background: '#888' } })
     .jpeg().withExif({ IFD0: { Make: 'Telefone' }, IFD3: { GPSLatitudeRef: 'S', GPSLatitude: '19/1 55/1 0/1' } }).toBuffer();
   assert.ok((await sharp(jpgGps).metadata()).exif, 'a foto de teste tem EXIF');
-  let fd = new FormData(); fd.append('files', new Blob([jpgGps], { type: 'image/jpeg' }), 'gps.jpg');
+  let fd = new FormData(); fd.append('files', new Blob([jpgGps], { type: 'image/jpeg' }), 'gps.jpg'); fd.append('doc', '0');
   assert.equal((await tia('POST', '/api/people/p1/files', fd, true)).status, 200);
   let tree = (await tia('GET', '/api/tree')).data;
   const saved = (await tia('GET', '/api/files/' + tree.files[0].id)).data;

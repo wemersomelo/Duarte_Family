@@ -80,24 +80,25 @@ function client() {
   // documento: restrito à família próxima, a quem enviou e ao admin
   tree = (await leitor('GET', '/api/tree')).data;
   assert.equal(tree.files.length, 0, 'leitor fora da família não vê o documento');
-  const docId = (await tia('GET', '/api/tree')).data.files[0].id;
+  assert.equal((await tia('GET', '/api/tree')).data.files.length, 0, 'quem enviou também não vê o documento');
+  const docId = (await admin('GET', '/api/tree')).data.files.find(f => f.doc).id;
   assert.equal((await leitor('GET', '/api/files/' + docId)).status, 404, 'nem pelo endereço direto');
   assert.ok((await admin('GET', '/api/tree')).data.files.some(f => f.id === docId && f.doc), 'admin vê');
-  assert.equal((await leitor('PUT', '/api/files/' + docId, { doc: false })).status, 403, 'só quem enviou libera');
-  assert.equal((await tia('PUT', '/api/files/' + docId, { doc: false })).status, 200);
+  assert.equal((await tia('GET', '/api/files/' + docId)).status, 404, 'nem quem enviou vê depois');
+  assert.equal((await tia('PUT', '/api/files/' + docId, { doc: false })).status, 403, 'só o admin libera');
+  assert.equal((await admin('PUT', '/api/files/' + docId, { doc: false })).status, 200);
   tree = (await leitor('GET', '/api/tree')).data;
   assert.equal(tree.files.length, 1);
   const fget = await leitor('GET', '/api/files/' + tree.files[0].id);
   assert.equal(fget.status, 200, 'liberado como foto: leitor vê');
-  { // família próxima vê o documento: leitor ligado a um filho da pessoa
+  { // nem a família próxima vê o documento: só o administrador
     const filho = (await admin('POST', '/api/people', { name: 'Filho Doc', motherId: 'avo' })).data.id;
     const lid = (await admin('GET', '/api/admin')).data.users.find(u => u.role === 'viewer').id;
     await admin('PUT', '/api/admin/users/' + lid, { personId: filho });
     const f2 = new FormData(); f2.append('files', new Blob([png], { type: 'image/png' }), 'rg.png'); await tia('POST', '/api/people/avo/files', f2, true);
     const d2 = (await admin('GET', '/api/tree')).data.files.find(f => f.name === 'rg.png');
-    assert.equal((await leitor('GET', '/api/files/' + d2.id)).status, 200, 'filho vê o documento da mãe');
+    assert.equal((await leitor('GET', '/api/files/' + d2.id)).status, 404, 'filho não vê o documento da mãe');
     await admin('PUT', '/api/admin/users/' + lid, { personId: '' });
-    assert.equal((await leitor('GET', '/api/files/' + d2.id)).status, 404, 'desligado, não vê mais');
     await admin('DELETE', '/api/files/' + d2.id); await admin('DELETE', '/api/people/' + filho); }
   assert.equal((await anon('GET', '/api/files/' + tree.files[0].id)).status, 401, 'sem login não vê documento');
   const bad = new FormData();
@@ -327,6 +328,8 @@ function client() {
   assert.equal((await anon('GET', '/api/relatos/2026-02-02_primax')).status, 403);
   assert.equal((await leitor('GET', '/api/tree')).data.relatoLinks.length, 0, 'leitor não recebe ligações de relatos');
   const rfr = await admin('GET', `/api/relatos/2026-02-02_primax/files/${relv.data.files[0].id}`); assert.equal(rfr.status, 200);
+  { const tv = await tia('GET', '/api/relatos/2026-02-02_primax'); assert.equal(tv.status, 200); assert.equal(tv.data.files.length, 0, 'quem edita lê o relato, mas não vê o material');
+    assert.equal((await tia('GET', `/api/relatos/2026-02-02_primax/files/${relv.data.files[0].id}`)).status, 403, 'material só do admin'); }
   // pasta de entrada no servidor
   const inboxDir = path.join(process.env.DATA_DIR, 'relatos-entrada', 'melo', '2026-03-03_tio');
   fs.mkdirSync(inboxDir, { recursive: true });

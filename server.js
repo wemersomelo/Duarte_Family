@@ -340,9 +340,8 @@ app.get('/api/tree', needUserOrGuest, (req, res) => {
   }
   const notes = db.prepare('SELECT id,person_id personId,kind,text,created_by createdBy,created_at createdAt FROM notes ORDER BY created_at').all();
   const media = db.prepare('SELECT id,person_id personId,url,title,created_by createdBy,created_at createdAt FROM media_links ORDER BY created_at').all();
-  const ep = effectiveParents();
   const files = db.prepare('SELECT id,person_id personId,original_name name,mime,size,caption,doc,created_by createdBy,created_at createdAt FROM files ORDER BY created_at').all()
-    .filter(f => canSeeDoc(req, { doc: f.doc, created_by: f.createdBy, person_id: f.personId }, ep)).map(f => ({ ...f, doc: !!f.doc }));
+    .filter(f => canSeeDoc(req, { doc: f.doc })).map(f => ({ ...f, doc: !!f.doc }));
   const users = db.prepare("SELECT id,name FROM users UNION ALL SELECT id, name || ' (conta removida)' FROM removed_users").all();
   // Relatos que citam cada pessoa (só para quem pode editar; os relatos são privados).
   const relatoLinks = req.user && req.user.role !== 'viewer' ? db.prepare(`SELECT rp.person_id personId, r.id relatoId, r.fonte, r.data, rp.hidden FROM relato_people rp JOIN relatos r ON r.id=rp.relato_id WHERE rp.hidden=0 OR (rp.hidden=1 AND ?) ORDER BY r.data`).all(req.user.role === 'admin' ? 1 : 0) : [];
@@ -382,24 +381,11 @@ app.put('/api/me/person', needUser, (req, res) => {
 // os filhos sem esse dado recebem o mesmo. Nunca troca um pai/mãe já registrado: meio-irmãos
 // continuam como estão, e cada pessoa pode corrigir a própria ficha.
 // A ligação vai na tabela links (não altera o registro de quem o criou).
-// Família próxima de uma pessoa: ela mesma, pais, filhos, irmãos e cônjuges. Quem pode ver os documentos dela.
-function closeFamilyOf(personId, ep) {
-  ep = ep || effectiveParents();
-  const fam = new Set([personId]), me = ep[personId];
-  if (!me) return fam;
-  if (me.f) fam.add(me.f); if (me.m) fam.add(me.m);
-  for (const [id, c] of Object.entries(ep)) {
-    if (c.f === personId || c.m === personId) fam.add(id); // filhos
-    if ((me.f && c.f === me.f) || (me.m && c.m === me.m)) fam.add(id); // irmãos
-  }
-  for (const r of db.prepare('SELECT id,spouse_id FROM people WHERE id=? OR spouse_id=?').all(personId, personId)) { if (r.id !== personId) fam.add(r.id); if (r.spouse_id && r.id === personId) fam.add(r.spouse_id); }
-  return fam;
-}
-function canSeeDoc(req, f, ep) {
+// Documentos (certidões, identidades, CTPS): só o administrador vê a imagem. Os parentes veem os dados
+// que o documento confirmou, na ficha, com a fonte.
+function canSeeDoc(req, f) {
   if (!f.doc) return true;
-  if (req.guest || !req.user) return false;
-  if (req.user.role === 'admin' || f.created_by === req.user.id) return true;
-  return !!req.user.personId && closeFamilyOf(f.person_id, ep).has(req.user.personId);
+  return !!req.user && !req.guest && req.user.role === 'admin';
 }
 function effectiveParents() {
   const ps = db.prepare('SELECT id,father_id,mother_id FROM people').all(), by = {};
@@ -618,11 +604,10 @@ app.get('/api/files/:id', needUserOrGuest, (req, res) => {
   res.set('Cache-Control', 'private, max-age=86400');
   res.sendFile(file);
 });
-// Marcar como documento (restrito) ou liberar como foto: quem enviou ou o administrador.
-app.put('/api/files/:id', needUser, (req, res) => {
+// Marcar como documento (só o administrador vê) ou liberar como foto: só o administrador.
+app.put('/api/files/:id', needAdmin, (req, res) => {
   const f = db.prepare('SELECT * FROM files WHERE id=?').get(req.params.id);
   if (!f) return res.status(404).json({ error: 'Não encontrado.' });
-  if (!owns(req, f.created_by)) return res.status(403).json({ error: 'Só quem enviou (ou o administrador) muda isso.' });
   if (typeof req.body.doc !== 'boolean') return res.status(400).json({ error: 'Informe doc.' });
   if (!req.body.doc && f.mime === 'application/pdf') return res.status(400).json({ error: 'PDF fica sempre como documento.' });
   db.prepare('UPDATE files SET doc=? WHERE id=?').run(req.body.doc ? 1 : 0, f.id);
@@ -923,11 +908,12 @@ app.post('/api/admin/relato-people', needAdmin, (req, res) => {
 app.get('/api/relatos/:id', needWriter, (req, res) => {
   const r = db.prepare('SELECT id,fonte,data,ficha,relato,imported_at importedAt,applied,skipped FROM relatos WHERE id=?').get(req.params.id);
   if (!r) return res.status(404).json({ error: 'Relato não encontrado.' });
-  r.files = db.prepare('SELECT id,name,mime,size FROM relato_files WHERE relato_id=? ORDER BY name').all(r.id);
+  // material do relato (fotos de certidões, CTPS...): só o administrador
+  r.files = req.user.role === 'admin' ? db.prepare('SELECT id,name,mime,size FROM relato_files WHERE relato_id=? ORDER BY name').all(r.id) : [];
   r.people = db.prepare('SELECT person_id FROM relato_people WHERE relato_id=? AND hidden<2').all(r.id).map(x => x.person_id);
   res.json(r);
 });
-app.get('/api/relatos/:id/files/:fid', needWriter, (req, res) => {
+app.get('/api/relatos/:id/files/:fid', needAdmin, (req, res) => {
   const f = db.prepare('SELECT * FROM relato_files WHERE id=? AND relato_id=?').get(Number(req.params.fid), req.params.id);
   if (!f) return res.status(404).end();
   res.set('Content-Type', f.mime || 'application/octet-stream');
