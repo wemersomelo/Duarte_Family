@@ -6,7 +6,8 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#F8EFE6">
 <title>{{BRAND_NAME}} · {{FAMILY}}</title>
-<link rel="manifest" href="/manifest.webmanifest">
+<meta name="book-base" content="{{BASE}}">
+<link rel="manifest" href="{{BASE}}/manifest.webmanifest">
 <link rel="icon" href="/brand/icon-32.png" type="image/png" sizes="32x32">
 <link rel="icon" href="/brand/icon-192.png" type="image/png" sizes="192x192">
 <link rel="apple-touch-icon" href="/brand/icon-180.png">
@@ -31,6 +32,7 @@
       <label class="f" id="fName">Seu nome<input name="name" autocomplete="name" maxlength="80"></label>
       <label class="f">E-mail<input name="email" type="email" autocomplete="email" required maxlength="120"></label>
       <label class="f">Senha<input name="password" type="password" autocomplete="current-password" required minlength="8" maxlength="200"></label>
+      <label class="f" id="fCode" hidden>Código que chegou no seu e-mail<input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="6 números"></label>
       <label class="check" id="fMail" hidden><input type="checkbox" name="emailUpdates" checked> Quero receber por e-mail as novidades da família (quando alguém acrescenta ou muda algo na ficha de um parente direto meu), num resumo por dia. Dá para mudar depois, em Avisos.</label>
       <label class="f" id="fFamily" hidden>Nome da família (como vai aparecer no site)<input name="family" maxlength="80" placeholder="ex.: Família Silva Santos"></label>
       <label class="check" id="fAdult" hidden><input type="checkbox" name="adult"> Tenho 18 anos ou mais.</label>
@@ -38,6 +40,11 @@
       <label class="f" id="fKey" hidden>Chave de instalação (se configurada)<input name="setupKey" autocomplete="off" maxlength="200"></label>
       <div class="err" id="authErr"></div>
       <button class="primary wide" type="submit" id="authBtn">Entrar</button>
+    </form>
+    <p class="note authswitch" id="codeSwitch" hidden><button type="button" class="link" id="codeBtn">Entrar com um código por e-mail, sem senha</button></p>
+    <form id="bookCodeForm" class="bookcode" hidden>
+      <label class="f">Tem o código do livro da sua família?<input name="code" maxlength="5" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="ex.: K7P2Q"></label>
+      <button type="submit">Abrir o livro</button>
     </form>
     <p class="auththeme"><button type="button" class="link" data-themebtn>Tema</button></p>
     <p class="note" id="authHelp">Ainda não tem conta? Peça um convite ao administrador da árvore.</p>
@@ -249,7 +256,7 @@
   </form>
   <details class="relmore acct"><summary>Meus dados e minha conta</summary>
     <p class="note">Seus direitos pelos <a href="/termos#direitos" target="_blank">termos</a>: baixar uma cópia dos seus dados ou apagar a sua conta. Ao apagar, o que você acrescentou à árvore da família continua, com "(conta removida)".</p>
-    <div class="actions small"><a class="btn" href="/api/me/export">Baixar meus dados</a></div>
+    <div class="actions small"><a class="btn" href="{{BASE}}/api/me/export">Baixar meus dados</a></div>
     <form id="delform"><label class="f">Para apagar a conta, digite a sua senha<input name="password" type="password" autocomplete="current-password" required></label>
     <div class="err" id="delErr"></div><button type="submit" class="danger">Apagar minha conta</button></form>
   </details>
@@ -285,8 +292,9 @@
     <div id="repList"></div>
     </details>
     <details class="asec" data-sec="livros"><summary>Famílias pedindo um livro <span id="bookCount" class="note"></span></summary>
-    <p class="note">Pedidos feitos na página pública <a href="/comecar" target="_blank">/comecar</a>. Para atender: crie o livro no servidor com <code>scripts/novo-livro.sh</code> e mande o endereço e a senha de instalação para a pessoa.</p>
+    <p class="note">Pedidos feitos na página pública <a href="/comecar" target="_blank">/comecar</a>. Para atender, toque em <b>Aprovar e criar o livro</b>: o site cria o livro com um código curto (ex.: <code>K7P2Q</code>) e manda para a pessoa o endereço e a chave de instalação por e-mail. Cada livro é separado: outros dados, outras contas.</p>
     <div id="bookList"></div>
+    <div id="codeBooks"></div>
     </details>
     <details class="asec" data-sec="pedidos"><summary>Pedidos para participar <span id="reqCount" class="note"></span></summary>
     <div id="requests"></div>
@@ -321,7 +329,7 @@
     </details>
     <details class="asec" data-sec="copias"><summary>Cópias de segurança e importar</summary>
     <p class="note">Baixe uma cópia de vez em quando e guarde num lugar seguro. O arquivo GEDCOM abre em qualquer programa de genealogia.</p>
-    <div class="actions"><a class="btn" href="/api/export.json">Baixar dados (JSON)</a><a class="btn" href="/api/export.ged">Baixar GEDCOM</a></div>
+    <div class="actions"><a class="btn" href="{{BASE}}/api/export.json">Baixar dados (JSON)</a><a class="btn" href="{{BASE}}/api/export.ged">Baixar GEDCOM</a></div>
     <h4>Importar</h4>
     <p class="note">Importa um arquivo JSON exportado desta árvore ou da versão anterior. Pessoas com o mesmo código são atualizadas.</p>
     <p class="note"><b>Lote de um relatório de entrevista:</b> cole a tabela "Lote para a árvore" (Ação | Pessoa | Campo | Valor | Fonte | Confiança) ou escolha o arquivo .csv. Primeiro aparece uma prévia; nada muda até você tocar em Aplicar. Nada é apagado: quando um dado muda, o anterior fica guardado em nota.</p>

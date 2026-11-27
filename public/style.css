@@ -334,3 +334,8 @@ body.landing{background:var(--bg)}
 .cmdbox{margin:8px 0;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--paper)}
 .cmdbox pre{white-space:pre-wrap;word-break:break-all;font-size:13px;margin:6px 0;padding:8px;border-radius:4px;background:var(--soft);user-select:all}
 .cmdbox .note{margin:4px 0}
+.authswitch{margin:6px 0 0;text-align:center}
+.bookcode{display:flex;gap:8px;align-items:flex-end;margin:14px 0 0;padding-top:12px;border-top:1px solid var(--line)}
+.bookcode label.f{flex:1;margin:0}
+.bookcode input{text-transform:uppercase;letter-spacing:.15em}
+.bookcode button{min-height:44px;white-space:nowrap}

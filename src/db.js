@@ -112,6 +112,13 @@ function openDb(file) {
       id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, email TEXT NOT NULL, family TEXT, place TEXT,
       message TEXT, ip TEXT, status TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL, done_at TEXT
     );
+    CREATE TABLE IF NOT EXISTS books (
+      code TEXT PRIMARY KEY, family TEXT, place TEXT, email TEXT, request_id INTEGER, setup_key TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active', created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS login_codes (
+      email TEXT PRIMARY KEY, code_hash TEXT NOT NULL, expires INTEGER NOT NULL, tries INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS reports (
       id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, target TEXT NOT NULL, person_id TEXT, reason TEXT NOT NULL,
       by_user INTEGER, status TEXT NOT NULL DEFAULT 'open', created_at TEXT NOT NULL, closed_at TEXT, closed_by INTEGER
@@ -178,6 +185,7 @@ function openDb(file) {
   if (!cols('access_requests').includes('claim')) db.exec(`ALTER TABLE access_requests ADD COLUMN claim TEXT`);
   if (!cols('users').includes('person_id')) db.exec(`ALTER TABLE users ADD COLUMN person_id TEXT NOT NULL DEFAULT ''`);
   // relato_people.hidden: 0 = aparece, 1 = oculto (só o administrador vê), 2 = apagado (não volta ao reimportar)
+  if (!cols('book_requests').includes('book_code')) db.exec(`ALTER TABLE book_requests ADD COLUMN book_code TEXT`);
   // notifications.book_req: aviso de pedido de livro, para mostrar o comando pronto do terminal
   if (!cols('notifications').includes('book_req')) db.exec(`ALTER TABLE notifications ADD COLUMN book_req INTEGER`);
   if (!cols('relato_people').includes('hidden')) db.exec(`ALTER TABLE relato_people ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0`);

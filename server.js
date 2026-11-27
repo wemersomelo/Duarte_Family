@@ -17,7 +17,13 @@ const { runLote, norm } = require('./src/lote');
 const relatos = require('./src/relatos');
 const sugestoes = require('./src/sugestoes');
 
-const PORT = Number(process.env.PORT || 3000);
+// PORT pode ser um número ou, nos livros por código, o caminho de um socket local.
+const PORT = process.env.PORT && isNaN(process.env.PORT) ? process.env.PORT : Number(process.env.PORT || 3000);
+// Livro por código (ex.: /K7P2Q): o site principal abre este mesmo programa para cada família, com banco e pasta próprios.
+const BOOK_CODE = /^[A-Z0-9]{4,8}$/.test(process.env.BOOK_CODE || '') ? process.env.BOOK_CODE : '';
+const BASE = BOOK_CODE ? '/' + BOOK_CODE : '';
+const CPATH = BASE || '/';
+const CK = n => BOOK_CODE ? `${n}_${BOOK_CODE}` : n; // cookies de cada livro com nome próprio: não se misturam com os do site principal
 const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(__dirname, 'data'));
 const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
 const TRASH_DIR = path.join(UPLOAD_DIR, 'lixeira');
@@ -33,6 +39,9 @@ const db = openDb(path.join(DATA_DIR, 'arvore.db'));
 const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
+// Site principal: /CÓDIGO/... vai para o livro daquela família (processo separado).
+const books = BOOK_CODE ? null : require('./src/books')({ db, dataDir: DATA_DIR, serverFile: __filename });
+if (books) app.use(books.middleware);
 
 // ---------- segurança básica ----------
 app.use((req, res, next) => {
@@ -75,10 +84,10 @@ function setSession(res, userId) {
   const token = crypto.randomBytes(32).toString('hex');
   const expires = Date.now() + SESSION_DAYS * 864e5;
   db.prepare('INSERT INTO sessions(token,user_id,expires) VALUES(?,?,?)').run(token, userId, expires);
-  res.setHeader('Set-Cookie', `sid=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${SESSION_DAYS * 86400}${COOKIE_SECURE ? '; Secure' : ''}`);
+  res.setHeader('Set-Cookie', `${CK('sid')}=${token}; HttpOnly; SameSite=Lax; Path=${CPATH}; Max-Age=${SESSION_DAYS * 86400}${COOKIE_SECURE ? '; Secure' : ''}`);
 }
 app.use((req, res, next) => {
-  const sid = parseCookies(req).sid;
+  const sid = parseCookies(req)[CK('sid')];
   req.user = null;
   if (sid) {
     const row = db.prepare('SELECT u.id,u.name,u.email,u.role,u.person_id,u.person_ok,s.expires FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=? AND u.active=1').get(sid);
@@ -103,7 +112,7 @@ function inviteePerson(pid) {
   if (u) return { error: `Esta pessoa já está ligada à conta de ${u.name}.` };
   return { pid, name: row.name };
 }
-const baseUrl = req => process.env.DOMAIN ? 'https://' + process.env.DOMAIN : `${req.protocol}://${req.get('host')}`;
+const baseUrl = req => (process.env.DOMAIN ? 'https://' + process.env.DOMAIN : `${req.protocol}://${req.get('host')}`) + BASE;
 // Mostra só o começo do e-mail (ex.: ma***@gmail.com) para quem pediu acesso neste aparelho.
 const maskEmail = e => { const [u, d] = String(e).split('@'); return (u.length <= 2 ? u[0] : u.slice(0, 2)) + '***@' + d; };
 // Pessoa inicial de quem não tem pessoa ligada (visitantes): a pessoa do primeiro administrador.
@@ -118,7 +127,7 @@ const GUEST_DAYS = 30;
 app.use((req, res, next) => {
   req.guest = false;
   if (!req.user) {
-    const fam = parseCookies(req).fam, current = getSetting('family_link');
+    const fam = parseCookies(req)[CK('fam')], current = getSetting('family_link');
     if (fam && current && fam.length === current.length && crypto.timingSafeEqual(Buffer.from(fam), Buffer.from(current))) req.guest = true;
   }
   next();
@@ -270,7 +279,7 @@ function sendDigest(nowMs = Date.now()) {
   const midnightUtc = Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate()) - BRT;
   const cutoff = new Date(midnightUtc - 4 * 3600e3).toISOString(); // 20h do dia anterior (Brasília)
   const since = new Date(midnightUtc - 4 * 86400e3).toISOString(); // não manda avisos muito antigos
-  const site = process.env.DOMAIN ? 'https://' + process.env.DOMAIN : '';
+  const site = process.env.DOMAIN ? 'https://' + process.env.DOMAIN + BASE : '';
   let sent = 0;
   for (const u of db.prepare('SELECT id,email FROM users WHERE active=1 AND email_updates=1').all()) {
     const list = db.prepare('SELECT id,person_id,text FROM notifications WHERE user_id=? AND mailed_at IS NULL AND read_at IS NULL AND created_at<? AND created_at>=? ORDER BY id').all(u.id, cutoff, since);
@@ -321,14 +330,14 @@ app.get('/api/status', (req, res) => {
   const bookReqs = req.user && req.user.role === 'admin' ? db.prepare("SELECT COUNT(*) n FROM book_requests WHERE status='pending'").get().n : 0;
   // Quem pediu acesso neste aparelho vê em que pé está o pedido (o convite em si só chega pelo e-mail).
   let request = null;
-  const claim = !req.user && parseCookies(req).pedido;
+  const claim = !req.user && parseCookies(req)[CK('pedido')];
   if (claim) {
     const r = db.prepare('SELECT status,email FROM access_requests WHERE claim=?').get(String(claim));
     if (r) request = { status: r.status, email: maskEmail(r.email), mailed: r.status === 'approved' && mail.configured() };
   }
   const inboxNew = req.user && req.user.role === 'admin' ? inboxState().filter(x => x.state !== 'importado').length : 0;
   let suggestionsN = 0; if (req.user && req.user.role === 'admin') try { suggestionsN = sugestoes.suggest(db, effectiveParents).length; } catch (e) { console.error(e); }
-  res.json({ request, inboxNew, suggestions: suggestionsN, needsSetup: users === 0, termsVersion: TERMS_VERSION, needsTerms: !!(req.user && (db.prepare('SELECT terms_version v FROM users WHERE id=?').get(req.user.id) || {}).v !== TERMS_VERSION), pendingRequests: pending, bookRequests: bookReqs, reports: reportsN, hubUrl: process.env.HUB_URL || '', user: req.user || (req.guest ? { id: null, name: 'Visitante', role: 'guest' } : null), familyName: familyName(), familySuggestion: BRAND.family, brand: BRAND, defaultPerson: startPerson() });
+  res.json({ request, inboxNew, suggestions: suggestionsN, needsSetup: users === 0, termsVersion: TERMS_VERSION, needsTerms: !!(req.user && (db.prepare('SELECT terms_version v FROM users WHERE id=?').get(req.user.id) || {}).v !== TERMS_VERSION), pendingRequests: pending, bookRequests: bookReqs, reports: reportsN, hubUrl: process.env.HUB_URL || '', book: BOOK_CODE, codeLogin: mail.configured(), user: req.user || (req.guest ? { id: null, name: 'Visitante', role: 'guest' } : null), familyName: familyName(), familySuggestion: BRAND.family, brand: BRAND, defaultPerson: startPerson() });
 });
 
 app.put('/api/admin/family-name', needAdmin, (req, res) => {
@@ -372,9 +381,47 @@ app.post('/api/login', (req, res) => {
   res.json({ ok: true });
 });
 
+// Entrar com código por e-mail: 6 números, valem 10 minutos, no máximo 5 tentativas por código.
+// A resposta é sempre a mesma, exista ou não a conta, para ninguém descobrir quem está cadastrado.
+const codeHash = c => crypto.createHash('sha256').update(String(c)).digest('hex');
+app.post('/api/login/code', (req, res) => {
+  const email = String(req.body.email || '').trim().toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(400).json({ error: 'E-mail inválido.' });
+  if (!mail.configured()) return res.status(400).json({ error: 'O envio de e-mail não está configurado. Entre com a senha.' });
+  const key = 'code|' + (req.ip || '') + '|' + email;
+  if (tooMany(key) || tooManyIp(req.ip || '')) return res.status(429).json({ error: 'Muitos pedidos. Espere 15 minutos.' });
+  noteAttempt(key); noteAttempt('ip|' + (req.ip || ''));
+  const u = db.prepare('SELECT id,name FROM users WHERE email=? AND active=1').get(email);
+  const prev = db.prepare('SELECT created_at FROM login_codes WHERE email=?').get(email);
+  if (u && !(prev && Date.now() - prev.created_at < 60e3)) { // no máximo um código por minuto
+    const code = String(crypto.randomInt(0, 1e6)).padStart(6, '0');
+    db.prepare('INSERT INTO login_codes(email,code_hash,expires,tries,created_at) VALUES(?,?,?,0,?) ON CONFLICT(email) DO UPDATE SET code_hash=excluded.code_hash, expires=excluded.expires, tries=0, created_at=excluded.created_at')
+      .run(email, codeHash(code), Date.now() + 10 * 60e3, Date.now());
+    mail.send(email, `${BRAND.name}: seu código para entrar é ${code}`, `Olá, ${u.name}!\n\nSeu código para entrar no ${BRAND.name} da ${familyName()} é:\n\n${code}\n\nEle vale 10 minutos. Se não foi você que pediu, ignore este e-mail: ninguém entra sem o código.`);
+  }
+  res.json({ ok: true });
+});
+app.post('/api/login/code/verify', (req, res) => {
+  const email = String(req.body.email || '').trim().toLowerCase(), code = String(req.body.code || '').replace(/\D/g, '');
+  const key = (req.ip || '') + '|' + email;
+  if (tooMany(key) || tooManyIp(req.ip || '')) return res.status(429).json({ error: 'Muitas tentativas. Espere 15 minutos.' });
+  const row = db.prepare('SELECT * FROM login_codes WHERE email=?').get(email);
+  const fail = msg => { noteAttempt(key); noteAttempt('ip|' + (req.ip || '')); return res.status(401).json({ error: msg }); };
+  if (!row || row.expires < Date.now() || row.tries >= 5) { if (row) db.prepare('DELETE FROM login_codes WHERE email=?').run(email); return fail('Código vencido. Peça outro.'); }
+  if (code.length !== 6 || !crypto.timingSafeEqual(Buffer.from(codeHash(code)), Buffer.from(row.code_hash))) {
+    db.prepare('UPDATE login_codes SET tries=tries+1 WHERE email=?').run(email);
+    return fail(row.tries + 1 >= 5 ? 'Código errado. Peça outro.' : 'Código errado. Confira o e-mail e tente de novo.');
+  }
+  db.prepare('DELETE FROM login_codes WHERE email=?').run(email);
+  const u = db.prepare('SELECT id FROM users WHERE email=? AND active=1').get(email);
+  if (!u) return fail('Conta não encontrada.');
+  setSession(res, u.id);
+  res.json({ ok: true });
+});
+
 app.post('/api/logout', (req, res) => {
   if (req.sid) db.prepare('DELETE FROM sessions WHERE token=?').run(req.sid);
-  res.setHeader('Set-Cookie', ['sid=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0', 'fam=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0']);
+  res.setHeader('Set-Cookie', [`${CK('sid')}=; HttpOnly; SameSite=Lax; Path=${CPATH}; Max-Age=0`, `${CK('fam')}=; HttpOnly; SameSite=Lax; Path=${CPATH}; Max-Age=0`]);
   res.json({ ok: true });
 });
 
@@ -502,7 +549,7 @@ app.post('/api/me/delete', needUser, (req, res) => {
     db.prepare('DELETE FROM notifications WHERE user_id=?').run(u.id);
     db.prepare('DELETE FROM users WHERE id=?').run(u.id);
   })();
-  res.setHeader('Set-Cookie', `sid=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${COOKIE_SECURE ? '; Secure' : ''}`);
+  res.setHeader('Set-Cookie', `${CK('sid')}=; HttpOnly; SameSite=Lax; Path=${CPATH}; Max-Age=0${COOKIE_SECURE ? '; Secure' : ''}`);
   res.json({ ok: true });
 });
 app.post('/api/me/accept-terms', needUser, (req, res) => { acceptTerms(req.user.id); log(req, 'aceitou os termos', null, { versao: TERMS_VERSION }); res.json({ ok: true, version: TERMS_VERSION }); });
@@ -510,9 +557,9 @@ app.post('/api/me/accept-terms', needUser, (req, res) => { acceptTerms(req.user.
 // ---------- pedidos de livro: famílias de fora pedem a árvore delas (página /comecar) ----------
 // Só o site principal recebe pedidos; os livros de teste têm HUB_URL e mandam para lá.
 const bookLimit = new Map();
-app.get(['/comecar', '/comecar/'], (req, res) => process.env.HUB_URL ? res.redirect(process.env.HUB_URL.replace(/\/$/, '') + '/comecar') : res.sendFile(path.join(__dirname, 'public', 'comecar.html')));
+app.get(['/comecar', '/comecar/'], (req, res) => BOOK_CODE ? res.redirect('/comecar') : process.env.HUB_URL ? res.redirect(process.env.HUB_URL.replace(/\/$/, '') + '/comecar') : res.sendFile(path.join(__dirname, 'public', 'comecar.html')));
 app.post('/api/livro-pedido', (req, res) => {
-  if (process.env.HUB_URL) return res.status(404).json({ error: 'Peça pelo site principal.' });
+  if (process.env.HUB_URL || BOOK_CODE) return res.status(404).json({ error: 'Peça pelo site principal.' });
   if (req.body.site) return res.json({ ok: true }); // armadilha para robôs
   const ip = req.ip || '', nowMs = Date.now();
   const a = (bookLimit.get(ip) || []).filter(t => nowMs - t < 864e5);
@@ -531,8 +578,7 @@ app.post('/api/livro-pedido', (req, res) => {
   const admins = db.prepare("SELECT id,email FROM users WHERE role='admin' AND active=1").all();
   const reqId = db.prepare('SELECT last_insert_rowid() id').get().id;
   for (const u of admins) db.prepare('INSERT INTO notifications(user_id,person_id,text,created_at,book_req) VALUES(?,?,?,?,?)').run(u.id, null, 'Pedido de livro: ' + text, now(), reqId);
-  const cmd = bookCommand({ id: reqId, family, place, email }, req);
-  mail.send(admins.map(u => u.email).join(','), `${BRAND.name}: pedido de livro da ${family}`, `${text}\n\nPara criar o livro, cole no terminal do servidor:\n\n${cmd.command}\n\nO endereço ${cmd.domain} precisa apontar para o servidor (uma vez só: registro A *.${cmd.base} na Strato).\n\nVeja em Administrar > Famílias pedindo um livro:\n${baseUrl(req)}`);
+  mail.send(admins.map(u => u.email).join(','), `${BRAND.name}: pedido de livro da ${family}`, `${text}\n\nPara criar o livro, abra os Avisos ou Administrar > Famílias pedindo um livro e toque em "Aprovar e criar o livro":\n${baseUrl(req)}`);
   res.json({ ok: true });
 });
 // Pode ser a mesma família? Sobrenome em comum e mesma cidade (ou cidade não informada) com outro pedido ou com um livro já criado.
@@ -540,7 +586,10 @@ const STOP = new Set(['familia', 'de', 'da', 'do', 'das', 'dos', 'e']);
 const surnames = s => new Set(norm(s || '').split(/[^a-z]+/).filter(w => w.length > 2 && !STOP.has(w)));
 const cityOf = s => norm(String(s || '').split(/[,·-]/)[0]).trim();
 function existingBooks() {
-  try { return fs.readFileSync(path.join(DATA_DIR, 'livros.tsv'), 'utf8').split('\n').filter(Boolean).map(l => { const [slug, domain, family, place] = l.split('\t'); return { slug, domain, family, place: place || '' }; }); } catch { return []; }
+  let out = [];
+  try { out = fs.readFileSync(path.join(DATA_DIR, 'livros.tsv'), 'utf8').split('\n').filter(Boolean).map(l => { const [slug, domain, family, place] = l.split('\t'); return { slug, domain, family, place: place || '' }; }); } catch { /* sem livros antigos */ }
+  if (books) for (const b of books.list()) out.push({ slug: b.code, domain: (process.env.DOMAIN || 'este site') + '/' + b.code, family: b.family, place: b.place || '' });
+  return out;
 }
 function familyMatches(r, others) {
   const sa = surnames(r.family), ca = cityOf(r.place), out = [];
@@ -551,32 +600,34 @@ function familyMatches(r, others) {
   }
   return out;
 }
-// Comando pronto para criar o livro no servidor (scripts/novo-livro.sh), montado a partir do pedido.
-const titleCase = s => String(s || '').toLowerCase().replace(/(^|[\s-])(\p{L})/gu, (m, a, b) => a + b.toUpperCase()).replace(/\b(Da|De|Do|Das|Dos|E)\b/g, w => w.toLowerCase());
-const slugWords = s => norm(s || '').replace(/[^a-z0-9]+/g, ' ').trim().split(' ').filter(w => w && !STOP.has(w));
-const shq = s => "'" + String(s).replace(/'/g, "'\\''") + "'";
-function bookCommand(r, req) {
-  const base = (process.env.BOOKS_DOMAIN || process.env.DOMAIN || (req && req.get('host')) || 'exemplo.com').replace(/:\d+$/, '');
-  const fam = titleCase(String(r.family || '').replace(/^\s*fam[ií]lia\s+/i, '').trim()) || 'Família';
-  const city = titleCase(String(r.place || '').split(/[,·]/)[0].trim());
-  const uf = (String(r.place || '').match(/[,·-]\s*([A-Za-z]{2})\s*$/) || [])[1];
-  const lugar = city ? city + (uf ? ', ' + uf.toUpperCase() : '') : '';
-  let slug = [...slugWords(fam), ...slugWords(city).slice(0, 2)].join('-').slice(0, 30).replace(/-+$/, '') || 'familia-' + r.id;
-  const taken = new Set(existingBooks().map(b => b.slug));
-  if (taken.has(slug)) { let n = 2; while (taken.has(slug.slice(0, 27) + '-' + n)) n++; slug = slug.slice(0, 27) + '-' + n; }
-  const domain = slug + '.' + base, label = 'Família ' + fam + (city ? ' · ' + city : '');
-  const command = `cd ~/arvore && git pull && scripts/novo-livro.sh ${slug} ${domain} ${shq(label)} ${shq(r.email)}${lugar ? ' ' + shq(lugar) : ''}`;
-  return { slug, domain, base, label, command };
-}
 app.get('/api/admin/book-requests', needAdmin, (req, res) => {
-  const all = db.prepare("SELECT id,name,email,family,place,message,relatives,status,created_at createdAt,done_at doneAt FROM book_requests ORDER BY (status='pending') DESC, id DESC LIMIT 300").all();
-  const books = existingBooks().map(b => ({ kind: 'livro', label: `livro ${b.family}${b.place ? ' (' + b.place + ')' : ''} · ${b.domain}`, family: b.family, place: b.place }));
+  const all = db.prepare("SELECT id,name,email,family,place,message,relatives,status,book_code bookCode,created_at createdAt,done_at doneAt FROM book_requests ORDER BY (status='pending') DESC, id DESC LIMIT 300").all();
+  const made = existingBooks().map(b => ({ kind: 'livro', label: `livro ${b.family}${b.place ? ' (' + b.place + ')' : ''} · ${b.domain}`, family: b.family, place: b.place }));
   for (const r of all) {
     const others = all.filter(o => o.id !== r.id).map(o => ({ kind: 'pedido', label: `pedido de ${o.name}: ${o.family}${o.place ? ' (' + o.place + ')' : ''}`, family: o.family, place: o.place }));
-    r.maybeSame = familyMatches(r, [...books, ...others]).map(m => ({ label: m.label, strong: m.strong }));
-    const c = bookCommand(r, req); r.command = c.command; r.domain = c.domain; r.base = c.base;
+    r.maybeSame = familyMatches(r, [...made, ...others]).map(m => ({ label: m.label, strong: m.strong }));
+    if (r.bookCode) r.bookUrl = baseUrl(req) + '/' + r.bookCode;
   }
-  res.json({ requests: all, books: existingBooks() });
+  res.json({ requests: all, books: existingBooks(), codeBooks: books ? books.list().map(b => ({ ...b, url: baseUrl(req) + '/' + b.code })) : [] });
+});
+// Aprovar: cria o livro com um código curto e manda para a pessoa o endereço e a chave de instalação.
+app.post('/api/admin/book-requests/:id/approve', needAdmin, (req, res) => {
+  if (!books) return res.status(400).json({ error: 'Os livros são criados no site principal.' });
+  const r = db.prepare('SELECT * FROM book_requests WHERE id=?').get(Number(req.params.id));
+  if (!r) return res.status(404).json({ error: 'Pedido não encontrado.' });
+  if (r.book_code) return res.status(400).json({ error: `Este pedido já tem livro: ${r.book_code}.` });
+  const fam = String(req.body.family || r.family || '').trim().slice(0, 100) || r.family;
+  const { code, setupKey } = books.create({ family: fam, place: r.place, email: r.email, requestId: r.id });
+  db.prepare("UPDATE book_requests SET status='done', done_at=?, book_code=? WHERE id=?").run(now(), code, r.id);
+  const url = baseUrl(req) + '/' + code, setupUrl = `${url}/?chave=${setupKey}`;
+  let mailed = false;
+  if (mail.configured()) {
+    mail.send(r.email, `${BRAND.name}: o livro da ${fam} está pronto`,
+      `Olá, ${r.name}!\n\nO livro da ${fam} no ${BRAND.name} está pronto.\n\nCódigo do livro: ${code}\nEndereço: ${url}\n\nPara começar, abra o link abaixo e crie a sua conta. Você será o administrador do livro da sua família (a chave de instalação já vai preenchida):\n${setupUrl}\n\nChave de instalação, se pedir: ${setupKey}\n\nDepois, convide a família pelo próprio site, em Administrar.\n\nSe você não pediu este livro, ignore este e-mail.`);
+    mailed = true;
+  }
+  log(req, 'criou livro por código', null, { codigo: code, familia: fam, pedido: r.id });
+  res.json({ ok: true, code, url, setupUrl, setupKey, mailed });
 });
 app.post('/api/admin/book-requests/:id/:act', needAdmin, (req, res) => {
   const act = req.params.act; if (!['done', 'reopen', 'delete'].includes(act)) return res.status(400).json({ error: 'Ação inválida.' });
@@ -604,7 +655,7 @@ app.post('/api/access-requests', (req, res) => {
   a.push(nowMs); reqLimit.set(ip, a);
   const claim = crypto.randomBytes(24).toString('base64url');
   db.prepare("INSERT INTO access_requests(name,email,relation,message,ip,status,created_at,claim) VALUES(?,?,?,?,?,'pending',?,?)").run(name, email, relation, message, ip, now(), claim);
-  res.setHeader('Set-Cookie', `pedido=${claim}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${60 * 86400}${COOKIE_SECURE ? '; Secure' : ''}`);
+  res.setHeader('Set-Cookie', `${CK('pedido')}=${claim}; HttpOnly; SameSite=Lax; Path=${CPATH}; Max-Age=${60 * 86400}${COOKIE_SECURE ? '; Secure' : ''}`);
   // Avisa os administradores por e-mail (se o e-mail estiver configurado).
   const admins = db.prepare("SELECT email FROM users WHERE role='admin' AND active=1").all().map(u => u.email);
   mail.send(admins.join(','), `Pedido de acesso: ${name}`, `${name} (${email}) pediu para participar da árvore.\nParentesco: ${relation}${message ? '\nMensagem: ' + message : ''}\n\nPara aprovar ou recusar, entre no site e abra Administrar:\n${baseUrl(req)}`);
@@ -719,8 +770,8 @@ app.get('/api/people/:id/kin-contacts', needUser, (req, res) => {
 app.get('/api/notifications', needUser, (req, res) => {
   const list = db.prepare('SELECT id,person_id personId,text,created_at createdAt,read_at readAt,book_req bookReq FROM notifications WHERE user_id=? ORDER BY id DESC LIMIT 150').all(req.user.id);
   for (const n of list) {
-    const r = n.bookReq && req.user.role === 'admin' ? db.prepare("SELECT id,family,place,email,status FROM book_requests WHERE id=?").get(n.bookReq) : null;
-    if (r && r.status === 'pending') { const c = bookCommand(r, req); n.command = c.command; n.domain = c.domain; n.base = c.base; }
+    const r = n.bookReq && req.user.role === 'admin' ? db.prepare("SELECT id,status,book_code FROM book_requests WHERE id=?").get(n.bookReq) : null;
+    if (r) n.bookRequest = { id: r.id, pending: r.status === 'pending' && !r.book_code, code: r.book_code || '', url: r.book_code ? baseUrl(req) + '/' + r.book_code : '' };
     delete n.bookReq;
   }
   const em = db.prepare('SELECT email_updates FROM users WHERE id=?').get(req.user.id);
@@ -1424,12 +1475,12 @@ const sloganHtml = () => { const n = BRAND.name.toLowerCase(), s = escHtml(BRAND
 function sendIndex(req, res) {
   if (!indexHtml || process.env.NODE_ENV === 'development') indexHtml = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8');
   const html = indexHtml.replace(/\{\{BRAND_NAME\}\}/g, escHtml(BRAND.name)).replace(/\{\{BRAND_LINE\}\}/g, escHtml(BRAND.line))
-    .replace(/\{\{BRAND_SLOGAN\}\}/g, sloganHtml()).replace(/\{\{FAMILY\}\}/g, escHtml(familyName()));
+    .replace(/\{\{BRAND_SLOGAN\}\}/g, sloganHtml()).replace(/\{\{FAMILY\}\}/g, escHtml(familyName())).replace(/\{\{BASE\}\}/g, BASE);
   res.set('Cache-Control', 'no-cache').type('html').send(html);
 }
 app.get(['/', '/index.html'], sendIndex);
 app.get('/manifest.webmanifest', (req, res) => res.type('application/manifest+json').set('Cache-Control', 'no-cache').send(JSON.stringify({
-  name: `${BRAND.name} · ${BRAND.line}`, short_name: BRAND.name, start_url: '/', display: 'standalone',
+  name: `${BRAND.name} · ${BRAND.line}`, short_name: BRAND.name, start_url: BASE + '/', scope: BASE + '/', display: 'standalone',
   background_color: '#F8EFE6', theme_color: '#F8EFE6', lang: 'pt-BR',
   icons: [
     { src: '/brand/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
@@ -1441,11 +1492,13 @@ app.use(express.static(path.join(__dirname, 'public'), { index: 'index.html', se
 app.get('/familia/:token', (req, res) => {
   const current = getSetting('family_link'), t = String(req.params.token);
   if (current && t.length === current.length && crypto.timingSafeEqual(Buffer.from(t), Buffer.from(current))) {
-    res.setHeader('Set-Cookie', `fam=${current}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${GUEST_DAYS * 86400}${COOKIE_SECURE ? '; Secure' : ''}`);
-    return res.redirect(302, '/');
+    res.setHeader('Set-Cookie', `${CK('fam')}=${current}; HttpOnly; SameSite=Lax; Path=${CPATH}; Max-Age=${GUEST_DAYS * 86400}${COOKIE_SECURE ? '; Secure' : ''}`);
+    return res.redirect(302, BASE + '/');
   }
-  res.redirect(302, '/?link=invalido');
+  res.redirect(302, BASE + '/?link=invalido');
 });
+// Código de livro que não existe: volta para a entrada com um aviso.
+if (!BOOK_CODE) app.get(/^\/[A-Za-z0-9]{5}\/?$/, (req, res) => res.redirect(302, '/?livro=naoencontrado'));
 app.get('/robots.txt', (req, res) => res.type('text/plain').send('User-agent: *\nDisallow: /\n'));
 app.get(/^\/((convite|senha)\/[\w-]+)?$/, sendIndex);
 app.use('/api', (req, res) => res.status(404).json({ error: 'Não encontrado.' }));
@@ -1458,8 +1511,15 @@ app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
 });
 
 app.locals.sendDigest = sendDigest; // usado nos testes
+app.locals.books = books;
 if (require.main === module) {
   setInterval(() => { try { sendDigest(); } catch (e) { console.error('resumo:', e.message); } }, 5 * 60e3);
-  app.listen(PORT, () => console.log(`Árvore da Família rodando em http://localhost:${PORT} (dados em ${DATA_DIR})`));
+  if (typeof PORT === 'string') try { fs.unlinkSync(PORT); } catch { /* não existia */ }
+  app.listen(PORT, () => {
+    console.log(BOOK_CODE ? `Livro ${BOOK_CODE} aberto (dados em ${DATA_DIR})` : `Árvore da Família rodando em http://localhost:${PORT} (dados em ${DATA_DIR})`);
+    if (process.send) process.send('pronto');
+    if (BOOK_CODE) try { sendDigest(); } catch (e) { console.error('resumo:', e.message); } // o livro pode ter ficado dormindo à meia-noite
+  });
+  if (books) books.startTimers();
 }
 module.exports = { app, db };

@@ -22,4 +22,12 @@ for d in "$APP_DIR"/livros/*/; do
   tar czf "$DEST/livro-$s-$STAMP.tgz" -C "$d/data" backup-temp.db $( [ -d "$d/data/uploads" ] && echo uploads )
   rm -f "$d/data/backup-temp.db"; chmod 600 "$DEST/livro-$s-$STAMP.tgz"
 done
+# Livros por código (familiaduartemelo.de/K7P2Q): ficam dentro de data/livros-codigo
+for d in "$APP_DIR"/data/livros-codigo/*/; do
+  [ -f "$d/arvore.db" ] || continue
+  c=$(basename "$d")
+  docker compose exec -T arvore node -e "require('better-sqlite3')('/data/livros-codigo/$c/arvore.db',{readonly:true}).backup('/data/livros-codigo/$c/backup-temp.db').then(()=>process.exit(0)).catch(e=>{console.error(e);process.exit(1)})" || continue
+  tar czf "$DEST/livro-$c-$STAMP.tgz" -C "$d" backup-temp.db $( [ -d "$d/uploads" ] && echo uploads )
+  rm -f "$d/backup-temp.db"; chmod 600 "$DEST/livro-$c-$STAMP.tgz"
+done
 find "$DEST" -name 'livro-*.tgz' -mtime +30 -delete
