@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="color-scheme" content="light dark">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#F8EFE6">
+<title>Dequem · Ocê é fi dequem?</title>
+<meta name="description" content="Monte a árvore da sua família a partir das histórias que os mais velhos contam. Privado, em português, do jeito da família.">
+<link rel="icon" href="/brand/icon-32.png" type="image/png" sizes="32x32">
+<link rel="apple-touch-icon" href="/brand/icon-180.png">
+<script src="/theme.js"></script>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body class="landing">
+<main class="lp">
+  <section class="lphero">
+    <img src="/brand/logo.png" alt="" class="brandlogo">
+    <h1>Dequem</h1>
+    <p class="brandline"><span>Genealogia</span></p>
+    <p class="lpq">Ocê é fi <b class="sloganword">dequem</b>?</p>
+    <p class="lplead">Monte a árvore da sua família a partir das histórias que os mais velhos contam. Cada conversa com a vó, o tio ou a madrinha vira pais, avós e bisavós no lugar certo, com fotos, documentos e lembranças.</p>
+    <a class="btn primary lpcta" href="#pedir">Quero a árvore da minha família</a>
+  </section>
+
+  <section class="lpsteps">
+    <h2>Como funciona</h2>
+    <ol>
+      <li><b>Converse com a família.</b> Grave ou anote o que os mais velhos contam: nomes, apelidos, de onde vieram, quem casou com quem.</li>
+      <li><b>A história vira árvore.</b> O relato é organizado em fichas e ligações de família, sem misturar as várias Marias e Josés.</li>
+      <li><b>A família completa junto.</b> Cada parente entra com a própria conta, acrescenta o que sabe e cuida da própria ficha.</li>
+    </ol>
+  </section>
+
+  <section class="lpsteps">
+    <h2>Privado de verdade</h2>
+    <ul>
+      <li>Cada família tem o seu livro, fechado. Só entra quem é convidado.</li>
+      <li>Dados de pessoas vivas não aparecem para quem é de fora.</li>
+      <li>Documentos (certidões, identidades) ficam só com o administrador da família.</li>
+      <li>Seus dados não são vendidos nem compartilhados.</li>
+    </ul>
+  </section>
+
+  <section class="lpform" id="pedir">
+    <h2>Peça o livro da sua família</h2>
+    <p class="note">Estamos começando com poucas famílias, para fazer bem feito. Deixe seus dados que a gente responde por e-mail.</p>
+    <form id="bookform">
+      <label class="f">Seu nome<input name="name" required maxlength="100" autocomplete="name"></label>
+      <label class="f">E-mail<input name="email" type="email" required maxlength="120" autocomplete="email"></label>
+      <label class="f">Nome da família<input name="family" required maxlength="100" placeholder="ex.: Família Silva Santos"></label>
+      <label class="f">De onde é a família (cidade, estado)<input name="place" maxlength="120" placeholder="ex.: Itaipé, MG"></label>
+      <label class="f">Conte um pouco (opcional)<textarea name="message" maxlength="1500" placeholder="Quem você quer entrevistar primeiro? Até onde a família sabe?"></textarea></label>
+      <label class="hp" aria-hidden="true">Site<input name="site" tabindex="-1" autocomplete="off"></label>
+      <label class="check"><input type="checkbox" name="consent" required> Aceito que guardem estes dados só para responder ao meu pedido.</label>
+      <div class="err" id="bookErr"></div>
+      <button class="primary wide" type="submit" id="bookBtn">Enviar pedido</button>
+    </form>
+    <div id="bookOk" class="hint" hidden><b>Pedido recebido.</b> Obrigado! A gente responde no seu e-mail. Enquanto isso, já vá perguntando em casa: ocê é fi dequem?</div>
+  </section>
+  <p class="lpfoot"><a href="/">Já tenho conta: entrar</a> · <button type="button" class="link" data-themebtn>Tema</button></p>
+</main>
+<script src="/comecar.js"></script>
+</body>
+</html>

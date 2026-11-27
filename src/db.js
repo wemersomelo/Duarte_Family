@@ -108,6 +108,10 @@ function openDb(file) {
       by_user INTEGER, created_at TEXT NOT NULL, read_at TEXT
     );
     CREATE INDEX IF NOT EXISTS notifications_user ON notifications(user_id, read_at);
+    CREATE TABLE IF NOT EXISTS book_requests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, email TEXT NOT NULL, family TEXT, place TEXT,
+      message TEXT, ip TEXT, status TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL, done_at TEXT
+    );
     CREATE TABLE IF NOT EXISTS removed_users (
       id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT, removed_at TEXT NOT NULL
     );

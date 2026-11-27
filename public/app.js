@@ -96,6 +96,7 @@ function showAuth(mode, info = {}) {
     mode === 'invite' ? (info.personName ? `Olá! Você já está na árvore como ${info.personName}. Só falta criar uma senha para ${info.role === 'viewer' ? 'ver' : 'ver e completar'} a árvore da família.` : `Você foi convidado${info.label ? ' (' + info.label + ')' : ''}. Crie sua conta para ${info.role === 'viewer' ? 'ver' : 'ver e completar'} a árvore da família.`) :
     'Entre com seu e-mail e senha.';
   $('#authHelp').hidden = mode !== 'login';
+  $('#authNew').hidden = mode !== 'login';
   $('#authErr').textContent = '';
 }
 $('#authForm').addEventListener('submit', async e => {
@@ -123,6 +124,7 @@ function showRequest(r) {
 }
 async function start() {
   const st = await api('/api/status');
+  if (st.hubUrl) $('#comecarLink').href = st.hubUrl.replace(/\/$/, '') + '/comecar';
   familyName = st.familyName || familyName; familySuggestion = st.familySuggestion || ''; defaultPerson = st.defaultPerson || '';
   showRequest(st.request);
   document.title = (st.brand ? st.brand.name : document.title.split(' · ')[0]) + ' · ' + familyName; $('#hsub').textContent = familyName;
@@ -149,7 +151,7 @@ async function start() {
   $('#notifBtn').hidden = isGuest();
   if (!isGuest()) loadNotifCount();
   $('#askBtn').hidden = !isGuest();
-  { const n = (st.pendingRequests || 0) + (st.inboxNew || 0) + (st.suggestions || 0); $('#adminBtn').textContent = n ? `Administrar (${n})` : 'Administrar'; }
+  { const n = (st.pendingRequests || 0) + (st.inboxNew || 0) + (st.suggestions || 0) + (st.bookRequests || 0); $('#adminBtn').textContent = n ? `Administrar (${n})` : 'Administrar'; }
   $('#how').hidden = isGuest();
   $('#addBtn').hidden = !canWrite();
   await load();
@@ -612,7 +614,16 @@ async function loadFamilyLink() {
     <div class="actions"><button type="button" id="famNew">Trocar link (o atual para de funcionar)</button><button type="button" class="danger" id="famOff">Desligar link</button></div>`
     : `<p class="none">Nenhum link ativo.</p><div class="actions"><button type="button" class="primary" id="famNew">Criar link da família</button></div>`;
 }
+async function loadBookRequests() {
+  const d = await api('/api/admin/book-requests');
+  const pend = d.requests.filter(r => r.status === 'pending');
+  $('#bookCount').textContent = pend.length ? `(${pend.length} aguardando)` : '';
+  $('#bookList').innerHTML = d.requests.length ? d.requests.map(r => `<div class="alert"><p><b>${esc(r.family || '')}</b> <span class="note">${esc(fmtDate(r.createdAt))}${r.status === 'done' ? ' · atendido' : ''}</span></p>
+    <p>${esc(r.name)} · <a href="mailto:${esc(r.email)}">${esc(r.email)}</a>${r.place ? ' · ' + esc(r.place) : ''}</p>${r.message ? `<p class="note">${esc(r.message)}</p>` : ''}
+    <div class="actions small">${r.status === 'pending' ? `<button type="button" data-bookreq="${r.id}" data-act2="done">Marcar como atendido</button>` : `<button type="button" class="link" data-bookreq="${r.id}" data-act2="reopen">reabrir</button>`}<button type="button" class="link danger" data-bookreq="${r.id}" data-act2="delete">apagar</button></div></div>`).join('') : '<p class="none">Nenhum pedido ainda. Divulgue o endereço /comecar.</p>';
+}
 async function loadAdmin() {
+  loadBookRequests().catch(() => {});
   $('#famform').elements.name.value = familyName;
   $('#aErr').textContent = '';
   loadFamilyLink().catch(err => $('#aErr').textContent = err.message);
@@ -627,7 +638,7 @@ async function loadAdmin() {
   const open = d.invites.filter(i => !i.usedBy && i.expires > Date.now());
   $('#invites').innerHTML = open.length ? `<p class="note">Convites ainda não usados (valem 30 dias):</p><table class="tbl"><tbody>${open.map(i => `<tr><td>${esc(i.label || 'sem nome')}</td><td>${ROLE[i.role]}</td><td><button type="button" class="link" data-copy="${esc(i.token)}">copiar link</button> <button type="button" class="link" data-revoke="${esc(i.token)}">cancelar</button></td></tr>`).join('')}</tbody></table>` : '';
 }
-$('#adminBtn').addEventListener('click', async () => { $('#newInvite').hidden = true; $('#adlg').showModal(); try { await loadAdmin(); for (const [sec, id] of [['relatos', '#relCount'], ['pedidos', '#reqCount'], ['sugestoes', '#sugCount']]) if ($(id).textContent.trim()) $(`.asec[data-sec="${sec}"]`).open = true; } catch (err) { $('#aErr').textContent = err.message; } });
+$('#adminBtn').addEventListener('click', async () => { $('#newInvite').hidden = true; $('#adlg').showModal(); try { await loadAdmin(); for (const [sec, id] of [['relatos', '#relCount'], ['pedidos', '#reqCount'], ['sugestoes', '#sugCount'], ['livros', '#bookCount']]) if ($(id).textContent.trim()) $(`.asec[data-sec="${sec}"]`).open = true; } catch (err) { $('#aErr').textContent = err.message; } });
 const inviteUrl = t => `${location.origin}/convite/${t}`;
 async function copy(text, btn) { try { await navigator.clipboard.writeText(text); if (btn) { const t = btn.textContent; btn.textContent = 'copiado'; setTimeout(() => btn.textContent = t, 2000); } } catch {} }
 $('#iform').addEventListener('submit', async e => {
@@ -664,6 +675,7 @@ $('#adlg').addEventListener('click', async e => {
   const rj = e.target.closest('[data-reject]'); if (rj) { if (!(await confirmBtn(rj))) return; await api(`/api/admin/access-requests/${rj.dataset.reject}/reject`, { method: 'POST' }).catch(err => $('#aErr').textContent = err.message); loadRequests(); return; }
   if (e.target.closest('#famNew')) { if (e.target.closest('#famNew').textContent.startsWith('Trocar') && !(await confirmBtn(e.target.closest('#famNew')))) return; await api('/api/admin/family-link', { method: 'POST' }).catch(err => $('#aErr').textContent = err.message); loadFamilyLink(); return; }
   if (e.target.closest('#famOff')) { if (!(await confirmBtn(e.target.closest('#famOff')))) return; await api('/api/admin/family-link', { method: 'DELETE' }).catch(err => $('#aErr').textContent = err.message); loadFamilyLink(); return; }
+  const br = e.target.closest('[data-bookreq]'); if (br) { if (br.dataset.act2 === 'delete' && !(await confirmBtn(br))) return; await api(`/api/admin/book-requests/${br.dataset.bookreq}/${br.dataset.act2}`, { method: 'POST' }).catch(err => $('#aErr').textContent = err.message); loadBookRequests(); return; }
   const pk = e.target.closest('[data-personok]'); if (pk) { await api('/api/admin/users/' + pk.dataset.personok, { method: 'PUT', body: { personId: pk.dataset.pid } }).catch(err => $('#aErr').textContent = err.message); await loadAdmin(); load(); return; }
   const du = e.target.closest('[data-deluser]'); if (du) { if (!(await confirmBtn(du))) return; await api('/api/admin/users/' + du.dataset.deluser, { method: 'DELETE' }).catch(err => $('#aErr').textContent = err.message); await loadAdmin(); load(); return; }
   const a = e.target.closest('[data-active]'); if (a) { await api('/api/admin/users/' + a.dataset.active, { method: 'PUT', body: { active: a.dataset.to === '1' } }).catch(err => $('#aErr').textContent = err.message); loadAdmin(); }
@@ -837,9 +849,26 @@ $('#adlg').addEventListener('click', async e => {
   const nd = e.target.closest('[data-notdup]'); if (nd) { const [a, b] = nd.dataset.notdup.split('|'); await api('/api/admin/duplicates/not', { method: 'POST', body: { a, b } }); nd.closest('.alert').remove(); return; }
 });
 
+// Primeira vez numa árvore vazia: "Ocê é fi dequem?" começa pela pessoa e pelos pais.
+let onboardShown = false;
+function maybeOnboard() {
+  if (onboardShown || !me || !canWrite() || Object.keys(people).length) return;
+  onboardShown = true; $('#onform').reset(); $('#onform').elements.me.value = me.name || ''; $('#onErr').textContent = ''; $('#ondlg').showModal();
+}
+$('#onform').addEventListener('submit', async e => {
+  e.preventDefault(); const f = e.target.elements;
+  try {
+    const mk = async (name, extra) => name.trim() ? (await api('/api/people', { method: 'POST', body: { name: name.trim(), ...extra } })).id : '';
+    const fatherId = await mk(f.father.value, { sex: 'm' }), motherId = await mk(f.mother.value, { sex: 'f' });
+    if (fatherId && motherId) await api('/api/people/' + encodeURIComponent(fatherId), { method: 'PUT', body: { spouseId: motherId } });
+    const meId = await mk(f.me.value, { nick: f.nick.value, birth: f.birth.value, fatherId, motherId });
+    await api('/api/me/person', { method: 'PUT', body: { personId: meId } });
+    me.personId = meId; $('#ondlg').close(); focus = meId; await load();
+  } catch (err) { $('#onErr').textContent = err.message; }
+});
 function renderAll() {
   if (!P(focus)) { const h = decodeURIComponent(location.hash.slice(1)); focus = P(h) ? h : rootPerson() || (Object.values(people).find(p => p.createdBy === me?.id)?.id || Object.keys(people)[0] || null); }
-  drawChart(); renderRecord(); renderIndex();
+  drawChart(); renderRecord(); renderIndex(); maybeOnboard();
 }
 addEventListener('hashchange', () => { const h = decodeURIComponent(location.hash.slice(1)); if (P(h) && h !== focus) setFocus(h); });
 

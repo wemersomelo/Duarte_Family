@@ -39,6 +39,7 @@
     </form>
     <p class="auththeme"><button type="button" class="link" data-themebtn>Tema</button></p>
     <p class="note" id="authHelp">Ainda não tem conta? Peça um convite ao administrador da árvore.</p>
+    <p class="note" id="authNew">Quer a árvore da <b>sua</b> família? <a id="comecarLink" href="/comecar">Comece aqui</a></p>
   </div>
 </section>
 
@@ -194,6 +195,19 @@
 </dialog>
 
 <!-- Senha -->
+<dialog id="ondlg">
+  <form id="onform">
+    <h2>Ocê é fi <span class="sloganword">dequem</span>?</h2>
+    <p class="note">Vamos começar a árvore por você e pelos seus pais. Depois é só ir subindo: avós, bisavós e os relatos da família.</p>
+    <label class="f">Seu nome completo<input name="me" required maxlength="200" autocomplete="name"></label>
+    <label class="f">Como gosta de ser chamado ou é conhecido (opcional)<input name="nick" maxlength="100"></label>
+    <label class="f">Ano de nascimento (opcional)<input name="birth" maxlength="20" inputmode="numeric" placeholder="ex.: 1986"></label>
+    <label class="f">Nome do seu pai (se souber)<input name="father" maxlength="200"></label>
+    <label class="f">Nome da sua mãe (se souber)<input name="mother" maxlength="200"></label>
+    <div class="err" id="onErr"></div>
+    <div class="actions"><button class="primary" type="submit">Começar a árvore</button><button type="button" class="closeDlg">Depois</button></div>
+  </form>
+</dialog>
 <dialog id="avdlg" class="wide">
   <div class="admin">
   <div class="actions" style="justify-content:space-between;margin:0 0 8px"><h2 style="margin:0">Avisos</h2><button type="button" class="closeDlg">Fechar</button></div>
@@ -236,6 +250,10 @@
     <details class="asec" data-sec="duplicados"><summary>Possíveis duplicados na árvore</summary>
       <p class="note">Procura pessoas com nomes parecidos em toda a árvore. Nada é juntado: você decide caso a caso.</p>
       <button type="button" id="dupBtn">Procurar duplicados</button><div id="dupList"></div>
+    </details>
+    <details class="asec" data-sec="livros"><summary>Famílias pedindo um livro <span id="bookCount" class="note"></span></summary>
+    <p class="note">Pedidos feitos na página pública <a href="/comecar" target="_blank">/comecar</a>. Para atender: crie o livro no servidor com <code>scripts/novo-livro.sh</code> e mande o endereço e a senha de instalação para a pessoa.</p>
+    <div id="bookList"></div>
     </details>
     <details class="asec" data-sec="pedidos"><summary>Pedidos para participar <span id="reqCount" class="note"></span></summary>
     <div id="requests"></div>

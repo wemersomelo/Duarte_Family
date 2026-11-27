@@ -389,6 +389,22 @@ function client() {
   assert.match((await fetch(base + '/')).headers.get('content-type'), /html/);
   assert.match(await (await fetch(base + '/')).text(), /Família Teste Silva/);
 
+  // pedido de livro pela página pública /comecar
+  { const c = client();
+    assert.equal((await c('POST', '/api/livro-pedido', { name: 'Ana', email: 'x', family: 'F' })).status, 400, 'e-mail inválido');
+    assert.equal((await c('POST', '/api/livro-pedido', { name: 'Ana', email: 'ana@fora.com', family: 'Família Fora' })).status, 400, 'precisa do aceite');
+    assert.equal((await c('POST', '/api/livro-pedido', { name: 'Ana', email: 'ana@fora.com', family: 'Família Fora', place: 'Itaipé', consent: true })).status, 200);
+    const robo = await c('POST', '/api/livro-pedido', { name: 'Bot', email: 'bot@x.com', family: 'X', consent: true, site: 'spam' });
+    assert.equal(robo.status, 200, 'robô recebe ok, mas nada é salvo');
+    assert.equal((await tia('GET', '/api/admin/book-requests')).status, 403);
+    const br = (await admin('GET', '/api/admin/book-requests')).data.requests;
+    assert.equal(br.length, 1); assert.equal(br[0].family, 'Família Fora');
+    assert.ok((await admin('GET', '/api/notifications')).data.notifications.some(n => /Pedido de livro/.test(n.text)), 'admin avisado');
+    assert.equal((await admin('GET', '/api/status')).data.bookRequests, 1);
+    await admin('POST', `/api/admin/book-requests/${br[0].id}/done`);
+    assert.equal((await admin('GET', '/api/status')).data.bookRequests, 0);
+    assert.match(await (await fetch(base + '/comecar')).text(), /Ocê é fi/); }
+
   // juntar duas fichas da mesma pessoa
   const dupA = (await admin('POST', '/api/people', { name: 'Duplicada Teste', birth: '1950', fatherId: pai })).data.id;
   const dupB = (await admin('POST', '/api/people', { name: 'Duplicada T.', birth: '1951', birthPlace: 'Catuji' })).data.id;

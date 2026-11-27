@@ -296,6 +296,7 @@ function exists(id) { return !!db.prepare('SELECT 1 FROM people WHERE id=?').get
 app.get('/api/status', (req, res) => {
   const users = db.prepare('SELECT COUNT(*) n FROM users').get().n;
   const pending = req.user && req.user.role === 'admin' ? db.prepare("SELECT COUNT(*) n FROM access_requests WHERE status='pending'").get().n : 0;
+  const bookReqs = req.user && req.user.role === 'admin' ? db.prepare("SELECT COUNT(*) n FROM book_requests WHERE status='pending'").get().n : 0;
   // Quem pediu acesso neste aparelho vê em que pé está o pedido (o convite em si só chega pelo e-mail).
   let request = null;
   const claim = !req.user && parseCookies(req).pedido;
@@ -305,7 +306,7 @@ app.get('/api/status', (req, res) => {
   }
   const inboxNew = req.user && req.user.role === 'admin' ? inboxState().filter(x => x.state !== 'importado').length : 0;
   let suggestionsN = 0; if (req.user && req.user.role === 'admin') try { suggestionsN = sugestoes.suggest(db, effectiveParents).length; } catch (e) { console.error(e); }
-  res.json({ request, inboxNew, suggestions: suggestionsN, needsSetup: users === 0, pendingRequests: pending, user: req.user || (req.guest ? { id: null, name: 'Visitante', role: 'guest' } : null), familyName: familyName(), familySuggestion: BRAND.family, brand: BRAND, defaultPerson: startPerson() });
+  res.json({ request, inboxNew, suggestions: suggestionsN, needsSetup: users === 0, pendingRequests: pending, bookRequests: bookReqs, hubUrl: process.env.HUB_URL || '', user: req.user || (req.guest ? { id: null, name: 'Visitante', role: 'guest' } : null), familyName: familyName(), familySuggestion: BRAND.family, brand: BRAND, defaultPerson: startPerson() });
 });
 
 app.put('/api/admin/family-name', needAdmin, (req, res) => {
@@ -403,6 +404,42 @@ app.post('/api/invites/:token', (req, res) => {
     { db.prepare('UPDATE users SET person_id=?, person_ok=1 WHERE id=?').run(inv.person_id, id);
       db.prepare("INSERT INTO activity(user_id,action,target,detail,at) VALUES(?,'ligado à ficha',?,?,?)").run(id, inv.person_id, JSON.stringify({ por: 'convite' }), now()); }
   setSession(res, id);
+  res.json({ ok: true });
+});
+
+// ---------- pedidos de livro: famílias de fora pedem a árvore delas (página /comecar) ----------
+// Só o site principal recebe pedidos; os livros de teste têm HUB_URL e mandam para lá.
+const bookLimit = new Map();
+app.get(['/comecar', '/comecar/'], (req, res) => process.env.HUB_URL ? res.redirect(process.env.HUB_URL.replace(/\/$/, '') + '/comecar') : res.sendFile(path.join(__dirname, 'public', 'comecar.html')));
+app.post('/api/livro-pedido', (req, res) => {
+  if (process.env.HUB_URL) return res.status(404).json({ error: 'Peça pelo site principal.' });
+  if (req.body.site) return res.json({ ok: true }); // armadilha para robôs
+  const ip = req.ip || '', nowMs = Date.now();
+  const a = (bookLimit.get(ip) || []).filter(t => nowMs - t < 864e5);
+  if (a.length >= 3) return res.status(429).json({ error: 'Você já enviou pedidos hoje. Aguarde a nossa resposta.' });
+  const f = k => String(req.body[k] || '').trim();
+  const name = f('name').slice(0, 100), email = f('email').toLowerCase().slice(0, 120), family = f('family').slice(0, 100), place = f('place').slice(0, 120), message = f('message').slice(0, 1500);
+  if (!name) return res.status(400).json({ error: 'Escreva o seu nome.' });
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(400).json({ error: 'E-mail inválido.' });
+  if (!family) return res.status(400).json({ error: 'Escreva o nome da sua família (ex.: Família Silva Santos).' });
+  if (!req.body.consent) return res.status(400).json({ error: 'Para continuar, aceite que a gente guarde estes dados para responder ao seu pedido.' });
+  if (db.prepare("SELECT COUNT(*) n FROM book_requests WHERE status='pending'").get().n >= 500) return res.status(429).json({ error: 'Muitos pedidos aguardando. Tente de novo em alguns dias.' });
+  if (db.prepare("SELECT 1 FROM book_requests WHERE email=? AND status='pending'").get(email)) return res.json({ ok: true });
+  a.push(nowMs); bookLimit.set(ip, a);
+  db.prepare('INSERT INTO book_requests(name,email,family,place,message,ip,created_at) VALUES(?,?,?,?,?,?,?)').run(name, email, family, place, message, ip, now());
+  const text = `${name} (${email}) quer começar a árvore da ${family}${place ? ', de ' + place : ''}.${message ? ' Mensagem: ' + message : ''}`;
+  const admins = db.prepare("SELECT id,email FROM users WHERE role='admin' AND active=1").all();
+  for (const u of admins) db.prepare('INSERT INTO notifications(user_id,person_id,text,created_at) VALUES(?,?,?,?)').run(u.id, null, 'Pedido de livro: ' + text, now());
+  mail.send(admins.map(u => u.email).join(','), `${BRAND.name}: pedido de livro da ${family}`, `${text}\n\nVeja em Administrar > Famílias pedindo um livro:\n${baseUrl(req)}`);
+  res.json({ ok: true });
+});
+app.get('/api/admin/book-requests', needAdmin, (req, res) => res.json({ requests: db.prepare('SELECT id,name,email,family,place,message,status,created_at createdAt,done_at doneAt FROM book_requests ORDER BY (status=\'pending\') DESC, id DESC LIMIT 300').all() }));
+app.post('/api/admin/book-requests/:id/:act', needAdmin, (req, res) => {
+  const act = req.params.act; if (!['done', 'reopen', 'delete'].includes(act)) return res.status(400).json({ error: 'Ação inválida.' });
+  const id = Number(req.params.id);
+  if (act === 'delete') db.prepare('DELETE FROM book_requests WHERE id=?').run(id);
+  else db.prepare('UPDATE book_requests SET status=?, done_at=? WHERE id=?').run(act === 'done' ? 'done' : 'pending', act === 'done' ? now() : null, id);
+  log(req, 'pedido de livro: ' + act, 'pedido ' + id);
   res.json({ ok: true });
 });
 

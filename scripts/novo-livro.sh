@@ -18,6 +18,7 @@ get() { grep -E "^$1=" .env | tail -1 | cut -d= -f2- || true; }
   echo "DOMAIN=$DOM"
   echo "FAMILY_SUBTITLE=$FAM"
   echo "SETUP_KEY=$KEY"
+  echo "HUB_URL=https://$(get DOMAIN)"
   for v in BRAND_NAME BRAND_LINE BRAND_SLOGAN SMTP_HOST SMTP_PORT SMTP_USER SMTP_PASS SMTP_FROM MAX_UPLOAD_MB MAX_USER_STORAGE_MB; do x=$(get $v); [ -n "$x" ] && echo "$v=$x"; done
   echo "# responsável pelo teste: $RESP"
 } > "livros/$SLUG/.env"
