@@ -4,6 +4,7 @@ const $ = s => document.querySelector(s);
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const norm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
+const kinOpen = new Set(); // seções de tios/primos que a pessoa deixou abertas
 let me = null, people = {}, notes = [], files = [], media = [], relatoLinks = [], userNames = {}, focus = null, editing = null, ctx = {};
 const P = id => (id && people[id]) ? people[id] : null;
 const canWrite = () => !!me && (me.role === 'member' || me.role === 'admin');
@@ -283,12 +284,17 @@ function renderRecord() {
   ${me && me.role === 'admin' ? `<details class="relmore"><summary>Esta pessoa está duplicada?</summary><p class="note">Escolha a outra ficha da mesma pessoa. Fica esta ficha; a outra passa para ela os filhos, pais, notas, fotos e relatos e depois é apagada. Dados diferentes ficam em nota.</p><div class="actions"><select data-mergesel>${Object.values(people).filter(q => q.id !== p.id).sort(byName).map(q => `<option value="${esc(q.id)}">${esc(q.name)}${yr(q) !== '—' ? ' (' + esc(yr(q)) + ')' : ''}</option>`).join('')}</select><button type="button" data-act="merge">Juntar nesta ficha</button></div></details>` : ''}
   ${prel.length ? `<h4>Relatos que citam esta pessoa (${prel.length})</h4><ul class="mlinks">${prel.map(r => `<li${r.hidden ? ' class="muted"' : ''}><button type="button" class="link" data-relato="${esc(r.relatoId)}">${esc(r.fonte || r.relatoId)}</button><small>${esc(r.data || '')}${r.hidden ? ' · oculto: só você vê' : ''}${me.role === 'admin' ? ` · <button type="button" class="link" data-relp="${r.hidden ? 'show' : 'hide'}" data-rel="${esc(r.relatoId)}">${r.hidden ? 'mostrar' : 'ocultar'}</button> · <button type="button" class="link" data-relp="remove" data-rel="${esc(r.relatoId)}">apagar</button>` : ''}</small></li>`).join('')}</ul>${me.role === 'admin' ? '<p class="note">Ocultar tira o relato da ficha para os outros, e você continua vendo. Apagar tira a citação desta ficha de vez, e ela não volta se o relato for importado de novo. Nos dois casos, o relato e os dados que ele trouxe continuam no site.</p>' : ''}` : ''}`;
   const par = [P(p.fatherId), P(p.motherId)].filter(Boolean);
-  // Primos: filhos dos irmãos do pai e da mãe.
   const sibs = siblingsOf(p.id), skip = new Set([p.id, ...sibs.map(q => q.id)]);
-  const cousins = parId => { const seen = new Set(); return siblingsOf(parId).flatMap(u => childrenOf(u.id)).filter(c => !skip.has(c.id) && !seen.has(c.id) && seen.add(c.id)); };
-  const side = (label, parId) => { if (!P(parId)) return ''; const list = cousins(parId); return `<h4>${label}${list.length ? ` (${list.length})` : ''}</h4>${chips(list)}`; };
-  kin.innerHTML = `<h4>Pais</h4>${chips(par)}<h4>Cônjuge</h4>${chips(spousesOf(p.id).map(P))}<h4>Filhos</h4>${p.descendants && !childrenOf(p.id).length ? `<p class="none">${DESC[p.descendants]}.</p>` : chips(childrenOf(p.id)) + (p.descendants ? `<p class="none">${DESC[p.descendants]}.</p>` : '')}<h4>Irmãos</h4>${chips(sibs)}${side('Primos do lado do pai', p.fatherId)}${side('Primos do lado da mãe', p.motherId)}`;
+  // Tios: irmãos do pai e da mãe. Primos: filhos desses tios.
+  const uncles = parId => P(parId) ? siblingsOf(parId) : [];
+  const cousins = parId => { const seen = new Set(); return uncles(parId).flatMap(u => childrenOf(u.id)).filter(c => !skip.has(c.id) && !seen.has(c.id) && seen.add(c.id)); };
+  const kids = childrenOf(p.id), descNote = p.descendants ? `<p class="none">${DESC[p.descendants]}.</p>` : '';
+  const fold = (key, label, list) => `<details class="kfold" data-k="${key}"${kinOpen.has(key) ? ' open' : ''}><summary>${label} (${list.length})</summary>${chips(list)}</details>`;
+  kin.innerHTML = `<h4>Pais</h4>${chips(par)}<h4>Cônjuge</h4>${chips(spousesOf(p.id).map(P))}<h4>Filhos</h4>${kids.length ? chips(kids) + descNote : descNote || chips(kids)}<h4>Irmãos</h4>${chips(sibs)}`
+    + (P(p.fatherId) ? fold('tp', 'Tios paternos', uncles(p.fatherId)) : '') + (P(p.motherId) ? fold('tm', 'Tios maternos', uncles(p.motherId)) : '')
+    + (P(p.fatherId) ? fold('pp', 'Primos do lado do pai', cousins(p.fatherId)) : '') + (P(p.motherId) ? fold('pm', 'Primos do lado da mãe', cousins(p.motherId)) : '');
 }
+document.addEventListener('toggle', e => { const d = e.target; if (d.classList && d.classList.contains('kfold')) d.open ? kinOpen.add(d.dataset.k) : kinOpen.delete(d.dataset.k); }, true);
 document.addEventListener('click', async e => {
   const g = e.target.closest('[data-go]'); if (g) { closeAll(); go(g.dataset.go); return; }
   const v = e.target.closest('[data-view]'); if (v) { openViewer(v.dataset.view); return; }

@@ -202,3 +202,9 @@ tr.flash td{background:#fff3c4;transition:background .3s}
 .asec>*:not(summary){margin-left:14px;margin-right:14px}
 .asec>*:last-child{margin-bottom:12px}
 .asec .note:empty{display:none}
+
+.kfold{border-top:1px solid var(--line, #e5ddd2);margin-top:12px}
+.kfold>summary{cursor:pointer;list-style:none;font:600 13px system-ui,sans-serif;color:var(--mute);padding:10px 0 6px;display:flex;gap:6px;align-items:center}
+.kfold>summary::-webkit-details-marker{display:none}
+.kfold>summary::before{content:"▸";color:var(--accent);display:inline-block;transition:transform .15s}
+.kfold[open]>summary::before{transform:rotate(90deg)}
