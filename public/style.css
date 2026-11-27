@@ -273,3 +273,20 @@ label.check{display:flex;gap:8px;align-items:flex-start;margin:8px 0}
 [data-theme="dark"] .auth::after{background:linear-gradient(90deg,#C45E3A 0 40%,#6E7B4A 40% 75%,#E5A26F 75%)}
 #themeBtn{min-width:38px;justify-content:center}
 .auththeme{margin-top:10px;text-align:center}
+
+/* ---------- tema verde (versão C): topo verde, logo num quadrado creme, resto claro ---------- */
+:root[data-theme="green"]{color-scheme:light}
+[data-theme="green"] header.head{background:#6E7B4A;color:#F8EFE6;border-bottom:4px solid #C45E3A}
+[data-theme="green"] header.head h1{color:#F8EFE6}
+[data-theme="green"] .hsub{color:#f0e6d8}
+[data-theme="green"] .hline{color:#F8EFE6}
+[data-theme="green"] .hlogo{background:#F8EFE6;border-radius:18px;padding:6px 8px;box-sizing:content-box;width:clamp(56px,9vw,76px);box-shadow:0 2px 6px #0003}
+[data-theme="green"] header button,[data-theme="green"] header button.ghost{background:transparent;color:#F8EFE6;border-color:#ffffff55}
+[data-theme="green"] header button.ghost:hover{border-color:#F8EFE6;color:#fff}
+[data-theme="green"] #notifBtn.hot{background:#C45E3A;color:#fff;border-color:#C45E3A}
+[data-theme="green"] header input{border:0}
+[data-theme="green"] .how{background:#ffffff1a;border-left-color:#E5A26F;color:#F8EFE6}
+[data-theme="green"] header .status,[data-theme="green"] .who{color:#F8EFE6}
+[data-theme="green"] header.head::after{opacity:.08;filter:grayscale(1) brightness(3)}
+[data-theme="green"] .auth{background:#6E7B4A}
+[data-theme="green"] .auth::before{opacity:.08;filter:grayscale(1) brightness(3)}
