@@ -124,7 +124,7 @@ async function start() {
   const st = await api('/api/status');
   familyName = st.familyName || familyName; defaultPerson = st.defaultPerson || '';
   showRequest(st.request);
-  document.title = 'Family Book · ' + familyName; $('#hsub').textContent = 'Genealogia · ' + familyName;
+  document.title = 'Family Book · ' + familyName; $('#hsub').textContent = familyName;
   const rm = location.pathname.match(/^\/senha\/([\w-]+)/);
   if (rm) {
     resetToken = rm[1];
