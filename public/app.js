@@ -637,7 +637,8 @@ async function loadBookRequests() {
   const pend = d.requests.filter(r => r.status === 'pending');
   $('#bookCount').textContent = pend.length ? `(${pend.length} aguardando)` : '';
   $('#bookList').innerHTML = d.requests.length ? d.requests.map(r => `<div class="alert"><p><b>${esc(r.family || '')}</b> <span class="note">${esc(fmtDate(r.createdAt))}${r.status === 'done' ? ' · atendido' : ''}</span></p>
-    <p>${esc(r.name)} · <a href="mailto:${esc(r.email)}">${esc(r.email)}</a>${r.place ? ' · ' + esc(r.place) : ''}</p>${r.message ? `<p class="note">${esc(r.message)}</p>` : ''}
+    <p>${esc(r.name)} · <a href="mailto:${esc(r.email)}">${esc(r.email)}</a>${r.place ? ' · ' + esc(r.place) : ''}</p>${r.relatives ? `<p class="note">Parentes que já usam: ${esc(r.relatives)}</p>` : ''}${r.message ? `<p class="note">${esc(r.message)}</p>` : ''}
+    ${r.maybeSame && r.maybeSame.length ? `<div class="hint"><b>Pode ser a mesma família:</b><ul>${r.maybeSame.map(m => `<li>${esc(m.label)}${m.strong ? ' <span class="tag">mesmo sobrenome e cidade</span>' : ' <span class="note">(mesmo sobrenome, cidade não informada)</span>'}</li>`).join('')}</ul>Antes de criar outro livro, pergunte se a pessoa não quer entrar no que já existe.</div>` : ''}
     <div class="actions small">${r.status === 'pending' ? `<button type="button" data-bookreq="${r.id}" data-act2="done">Marcar como atendido</button>` : `<button type="button" class="link" data-bookreq="${r.id}" data-act2="reopen">reabrir</button>`}<button type="button" class="link danger" data-bookreq="${r.id}" data-act2="delete">apagar</button></div></div>`).join('') : '<p class="none">Nenhum pedido ainda. Divulgue o endereço /comecar.</p>';
 }
 async function loadAdmin() {

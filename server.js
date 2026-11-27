@@ -437,7 +437,7 @@ app.post('/api/livro-pedido', (req, res) => {
   const a = (bookLimit.get(ip) || []).filter(t => nowMs - t < 864e5);
   if (a.length >= 3) return res.status(429).json({ error: 'Você já enviou pedidos hoje. Aguarde a nossa resposta.' });
   const f = k => String(req.body[k] || '').trim();
-  const name = f('name').slice(0, 100), email = f('email').toLowerCase().slice(0, 120), family = f('family').slice(0, 100), place = f('place').slice(0, 120), message = f('message').slice(0, 1500);
+  const name = f('name').slice(0, 100), email = f('email').toLowerCase().slice(0, 120), family = f('family').slice(0, 100), place = f('place').slice(0, 120), message = f('message').slice(0, 1500), relatives = f('relatives').slice(0, 300);
   if (!name) return res.status(400).json({ error: 'Escreva o seu nome.' });
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(400).json({ error: 'E-mail inválido.' });
   if (!family) return res.status(400).json({ error: 'Escreva o nome da sua família (ex.: Família Silva Santos).' });
@@ -445,14 +445,38 @@ app.post('/api/livro-pedido', (req, res) => {
   if (db.prepare("SELECT COUNT(*) n FROM book_requests WHERE status='pending'").get().n >= 500) return res.status(429).json({ error: 'Muitos pedidos aguardando. Tente de novo em alguns dias.' });
   if (db.prepare("SELECT 1 FROM book_requests WHERE email=? AND status='pending'").get(email)) return res.json({ ok: true });
   a.push(nowMs); bookLimit.set(ip, a);
-  db.prepare('INSERT INTO book_requests(name,email,family,place,message,ip,created_at,terms_version) VALUES(?,?,?,?,?,?,?,?)').run(name, email, family, place, message, ip, now(), TERMS_VERSION);
-  const text = `${name} (${email}) quer começar a árvore da ${family}${place ? ', de ' + place : ''}.${message ? ' Mensagem: ' + message : ''}`;
+  db.prepare('INSERT INTO book_requests(name,email,family,place,message,ip,created_at,terms_version,relatives) VALUES(?,?,?,?,?,?,?,?,?)').run(name, email, family, place, message, ip, now(), TERMS_VERSION, relatives);
+  const text = `${name} (${email}) quer começar a árvore da ${family}${place ? ', de ' + place : ''}.${relatives ? ' Parentes que já usam: ' + relatives + '.' : ''}${message ? ' Mensagem: ' + message : ''}`;
   const admins = db.prepare("SELECT id,email FROM users WHERE role='admin' AND active=1").all();
   for (const u of admins) db.prepare('INSERT INTO notifications(user_id,person_id,text,created_at) VALUES(?,?,?,?)').run(u.id, null, 'Pedido de livro: ' + text, now());
   mail.send(admins.map(u => u.email).join(','), `${BRAND.name}: pedido de livro da ${family}`, `${text}\n\nVeja em Administrar > Famílias pedindo um livro:\n${baseUrl(req)}`);
   res.json({ ok: true });
 });
-app.get('/api/admin/book-requests', needAdmin, (req, res) => res.json({ requests: db.prepare('SELECT id,name,email,family,place,message,status,created_at createdAt,done_at doneAt FROM book_requests ORDER BY (status=\'pending\') DESC, id DESC LIMIT 300').all() }));
+// Pode ser a mesma família? Sobrenome em comum e mesma cidade (ou cidade não informada) com outro pedido ou com um livro já criado.
+const STOP = new Set(['familia', 'de', 'da', 'do', 'das', 'dos', 'e']);
+const surnames = s => new Set(norm(s || '').split(/[^a-z]+/).filter(w => w.length > 2 && !STOP.has(w)));
+const cityOf = s => norm(String(s || '').split(/[,·-]/)[0]).trim();
+function existingBooks() {
+  try { return fs.readFileSync(path.join(DATA_DIR, 'livros.tsv'), 'utf8').split('\n').filter(Boolean).map(l => { const [slug, domain, family, place] = l.split('\t'); return { slug, domain, family, place: place || '' }; }); } catch { return []; }
+}
+function familyMatches(r, others) {
+  const sa = surnames(r.family), ca = cityOf(r.place), out = [];
+  for (const o of others) {
+    const common = [...surnames(o.family)].filter(w => sa.has(w)); if (!common.length) continue;
+    const co = cityOf(o.place), sameCity = ca && co && ca === co, noCity = !ca || !co;
+    if (sameCity || noCity) out.push({ ...o, strong: !!sameCity, common });
+  }
+  return out;
+}
+app.get('/api/admin/book-requests', needAdmin, (req, res) => {
+  const all = db.prepare("SELECT id,name,email,family,place,message,relatives,status,created_at createdAt,done_at doneAt FROM book_requests ORDER BY (status='pending') DESC, id DESC LIMIT 300").all();
+  const books = existingBooks().map(b => ({ kind: 'livro', label: `livro ${b.family}${b.place ? ' (' + b.place + ')' : ''} · ${b.domain}`, family: b.family, place: b.place }));
+  for (const r of all) {
+    const others = all.filter(o => o.id !== r.id).map(o => ({ kind: 'pedido', label: `pedido de ${o.name}: ${o.family}${o.place ? ' (' + o.place + ')' : ''}`, family: o.family, place: o.place }));
+    r.maybeSame = familyMatches(r, [...books, ...others]).map(m => ({ label: m.label, strong: m.strong }));
+  }
+  res.json({ requests: all, books: existingBooks() });
+});
 app.post('/api/admin/book-requests/:id/:act', needAdmin, (req, res) => {
   const act = req.params.act; if (!['done', 'reopen', 'delete'].includes(act)) return res.status(400).json({ error: 'Ação inválida.' });
   const id = Number(req.params.id);

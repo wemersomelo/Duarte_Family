@@ -192,6 +192,7 @@ function openDb(file) {
   }
   // aceite dos termos de uso (versão e data)
   for (const c of ['terms_version', 'terms_at']) if (!cols('users').includes(c)) db.exec(`ALTER TABLE users ADD COLUMN ${c} TEXT`);
+  if (!cols('book_requests').includes('relatives')) db.exec(`ALTER TABLE book_requests ADD COLUMN relatives TEXT`);
   if (!cols('book_requests').includes('terms_version')) db.exec(`ALTER TABLE book_requests ADD COLUMN terms_version TEXT`);
   if (!cols('notifications').includes('mailed_at')) db.exec(`ALTER TABLE notifications ADD COLUMN mailed_at TEXT`);
   if (!cols('users').includes('email_updates')) db.exec(`ALTER TABLE users ADD COLUMN email_updates INTEGER NOT NULL DEFAULT 1`);

@@ -403,7 +403,17 @@ function client() {
     assert.equal((await admin('GET', '/api/status')).data.bookRequests, 1);
     await admin('POST', `/api/admin/book-requests/${br[0].id}/done`);
     assert.equal((await admin('GET', '/api/status')).data.bookRequests, 0);
-    assert.match(await (await fetch(base + '/comecar')).text(), /Ocê é fi/); }
+    assert.match(await (await fetch(base + '/comecar')).text(), /Ocê é fi/);
+    // pode ser a mesma família: mesmo sobrenome e cidade, num pedido ou num livro já criado
+    fs.writeFileSync(path.join(process.env.DATA_DIR, 'livros.tsv'), 'fora-itaipe\tfora-itaipe.ex.com\tFamília Fora · Itaipé\tItaipé, MG\n');
+    await client()('POST', '/api/livro-pedido', { name: 'Bia', email: 'bia@fora.com', family: 'Família Fora Lima', place: 'Itaipé', relatives: 'prima Ana', consent: true });
+    await client()('POST', '/api/livro-pedido', { name: 'Caio', email: 'caio@x.com', family: 'Família Pereira', place: 'Recife', consent: true });
+    const br2 = (await admin('GET', '/api/admin/book-requests')).data.requests;
+    const bia = br2.find(x => x.name === 'Bia'), caio = br2.find(x => x.name === 'Caio');
+    assert.equal(bia.relatives, 'prima Ana');
+    assert.ok(bia.maybeSame.some(m => /livro Família Fora/.test(m.label) && m.strong), 'avisa: livro com mesmo sobrenome e cidade');
+    assert.ok(bia.maybeSame.some(m => /pedido de Ana/.test(m.label)), 'avisa: outro pedido com mesmo sobrenome e cidade');
+    assert.equal(caio.maybeSame.length, 0, 'sobrenome diferente: sem aviso'); }
 
   // termos de uso: página pública, aceite obrigatório no cadastro, aceite único para contas antigas
   { const t = await (await fetch(base + '/termos')).text();
