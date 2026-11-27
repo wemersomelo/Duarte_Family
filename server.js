@@ -306,7 +306,7 @@ app.get('/api/status', (req, res) => {
   }
   const inboxNew = req.user && req.user.role === 'admin' ? inboxState().filter(x => x.state !== 'importado').length : 0;
   let suggestionsN = 0; if (req.user && req.user.role === 'admin') try { suggestionsN = sugestoes.suggest(db, effectiveParents).length; } catch (e) { console.error(e); }
-  res.json({ request, inboxNew, suggestions: suggestionsN, needsSetup: users === 0, pendingRequests: pending, bookRequests: bookReqs, hubUrl: process.env.HUB_URL || '', user: req.user || (req.guest ? { id: null, name: 'Visitante', role: 'guest' } : null), familyName: familyName(), familySuggestion: BRAND.family, brand: BRAND, defaultPerson: startPerson() });
+  res.json({ request, inboxNew, suggestions: suggestionsN, needsSetup: users === 0, termsVersion: TERMS_VERSION, needsTerms: !!(req.user && (db.prepare('SELECT terms_version v FROM users WHERE id=?').get(req.user.id) || {}).v !== TERMS_VERSION), pendingRequests: pending, bookRequests: bookReqs, hubUrl: process.env.HUB_URL || '', user: req.user || (req.guest ? { id: null, name: 'Visitante', role: 'guest' } : null), familyName: familyName(), familySuggestion: BRAND.family, brand: BRAND, defaultPerson: startPerson() });
 });
 
 app.put('/api/admin/family-name', needAdmin, (req, res) => {
@@ -321,8 +321,10 @@ app.post('/api/setup', (req, res) => {
   if (setupKey && req.body.setupKey !== setupKey) return res.status(403).json({ error: 'Chave de instalação incorreta.' });
   const { name, email, password } = req.body || {};
   const err = checkAccount(name, email, password); if (err) return res.status(400).json({ error: err });
+  if (!req.body.terms) return res.status(400).json({ error: 'Para criar a conta, aceite os Termos de uso e a Política de privacidade.' });
   const id = db.prepare('INSERT INTO users(name,email,pass_hash,role,created_at) VALUES(?,?,?,?,?)')
     .run(name.trim(), email.trim().toLowerCase(), bcrypt.hashSync(password, 10), 'admin', now()).lastInsertRowid;
+  acceptTerms(id);
   const fam = String(req.body.family || '').trim().slice(0, 80);
   if (fam) setSetting('familia', fam);
   setSession(res, id);
@@ -394,9 +396,11 @@ app.post('/api/invites/:token', (req, res) => {
   // Convite de um pedido aprovado só vale para o e-mail que pediu.
   if (inv.email && String(email || '').trim().toLowerCase() !== inv.email) return res.status(400).json({ error: `Este convite é para o e-mail ${inv.email}.` });
   const err = checkAccount(name, email, password); if (err) return res.status(400).json({ error: err });
+  if (!req.body.terms) return res.status(400).json({ error: 'Para criar a conta, aceite os Termos de uso e a Política de privacidade.' });
   const id = db.prepare('INSERT INTO users(name,email,pass_hash,role,created_at) VALUES(?,?,?,?,?)')
     .run(name.trim(), email.trim().toLowerCase(), bcrypt.hashSync(password, 10), inv.role, now()).lastInsertRowid;
   db.prepare('UPDATE users SET email_updates=? WHERE id=?').run(req.body.emailUpdates === false ? 0 : 1, id);
+  acceptTerms(id);
   db.prepare('UPDATE invites SET used_by=?, used_at=? WHERE token=?').run(id, now(), inv.token);
   db.prepare("UPDATE access_requests SET status='joined' WHERE invite_token=?").run(inv.token);
   // Já entra ligado à sua ficha na árvore, se o administrador escolheu ao convidar.
@@ -406,6 +410,20 @@ app.post('/api/invites/:token', (req, res) => {
   setSession(res, id);
   res.json({ ok: true });
 });
+
+// ---------- termos de uso e política de privacidade ----------
+// Mudou o texto de forma importante? Suba a versão: todo mundo terá de aceitar de novo.
+const TERMS_VERSION = '2026-11-27';
+const legal = () => ({ name: process.env.LEGAL_NAME || '[nome do responsável]', email: process.env.LEGAL_EMAIL || '[e-mail de contato]', address: process.env.LEGAL_ADDRESS || '[cidade e país]' });
+app.get(['/termos', '/privacidade'], (req, res) => {
+  const L = legal();
+  const html = fs.readFileSync(path.join(__dirname, 'public', 'termos.html'), 'utf8')
+    .replace(/\{\{BRAND_NAME\}\}/g, escHtml(BRAND.name)).replace(/\{\{VERSION\}\}/g, TERMS_VERSION)
+    .replace(/\{\{LEGAL_NAME\}\}/g, escHtml(L.name)).replace(/\{\{LEGAL_EMAIL\}\}/g, escHtml(L.email)).replace(/\{\{LEGAL_ADDRESS\}\}/g, escHtml(L.address));
+  res.set('Cache-Control', 'no-cache').type('html').send(req.path === '/privacidade' ? html.replace('<main class="lp legal">', '<main class="lp legal" data-goto="privacidade">') : html);
+});
+const acceptTerms = (uid) => db.prepare('UPDATE users SET terms_version=?, terms_at=? WHERE id=?').run(TERMS_VERSION, now(), uid);
+app.post('/api/me/accept-terms', needUser, (req, res) => { acceptTerms(req.user.id); log(req, 'aceitou os termos', null, { versao: TERMS_VERSION }); res.json({ ok: true, version: TERMS_VERSION }); });
 
 // ---------- pedidos de livro: famílias de fora pedem a árvore delas (página /comecar) ----------
 // Só o site principal recebe pedidos; os livros de teste têm HUB_URL e mandam para lá.
@@ -422,11 +440,11 @@ app.post('/api/livro-pedido', (req, res) => {
   if (!name) return res.status(400).json({ error: 'Escreva o seu nome.' });
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(400).json({ error: 'E-mail inválido.' });
   if (!family) return res.status(400).json({ error: 'Escreva o nome da sua família (ex.: Família Silva Santos).' });
-  if (!req.body.consent) return res.status(400).json({ error: 'Para continuar, aceite que a gente guarde estes dados para responder ao seu pedido.' });
+  if (!req.body.consent) return res.status(400).json({ error: 'Para continuar, aceite os Termos de uso e a Política de privacidade.' });
   if (db.prepare("SELECT COUNT(*) n FROM book_requests WHERE status='pending'").get().n >= 500) return res.status(429).json({ error: 'Muitos pedidos aguardando. Tente de novo em alguns dias.' });
   if (db.prepare("SELECT 1 FROM book_requests WHERE email=? AND status='pending'").get(email)) return res.json({ ok: true });
   a.push(nowMs); bookLimit.set(ip, a);
-  db.prepare('INSERT INTO book_requests(name,email,family,place,message,ip,created_at) VALUES(?,?,?,?,?,?,?)').run(name, email, family, place, message, ip, now());
+  db.prepare('INSERT INTO book_requests(name,email,family,place,message,ip,created_at,terms_version) VALUES(?,?,?,?,?,?,?,?)').run(name, email, family, place, message, ip, now(), TERMS_VERSION);
   const text = `${name} (${email}) quer começar a árvore da ${family}${place ? ', de ' + place : ''}.${message ? ' Mensagem: ' + message : ''}`;
   const admins = db.prepare("SELECT id,email FROM users WHERE role='admin' AND active=1").all();
   for (const u of admins) db.prepare('INSERT INTO notifications(user_id,person_id,text,created_at) VALUES(?,?,?,?)').run(u.id, null, 'Pedido de livro: ' + text, now());

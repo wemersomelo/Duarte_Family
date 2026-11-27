@@ -33,8 +33,8 @@ function client() {
 
   assert.equal((await anon('GET', '/api/status')).data.needsSetup, true);
   assert.equal((await anon('GET', '/api/tree')).status, 401, 'sem login não lê');
-  assert.equal((await admin('POST', '/api/setup', { name: 'Admin', email: 'admin@ex.com', password: 'senha-forte-1' })).status, 200);
-  assert.equal((await anon('POST', '/api/setup', { name: 'X', email: 'x@ex.com', password: 'senha-forte-1' })).status, 400, 'setup só uma vez');
+  assert.equal((await admin('POST', '/api/setup', { name: 'Admin', email: 'admin@ex.com', password: 'senha-forte-1', terms: true })).status, 200);
+  assert.equal((await anon('POST', '/api/setup', { name: 'X', email: 'x@ex.com', password: 'senha-forte-1', terms: true })).status, 400, 'setup só uma vez');
 
   // importação
   const imp = await admin('POST', '/api/admin/import', { people: [{ id: 'avo', name: 'Avo Teste da Silva', sex: 'm', birth: '01/02/1930' }, { id: 'neto', name: 'Neto', fatherId: 'avo' }], notes: [{ personId: 'avo', text: 'Nota antiga', by: 'Admin' }] });
@@ -43,9 +43,9 @@ function client() {
   // convites
   const inv = (await admin('POST', '/api/admin/invites', { role: 'member', label: 'tia' })).data.token;
   const invV = (await admin('POST', '/api/admin/invites', { role: 'viewer' })).data.token;
-  assert.equal((await tia('POST', '/api/invites/' + inv, { name: 'Tia', email: 'tia@ex.com', password: 'senha-forte-2' })).status, 200);
-  assert.equal((await anon('POST', '/api/invites/' + inv, { name: 'Outro', email: 'o@ex.com', password: 'senha-forte-3' })).status, 404, 'convite só serve uma vez');
-  assert.equal((await leitor('POST', '/api/invites/' + invV, { name: 'Leitor', email: 'l@ex.com', password: 'senha-forte-4' })).status, 200);
+  assert.equal((await tia('POST', '/api/invites/' + inv, { name: 'Tia', email: 'tia@ex.com', password: 'senha-forte-2', terms: true })).status, 200);
+  assert.equal((await anon('POST', '/api/invites/' + inv, { name: 'Outro', email: 'o@ex.com', password: 'senha-forte-3', terms: true })).status, 404, 'convite só serve uma vez');
+  assert.equal((await leitor('POST', '/api/invites/' + invV, { name: 'Leitor', email: 'l@ex.com', password: 'senha-forte-4', terms: true })).status, 200);
 
   // membro adiciona, não altera o que é dos outros
   const add = await tia('POST', '/api/people', { name: 'Bisavo Teste', sex: 'f', parentOf: 'avo', parentRole: 'mother' });
@@ -278,7 +278,7 @@ function client() {
     assert.equal((await tia('PUT', '/api/people/' + irmao, { birth: '1971' })).status, 200, 'antes: quem cadastrou edita');
     const tok = (await admin('POST', '/api/admin/invites', { role: 'member', personId: irmao })).data.token;
     const irm = client();
-    assert.equal((await irm('POST', '/api/invites/' + tok, { name: 'Irmão', email: 'irmao@ex.com', password: 'senha-forte-9' })).status, 200);
+    assert.equal((await irm('POST', '/api/invites/' + tok, { name: 'Irmão', email: 'irmao@ex.com', password: 'senha-forte-9', terms: true })).status, 200);
     assert.equal((await tia('PUT', '/api/people/' + irmao, { birth: '1972' })).status, 403, 'depois: quem cadastrou não edita');
     assert.equal((await tia('DELETE', '/api/people/' + irmao)).status, 403, 'nem exclui');
     assert.equal((await irm('PUT', '/api/people/' + irmao, { birth: '1969' })).status, 200, 'a própria pessoa edita');
@@ -290,7 +290,7 @@ function client() {
     const outro = (await tia('POST', '/api/people', { name: 'Primo Autoident', birth: '1950' })).data.id;
     await tia('POST', `/api/people/${outro}/notes`, { text: 'nota antiga da tia', kind: 'info' });
     const tok2 = (await admin('POST', '/api/admin/invites', { role: 'member' })).data.token;
-    const pr = client(); await pr('POST', '/api/invites/' + tok2, { name: 'Primo', email: 'primo2@ex.com', password: 'senha-forte-8' });
+    const pr = client(); await pr('POST', '/api/invites/' + tok2, { name: 'Primo', email: 'primo2@ex.com', password: 'senha-forte-8', terms: true });
     const mail = require('../src/mail'); Object.assign(process.env, { SMTP_HOST: 'test', SMTP_USER: 'a@ex.com', SMTP_PASS: 'x' }); mail.sent.length = 0;
     await pr('PUT', '/api/me/person', { personId: outro });
     assert.ok((await admin('GET', '/api/notifications')).data.notifications.some(n => /tocou em "Esta pessoa sou eu"/.test(n.text)), 'admin recebe aviso');
@@ -320,7 +320,7 @@ function client() {
     const eu = (await admin('POST', '/api/people', { name: 'Neto Kin', fatherId: pai, birth: '1985' })).data.id;
     const primoMorto = (await admin('POST', '/api/people', { name: 'Primo Morto Kin', fatherId: tioVivo, death: '2010' })).data.id;
     const tk = (await admin('POST', '/api/admin/invites', { role: 'member', personId: eu })).data.token;
-    const nk = client(); await nk('POST', '/api/invites/' + tk, { name: 'Neto', email: 'neto@ex.com', password: 'senha-forte-7' });
+    const nk = client(); await nk('POST', '/api/invites/' + tk, { name: 'Neto', email: 'neto@ex.com', password: 'senha-forte-7', terms: true });
     assert.equal((await nk('PUT', '/api/people/' + av, { deathPlace: 'Sooretama' })).status, 200, 'neto corrige o avô falecido');
     assert.equal((await nk('PUT', '/api/people/' + bis, { deathPlace: 'Itaipé' })).status, 200, 'bisneto corrige o bisavô');
     { const r = await nk('PUT', '/api/people/' + tioMorto, { deathPlace: 'X' }); assert.equal(r.status, 403, 'tio não é parente direto'); assert.match(r.data.error, /parentes diretos/); }
@@ -335,7 +335,7 @@ function client() {
     nn = (await nk('GET', '/api/notifications')).data;
     assert.ok(nn.notifications.some(n => /local de nascimento: vazio → Itaipé/.test(n.text)), 'aviso diz o que mudou');
     { const tq = (await admin('POST', '/api/admin/invites', { role: 'viewer' })).data.token; const q = client();
-      await q('POST', '/api/invites/' + tq, { name: 'Sem Email', email: 'semmail@ex.com', password: 'senha-forte-6', emailUpdates: false });
+      await q('POST', '/api/invites/' + tq, { name: 'Sem Email', email: 'semmail@ex.com', password: 'senha-forte-6', terms: true, emailUpdates: false });
       assert.equal((await q('GET', '/api/notifications')).data.emailUpdates, false, 'escolheu não receber e-mail');
       await q('PUT', '/api/me/email-updates', { on: true });
       assert.equal((await q('GET', '/api/notifications')).data.emailUpdates, true, 'muda depois em Avisos'); }
@@ -404,6 +404,18 @@ function client() {
     await admin('POST', `/api/admin/book-requests/${br[0].id}/done`);
     assert.equal((await admin('GET', '/api/status')).data.bookRequests, 0);
     assert.match(await (await fetch(base + '/comecar')).text(), /Ocê é fi/); }
+
+  // termos de uso: página pública, aceite obrigatório no cadastro, aceite único para contas antigas
+  { const t = await (await fetch(base + '/termos')).text();
+    assert.match(t, /Política de privacidade/); assert.match(t, /LGPD/); assert.ok(!/\{\{/.test(t), 'sem marcadores sobrando');
+    const tk = (await admin('POST', '/api/admin/invites', { role: 'member' })).data.token; const z = client();
+    assert.equal((await z('POST', '/api/invites/' + tk, { name: 'Sem Aceite', email: 'semaceite@ex.com', password: 'senha-forte-5' })).status, 400, 'sem aceite não cria conta');
+    assert.equal((await z('POST', '/api/invites/' + tk, { name: 'Com Aceite', email: 'comaceite@ex.com', password: 'senha-forte-5', terms: true })).status, 200);
+    assert.equal((await z('GET', '/api/status')).data.needsTerms, false, 'quem aceitou no cadastro não vê de novo');
+    const { db } = require('../server'); db.prepare("UPDATE users SET terms_version=NULL WHERE email='comaceite@ex.com'").run();
+    assert.equal((await z('GET', '/api/status')).data.needsTerms, true, 'conta antiga precisa aceitar');
+    await z('POST', '/api/me/accept-terms');
+    assert.equal((await z('GET', '/api/status')).data.needsTerms, false); }
 
   // juntar duas fichas da mesma pessoa
   const dupA = (await admin('POST', '/api/people', { name: 'Duplicada Teste', birth: '1950', fatherId: pai })).data.id;

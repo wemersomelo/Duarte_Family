@@ -1,7 +1,7 @@
 // Página pública: pedido do livro de uma família nova.
 document.addEventListener('click', e => { if (e.target.closest('[data-themebtn]')) window.cycleTheme(); });
 const f = document.getElementById('bookform');
-f.addEventListener('submit', async e => {
+if (f) f.addEventListener('submit', async e => {
   e.preventDefault();
   const err = document.getElementById('bookErr'), btn = document.getElementById('bookBtn');
   err.textContent = ''; btn.disabled = true;

@@ -29,10 +29,10 @@ function client() {
 
 (async () => {
   const admin = client(), tia = client(), anon = client();
-  await admin('POST', '/api/setup', { name: 'Admin', email: 'a@ex.com', password: 'senha-forte-1' });
+  await admin('POST', '/api/setup', { name: 'Admin', email: 'a@ex.com', password: 'senha-forte-1', terms: true });
   await admin('POST', '/api/admin/import', { people: [{ id: 'p1', name: 'Pessoa Um' }] });
   const inv = (await admin('POST', '/api/admin/invites', { role: 'member' })).data.token;
-  await tia('POST', '/api/invites/' + inv, { name: 'Tia', email: 't@ex.com', password: 'senha-forte-2' });
+  await tia('POST', '/api/invites/' + inv, { name: 'Tia', email: 't@ex.com', password: 'senha-forte-2', terms: true });
 
   // cabeçalhos de proteção
   const h = (await anon('GET', '/')).headers;
@@ -140,8 +140,8 @@ function client() {
   const st = (await guest('GET', '/api/status')).data.request;
   assert.equal(st.status, 'approved'); assert.equal(st.email, 'no***@ex.com'); assert.ok(!JSON.stringify(st).includes(apr.token), 'o aparelho não recebe o convite, só o e-mail');
   assert.equal((await client()('GET', '/api/invites/' + apr.token)).data.name, 'Prima Nova');
-  assert.equal((await client()('POST', '/api/invites/' + apr.token, { name: 'Outra', email: 'outra@ex.com', password: 'senha-forte-7' })).status, 400, 'convite preso ao e-mail do pedido');
-  assert.equal((await client()('POST', '/api/invites/' + apr.token, { name: 'Prima Nova', email: 'nova@ex.com', password: 'senha-forte-7' })).status, 200);
+  assert.equal((await client()('POST', '/api/invites/' + apr.token, { name: 'Outra', email: 'outra@ex.com', password: 'senha-forte-7', terms: true })).status, 400, 'convite preso ao e-mail do pedido');
+  assert.equal((await client()('POST', '/api/invites/' + apr.token, { name: 'Prima Nova', email: 'nova@ex.com', password: 'senha-forte-7', terms: true })).status, 200);
 
   // convite já ligado a uma pessoa da árvore: a pessoa entra e a árvore começa por ela
   const pViva = (await admin('POST', '/api/people', { name: 'Bisavó Viva', birth: '1940' })).data.id;
@@ -151,7 +151,7 @@ function client() {
   const infoP = (await client()('GET', '/api/invites/' + invP)).data;
   assert.equal(infoP.personName, 'Bisavó Viva'); assert.equal(infoP.name, 'Bisavó Viva');
   const vovo = client();
-  assert.equal((await vovo('POST', '/api/invites/' + invP, { name: 'Bisavó Viva', email: 'vovo@ex.com', password: 'senha-forte-8' })).status, 200);
+  assert.equal((await vovo('POST', '/api/invites/' + invP, { name: 'Bisavó Viva', email: 'vovo@ex.com', password: 'senha-forte-8', terms: true })).status, 200);
   assert.equal((await vovo('GET', '/api/tree')).data.me.personId, pViva, 'entra já ligada à sua ficha');
   assert.equal((await admin('POST', '/api/admin/invites', { role: 'viewer', personId: pViva })).status, 400, 'pessoa já tem conta');
   assert.equal((await admin('GET', '/api/admin/access-requests')).data.requests[0].status, 'joined');

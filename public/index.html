@@ -33,12 +33,14 @@
       <label class="f">Senha<input name="password" type="password" autocomplete="current-password" required minlength="8" maxlength="200"></label>
       <label class="check" id="fMail" hidden><input type="checkbox" name="emailUpdates" checked> Quero receber por e-mail as novidades da família (quando alguém acrescenta ou muda algo na ficha de um parente direto meu), num resumo por dia. Dá para mudar depois, em Avisos.</label>
       <label class="f" id="fFamily" hidden>Nome da família (como vai aparecer no site)<input name="family" maxlength="80" placeholder="ex.: Família Silva Santos"></label>
+      <label class="check" id="fTerms" hidden><input type="checkbox" name="terms"> Li e aceito os <a href="/termos" target="_blank">Termos de uso e a Política de privacidade</a>.</label>
       <label class="f" id="fKey" hidden>Chave de instalação (se configurada)<input name="setupKey" autocomplete="off" maxlength="200"></label>
       <div class="err" id="authErr"></div>
       <button class="primary wide" type="submit" id="authBtn">Entrar</button>
     </form>
     <p class="auththeme"><button type="button" class="link" data-themebtn>Tema</button></p>
     <p class="note" id="authHelp">Ainda não tem conta? Peça um convite ao administrador da árvore.</p>
+    <p class="note authlegal"><a href="/termos" target="_blank">Termos de uso e privacidade</a></p>
     <p class="note" id="authNew">Quer a árvore da <b>sua</b> família? <a id="comecarLink" href="/comecar">Comece aqui</a></p>
   </div>
 </section>
@@ -93,6 +95,7 @@
   <div class="chartbar"><h2><span id="indexTitle">Todas as pessoas</span> <span id="count" class="note"></span></h2><button type="button" id="allBtn" class="btn small" hidden></button></div>
   <ul class="index" id="index"></ul>
 </section>
+<footer class="sitefoot"><a href="/termos" target="_blank">Termos de uso e Política de privacidade</a></footer>
 </div>
 
 <!-- Pessoa -->
@@ -195,6 +198,14 @@
 </dialog>
 
 <!-- Senha -->
+<dialog id="termsdlg">
+  <div class="admin">
+    <h2>Termos de uso e privacidade</h2>
+    <p>Para continuar usando o site, leia e aceite os <a href="/termos" target="_blank"><b>Termos de uso e a Política de privacidade</b></a>. Eles explicam quem cuida dos dados da família, quem vê o quê e como pedir para corrigir ou apagar o que for seu.</p>
+    <div class="err" id="termsErr"></div>
+    <div class="actions"><button type="button" class="primary" id="termsOk">Li e aceito</button><button type="button" id="termsNo">Agora não (sair)</button></div>
+  </div>
+</dialog>
 <dialog id="ondlg">
   <form id="onform">
     <h2>Ocê é fi <span class="sloganword">dequem</span>?</h2>

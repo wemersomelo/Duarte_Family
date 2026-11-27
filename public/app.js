@@ -89,6 +89,7 @@ function showAuth(mode, info = {}) {
   $('#fKey').hidden = mode !== 'setup';
   $('#fFamily').hidden = mode !== 'setup'; if (mode === 'setup' && !$('#authForm').elements.family.value) $('#authForm').elements.family.value = familySuggestion;
   $('#fMail').hidden = mode !== 'invite';
+  $('#fTerms').hidden = !(mode === 'invite' || mode === 'setup'); $('#authForm').elements.terms.required = mode === 'invite' || mode === 'setup';
   f.elements.name.required = mode !== 'login' && mode !== 'reset';
   f.elements.password.autocomplete = mode === 'login' ? 'current-password' : 'new-password';
   $('#authBtn').textContent = mode === 'login' ? 'Entrar' : mode === 'reset' ? 'Salvar nova senha' : 'Criar conta';
@@ -101,7 +102,7 @@ function showAuth(mode, info = {}) {
 }
 $('#authForm').addEventListener('submit', async e => {
   e.preventDefault();
-  const f = e.target, body = { name: f.elements.name.value, email: f.elements.email.value, password: f.elements.password.value, setupKey: f.elements.setupKey.value, family: f.elements.family.value, emailUpdates: f.elements.emailUpdates.checked };
+  const f = e.target, body = { name: f.elements.name.value, email: f.elements.email.value, password: f.elements.password.value, setupKey: f.elements.setupKey.value, family: f.elements.family.value, terms: f.elements.terms.checked, emailUpdates: f.elements.emailUpdates.checked };
   $('#authErr').textContent = '';
   try {
     if (authMode === 'login') await api('/api/login', { method: 'POST', body });
@@ -145,6 +146,7 @@ async function start() {
   if (m) history.replaceState(null, '', '/');
   me = st.user;
   $('#auth').hidden = true; $('#main').hidden = false;
+  if (st.needsTerms && !isGuest()) $('#termsdlg').showModal();
   $('#whoami').textContent = me.name;
   $('#adminBtn').hidden = me.role !== 'admin';
   $('#pwBtn').hidden = isGuest();
@@ -542,6 +544,10 @@ $('#famform').addEventListener('submit', async e => {
   try { const r = await api('/api/admin/family-name', { method: 'PUT', body: { name: e.target.elements.name.value } }); familyName = r.name; $('#hsub').textContent = r.name; document.title = document.title.split(' · ')[0] + ' · ' + r.name; $('#aErr').textContent = ''; }
   catch (err) { $('#aErr').textContent = err.message; }
 });
+
+$('#termsOk').addEventListener('click', async () => { try { await api('/api/me/accept-terms', { method: 'POST' }); $('#termsdlg').close(); } catch (err) { $('#termsErr').textContent = err.message; } });
+$('#termsNo').addEventListener('click', async () => { await api('/api/logout', { method: 'POST' }).catch(() => {}); location.reload(); });
+$('#termsdlg').addEventListener('cancel', e => e.preventDefault()); // não fecha com Esc
 
 /* ---------- avisos ---------- */
 async function loadNotifCount() {
