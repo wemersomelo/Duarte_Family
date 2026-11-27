@@ -5,7 +5,7 @@ const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const norm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
 const kinOpen = new Set(); // seções de tios/primos que a pessoa deixou abertas
-let me = null, people = {}, notes = [], files = [], media = [], relatoLinks = [], userNames = {}, focus = null, editing = null, ctx = {};
+let me = null, people = {}, notes = [], files = [], media = [], relatoLinks = [], crossLinks = {}, userNames = {}, focus = null, editing = null, ctx = {};
 const P = id => (id && people[id]) ? people[id] : null;
 const canWrite = () => !!me && (me.role === 'member' || me.role === 'admin');
 const isGuest = () => !!me && me.role === 'guest';
@@ -179,7 +179,7 @@ async function start() {
   $('#notifBtn').hidden = isGuest();
   if (!isGuest()) loadNotifCount();
   $('#askBtn').hidden = !isGuest();
-  { const n = (st.pendingRequests || 0) + (st.inboxNew || 0) + (st.suggestions || 0) + (st.bookRequests || 0) + (st.reports || 0); $('#adminBtn').textContent = n ? `Administrar (${n})` : 'Administrar'; }
+  { const n = (st.pendingRequests || 0) + (st.inboxNew || 0) + (st.suggestions || 0) + (st.bookRequests || 0) + (st.crossLinks || 0) + (st.reports || 0); $('#adminBtn').textContent = n ? `Administrar (${n})` : 'Administrar'; }
   $('#how').hidden = isGuest();
   $('#addBtn').hidden = !canWrite();
   await load();
@@ -189,7 +189,7 @@ async function load() {
   try {
     const d = await api('/api/tree');
     people = Object.fromEntries(d.people.map(p => [p.id, p]));
-    notes = d.notes; files = d.files; media = d.media || []; relatoLinks = d.relatoLinks || [];
+    notes = d.notes; files = d.files; media = d.media || []; relatoLinks = d.relatoLinks || []; crossLinks = d.crossLinks || {};
     userNames = Object.fromEntries(d.users.map(u => [u.id, u.name]));
     me = d.me;
     const n = d.people.length;
@@ -204,30 +204,35 @@ async function load() {
 // Caminho percorrido: o botão "Voltar" e o voltar do celular desfazem um passo de cada vez (usam o mesmo histórico).
 const trail = [];
 let firstFocus = null;
+// anchor: quem a árvore de caixinhas mostra. focus: qual ficha está aberta no cartão.
+// São coisas separadas de propósito: navegar pela família (cliques nas caixinhas e nos parentes)
+// só muda o cartão; a árvore só muda de centro quando a pessoa escolhe "Ver a árvore desta pessoa".
+let anchor = null;
+const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+const pdlg = $('#pdlg');
 function setFocus(id, back) {
   if (!P(id)) return;
   if (!firstFocus) firstFocus = focus || id;
   if (!back && focus && focus !== id) { trail.push(focus); if (trail.length > 100) trail.shift(); history.pushState({ arvore: true }, '', '#' + id); }
   else if (location.hash !== '#' + id) history.replaceState(history.state, '', '#' + id);
-  const changed = focus && focus !== id;
   focus = id;
-  smoothRender(changed);
-}
-// Troca de pessoa com transição suave: os cartões que continuam na árvore deslizam para o lugar novo
-// (a mãe sobe para o topo, os avós dela aparecem embaixo) e a ficha se renova com um leve esmaecer.
-const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
-function smoothRender(changed) {
-  if (!changed || reduceMotion()) { renderAll(); return; }
-  if (document.startViewTransition) { document.startViewTransition(() => renderAll()); return; }
-  renderAll();
-  for (const el of [$('#fig'), $('#slip'), $('#kin')]) { el.classList.remove('fadein'); void el.offsetWidth; el.classList.add('fadein'); }
+  if ('speechSynthesis' in window) speechSynthesis.cancel();
+  const sb = $('#cardSpeak'); if (sb) sb.textContent = '🔊 Ouvir';
+  renderRecord(); renderIndex(); updateCardNav();
+  if (!reduceMotion()) for (const el of [$('#slip'), $('#kin')]) { el.classList.remove('fadein'); void el.offsetWidth; el.classList.add('fadein'); }
+  if (!pdlg.open) pdlg.showModal();
 }
 function goBack() {
   if (history.state && history.state.arvore) { history.back(); return true; } // o popstate faz o resto
   while (trail.length) { const id = trail.pop(); if (P(id) && id !== focus) { setFocus(id, true); return true; } }
   return false;
 }
-function go(id) { setFocus(id); $('#fig').scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' }); }
+// Navegação "de verdade": muda o centro da árvore e abre o cartão da pessoa.
+function go(id) {
+  if (!P(id)) return;
+  anchor = id; renderTree();
+  setFocus(id);
+}
 addEventListener('popstate', () => {
   const h = decodeURIComponent(location.hash.slice(1)), id = P(h) ? h : firstFocus;
   if (!P(id) || id === focus) return;
@@ -244,7 +249,7 @@ const vtName = id => String(id).replace(/[^a-zA-Z0-9_-]/g, '_').replace(/^(\d)/,
 function drawChart() {
   const mob = isMobile();
   $('#gensWrap').hidden = mob;
-  const G = mob ? 3 : +$('#gens').value, p = P(focus);
+  const G = mob ? 3 : +$('#gens').value, p = P(anchor);
   if (!p) { fig.innerHTML = '<p class="none" style="padding:20px 0">Nenhuma pessoa selecionada.</p>'; fig.style.cssText = ''; return; }
   $('#chartTitle').textContent = 'Antepassados de ' + callName(p);
   const slots = 2 ** (G - 1), M = mob ? 4 : 8, GX = mob ? 6 : 10;
@@ -278,21 +283,48 @@ function drawChart() {
       html += `<button type="button" class="card td empty" data-add="${role}" data-child="${esc(childId)}" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px">+ ${role === 'father' ? 'Pai' : 'Mãe'}</button>`;
     }
   };
-  place(focus, 0, 0, null, null, 0, 0);
+  place(anchor, 0, 0, null, null, 0, 0);
   fig.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" aria-hidden="true" style="color:var(--ink)">${lines}</svg>` + html;
   const sc = fig.parentElement; sc.scrollLeft = (W - sc.clientWidth) / 2;
 }
+// Só redesenha quando o centro da árvore muda de verdade: evita perder a posição da rolagem
+// e o lugar onde a pessoa estava só porque ela abriu a ficha de um parente.
+let lastDrawnAnchor;
+function renderTree() {
+  if (anchor === lastDrawnAnchor) return;
+  lastDrawnAnchor = anchor;
+  drawChart();
+}
 fig.addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
-  if (b.dataset.id) { if (b.dataset.id === focus) $('#slip').scrollIntoView({ behavior: 'smooth', block: 'start' }); else setFocus(b.dataset.id); }
+  if (b.dataset.id) setFocus(b.dataset.id);
   else if (b.dataset.add) openForm(null, { parentOf: b.dataset.child, parentRole: b.dataset.add });
 });
 $('#gens').addEventListener('change', drawChart);
 let rt; addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(drawChart, 150); });
 
 /* ---------- ficha da pessoa ---------- */
-const chip = q => `<button type="button" class="chip" data-go="${esc(q.id)}">${esc(dn(q, nickOf(q) ? q.name + ' (' + nickOf(q) + ')' : q.name))}</button>`;
+const chip = q => `<button type="button" class="chip" data-card="${esc(q.id)}">${esc(dn(q, nickOf(q) ? q.name + ' (' + nickOf(q) + ')' : q.name))}</button>`;
 const chips = list => list.length ? `<div class="chips">${list.sort(byName).map(chip).join('')}</div>` : '<p class="none">Ninguém registrado ainda.</p>';
+// Selo de ligação com outro livro: pedido pendente, ou confirmado (com a foto pública, se liberada,
+// e um link para ver a subida de pais e avós, se a outra família liberou isso também).
+function crossBadge(p) {
+  const xl = crossLinks[p.id]; if (!xl) return '';
+  const fam = esc(xl.other.family || xl.other.book || 'outra família');
+  if (xl.status === 'pending') return `<p class="hint">Pedido de ligação enviado para o livro da família ${fam}: aguardando confirmação do administrador de lá.</p>`;
+  return `<p class="note">Esta pessoa também está na árvore da família <b>${fam}</b>${xl.other.name ? ` (lá: ${esc(xl.other.name)})` : ''}.${xl.other.photoUrl ? ` <img src="${esc(xl.other.photoUrl)}" alt="" style="height:28px;width:28px;border-radius:50%;object-fit:cover;vertical-align:middle">` : ''}${xl.other.ascendPublic ? ` <button type="button" class="link" data-xlascend="${esc(p.id)}">ver também os antepassados dessa família</button>` : ''}</p><div id="xlAscendBox"></div>`;
+}
+function ascendHtml(a) {
+  if (!a) return '';
+  const line = [a.name, a.birth, a.birthPlace].filter(Boolean).join(' · ');
+  return `<li>${esc(line)}${(a.father || a.mother) ? `<ul>${ascendHtml(a.father)}${ascendHtml(a.mother)}</ul>` : ''}</li>`;
+}
+document.addEventListener('click', async e => {
+  const b = e.target.closest('[data-xlascend]'); if (!b) return;
+  const box = $('#xlAscendBox'); box.innerHTML = 'Buscando…';
+  try { const r = await api(`/api/cross-link/${encodeURIComponent(b.dataset.xlascend)}/ascendancy`); box.innerHTML = `<ul class="notes">${ascendHtml(r.ascendancy)}</ul>`; }
+  catch (err) { box.innerHTML = `<p class="err">${esc(err.message)}</p>`; }
+});
 function renderRecord() {
   const p = P(focus), slip = $('#slip'), kin = $('#kin');
   if (!p) { slip.innerHTML = '<p class="none">Procure ou escolha uma pessoa na lista abaixo.</p>'; kin.innerHTML = ''; return; }
@@ -316,17 +348,21 @@ function renderRecord() {
   const initials = (nickOf(p) || p.name || '?').replace(/\([^)]*\)/g, '').trim().split(/\s+/).filter(w => w.length > 2 || /^[A-ZÀ-Ú]/.test(w)).slice(0, 2).map(w => w[0].toUpperCase()).join('') || '?';
   const canPhoto = !!ed;
   const avatar = `<div class="avatar${p.photoFileId ? ' has' : ''}">${p.photoFileId ? `<button type="button" class="pphoto" data-view="${esc(p.photoFileId)}" aria-label="Ampliar a foto"><img src="${BASE}/api/files/${encodeURIComponent(p.photoFileId)}" alt="Foto de ${esc(p.name)}"></button>` : canPhoto ? `<label class="pphoto empty" aria-label="Pôr foto de perfil"><span>${esc(initials)}</span><input type="file" accept="image/*" data-profilephoto hidden></label>` : `<div class="pphoto empty"><span>${esc(initials)}</span></div>`}${canPhoto ? `<label class="pcam" title="${p.photoFileId ? 'Trocar a foto de perfil' : 'Pôr foto de perfil'}" aria-label="${p.photoFileId ? 'Trocar a foto de perfil' : 'Pôr foto de perfil'}">+<input type="file" accept="image/*" data-profilephoto hidden></label>` : ''}</div>`;
+  const photoToggle = canPhoto && p.photoFileId ? `<p class="note">Foto de perfil: ${p.photoPublic ? '<b>pública</b> (pode aparecer para outra família, se descobrirem parentesco)' : '<b>só para esta família</b>'} · <button type="button" class="link" data-act="photopub" data-to="${p.photoPublic ? 0 : 1}">${p.photoPublic ? 'tornar só desta família' : 'tornar pública'}</button></p>` : '';
+  const ascendToggle = ed ? `<p class="note">Pais e avós: ${p.ascendPublic ? '<b>visíveis para quem descer dela em outro livro</b>, se um dia ligarem os livros' : '<b>só para esta família</b>'} · <button type="button" class="link" data-act="ascendpub" data-to="${p.ascendPublic ? 0 : 1}">${p.ascendPublic ? 'tornar só desta família' : 'liberar para descendentes de outro livro'}</button></p>` : '';
   slip.innerHTML = `<div class="phead">${avatar}<div><h3 class="person">${esc(dn(p, nickOf(p) || p.name))}</h3><p class="nick">${nickOf(p) ? esc(p.name) : '&nbsp;'}</p></div></div>
+  ${photoToggle}${ascendToggle}
   <dl>${row('Nascimento', p.birth)}${row('Local', p.birthPlace)}${row('Casamento', marr)}${row('Falecimento', p.death)}${row('Local', p.deathPlace)}${row('Descendentes', DESC[p.descendants])}${row('Cor/raça', COLOR[p.color])}${row('Origem/etnia', p.origin)}${row('Histórias', p.notes, 1)}${row('Fontes', p.sources, 1)}</dl>
   ${me && !isGuest() ? (myPerson() === p.id ? '<p class="mine">Esta pessoa é você. Para corrigir as suas datas, toque em <b>Editar meus dados</b>. <button type="button" class="link" data-act="notme">não sou eu</button></p>' : !myPerson() ? '<div class="actions small"><button type="button" class="primary" data-act="isme">Esta pessoa sou eu</button></div>' : '') : ''}
   ${p.restricted ? `<p class="hint">${p.private ? 'Esta pessoa pediu para ocultar os dados dela.' : 'Esta pessoa é menor de idade.'} Você vê só o nome e as ligações de família.</p>` : ''}
   ${me && !isGuest() && (isSelfP(p) || me.role === 'admin') && !isDead(p) ? `<p class="note">${p.private ? '<b>Dados ocultos:</b> os outros membros veem só o nome e as ligações.' : 'Os membros da família veem os dados desta ficha.'} <button type="button" class="link" data-act="private" data-to="${p.private ? 0 : 1}">${p.private ? 'mostrar de novo' : (isSelfP(p) ? 'ocultar meus dados' : 'ocultar os dados')}</button></p>` : ''}
   ${!p.restricted && !p.birth && !p.birthPlace && !p.notes ? '<p class="none">Ainda faltam informações sobre esta pessoa. Se você sabe algo, acrescente.</p>' : ''}
   ${isGuest() ? '' : `<p class="by">Registrado por ${esc(who(p.createdBy))}${p.managedBy ? ` · ficha administrada pela própria pessoa${p.managedBy === me.id ? ' (você)' : ''}` : ''}</p>`}
+  ${crossBadge(p)}
   ${p.living ? '<p class="none">Dados de pessoas vivas (datas, lugares, fotos e lembranças) ficam visíveis só para quem tem convite.</p>' : ''}
   ${canContribute() ? `<div class="actions">${canWrite() ? '<button type="button" class="primary" data-act="note">+ Acrescentar informação</button>' : ''}<button type="button"${canWrite() ? '' : ' class="primary"'} data-act="memory">+ Deixar uma lembrança</button><button type="button" data-act="files">+ Fotos e documentos</button><button type="button" data-act="link">+ Vídeo ou link</button></div>` : ''}
   ${!ed && isDead(p) && canContribute() && !isGuest() ? '<div class="actions small"><button type="button" data-act="kinask">Corrigir dados</button></div><div id="kinMsg"></div>' : ''}
-  ${canWrite() || ed ? `<div class="actions small">${ed ? `<button type="button"${isSelfP(p) ? ' class="primary"' : ''} data-act="edit">${isSelfP(p) ? 'Editar meus dados' : 'Editar'}</button>` : ''}${canWrite() ? (p.fatherId || p.motherId ? '<button type="button" data-act="sibling">+ Irmão ou irmã</button>' : '') + '<button type="button" data-act="child">+ Filho ou filha</button><button type="button" data-act="spouse">+ Cônjuge</button>' : ''}${ownsP(p) ? '<button type="button" class="danger" data-act="del">Excluir</button>' : ''}</div>` : ''}
+  ${canWrite() || ed ? `<div class="actions small">${ed ? `<button type="button"${isSelfP(p) ? ' class="primary"' : ''} data-act="edit">${isSelfP(p) ? 'Editar meus dados' : 'Editar'}</button>` : ''}${canWrite() ? (p.fatherId || p.motherId ? '<button type="button" data-act="sibling">+ Irmão ou irmã</button>' : '') + '<button type="button" data-act="child">+ Filho ou filha</button><button type="button" data-act="spouse">+ Cônjuge</button>' : ''}${canWrite() ? '<button type="button" data-act="crosslink">Esta pessoa está em outro livro?</button>' : ''}${ownsP(p) ? '<button type="button" class="danger" data-act="del">Excluir</button>' : ''}</div>` : ''}
   ${p.living ? '' : `<h4>Fotos e documentos (${pf.length})</h4>
   ${pf.length ? `<div class="docs">${pf.map(f => `<div class="doc${f.id === p.photoFileId ? ' main' : ''}"><button type="button" class="thumb${f.mime === 'application/pdf' ? ' pdf' : ''}" data-view="${esc(f.id)}" ${isImg(f) ? `style="background-image:url('${BASE}/api/files/${encodeURIComponent(f.id)}')"` : ''} aria-label="Abrir ${esc(f.name)}">${f.mime === 'application/pdf' ? 'PDF' : /hei[cf]/.test(f.mime) ? 'HEIC' : ''}</button><small title="${esc(f.caption || f.name)}">${esc(f.caption || f.name)}</small>${f.doc ? '<small class="docb" title="Só o administrador vê">documento · só você vê</small>' : ''}${f.id === p.photoFileId ? '<small class="star">foto principal</small>' : ed && isImg(f) && !f.doc ? `<button type="button" class="link" data-mainphoto="${esc(f.id)}">usar como foto principal</button>` : ''}${me.role === 'admin' && f.mime !== 'application/pdf' ? `<button type="button" class="link" data-docflag="${esc(f.id)}" data-to="${f.doc ? 0 : 1}">${f.doc ? 'liberar como foto' : 'marcar como documento'}</button>` : ''}${mine(f) ? `<button type="button" class="link" data-rmfile="${esc(f.id)}">remover</button>` : ''}${f.createdBy !== me?.id && me && !isGuest() ? `<button type="button" class="link" data-report="file" data-target="${esc(f.id)}">denunciar</button>` : ''}</div>`).join('')}</div>` : '<p class="none">Nenhum ainda.</p>'}
   <h4>Vídeos e links (${pm.length})</h4>
@@ -361,17 +397,19 @@ function renderRecord() {
 }
 document.addEventListener('change', async e => {
   const inp = e.target.closest('[data-profilephoto]'); if (!inp || !inp.files.length) return;
+  const photoPublic = confirm('Esta foto pode aparecer para outra família, se um dia descobrirem que é a mesma pessoa?\n\nOK = pública\nCancelar = só para esta família (dá para mudar depois)');
   const fd = new FormData(); fd.append('files', inp.files[0]); fd.append('caption', 'Foto de perfil'); fd.append('doc', '0'); fd.append('profile', '1'); inp.value = '';
   const box = inp.closest('.avatar'); if (box) box.classList.add('busy');
   try {
     const r = await api(`/api/people/${encodeURIComponent(focus)}/files`, { method: 'POST', body: fd });
-    if (r.ids && r.ids[0]) await api(`/api/people/${encodeURIComponent(focus)}/photo`, { method: 'PUT', body: { fileId: r.ids[0] } });
+    if (r.ids && r.ids[0]) await api(`/api/people/${encodeURIComponent(focus)}/photo`, { method: 'PUT', body: { fileId: r.ids[0], photoPublic } });
     await load();
   } catch (err) { alertStatus(err); if (box) box.classList.remove('busy'); }
 });
 document.addEventListener('toggle', e => { const d = e.target; if (d.classList && d.classList.contains('kfold')) d.open ? kinOpen.add(d.dataset.k) : kinOpen.delete(d.dataset.k); }, true);
 document.addEventListener('click', async e => {
   const g = e.target.closest('[data-go]'); if (g) { closeAll(); go(g.dataset.go); return; }
+  const cd = e.target.closest('[data-card]'); if (cd) { setFocus(cd.dataset.card); return; }
   const v = e.target.closest('[data-view]'); if (v) { openViewer(v.dataset.view); return; }
   const rv = e.target.closest('[data-relato]'); if (rv) { openRelato(rv.dataset.relato); return; }
   const rn = e.target.closest('[data-rmnote]'); if (rn) { if (await confirmBtn(rn)) { await api('/api/notes/' + rn.dataset.rmnote, { method: 'DELETE' }).catch(err => alertStatus(err)); load(); } return; }
@@ -397,6 +435,9 @@ document.addEventListener('click', async e => {
   if (a.dataset.act === 'link') openLink(p.id);
   if (a.dataset.act === 'files') openFiles(p.id);
   if (a.dataset.act === 'private') { api(`/api/people/${encodeURIComponent(p.id)}/private`, { method: 'PUT', body: { on: a.dataset.to === '1' } }).then(load).catch(err => alertStatus(err)); return; }
+  if (a.dataset.act === 'photopub') { api(`/api/people/${encodeURIComponent(p.id)}/public-settings`, { method: 'PUT', body: { photoPublic: a.dataset.to === '1' } }).then(load).catch(err => alertStatus(err)); return; }
+  if (a.dataset.act === 'ascendpub') { api(`/api/people/${encodeURIComponent(p.id)}/public-settings`, { method: 'PUT', body: { ascendPublic: a.dataset.to === '1' } }).then(load).catch(err => alertStatus(err)); return; }
+  if (a.dataset.act === 'crosslink') { $('#xform').reset(); $('#xErr').textContent = ''; $('#xdlg').showModal(); return; }
   if (a.dataset.act === 'kinask') {
     api(`/api/people/${encodeURIComponent(p.id)}/kin-contacts`).then(r => {
       $('#kinMsg').innerHTML = `<div class="hint"><p><b>Só os parentes diretos de ${esc(p.name)}</b> (cônjuge, pais, irmãos, filhos, netos e bisnetos) ou o administrador podem alterar esta ficha.</p>
@@ -439,15 +480,46 @@ function renderIndex() {
   $('#allBtn').hidden = !fam || fam.size >= all.length;
   $('#allBtn').textContent = showAll ? (root === myPerson() ? 'Ver só a sua família' : 'Ver só a família de ' + first) : `Ver todas as pessoas (${all.length})`;
   $('#index').innerHTML = list.length ? list.map(p => `<li><button type="button" data-go="${esc(p.id)}"${p.id === root ? ' class="me"' : ''}>${esc(dn(p))} <span>${esc(yr(p))}</span></button></li>`).join('') : '<li class="none">A árvore ainda está vazia. Comece adicionando alguém.</li>';
-  $('#backBtn').hidden = !trail.some(id => P(id) && id !== focus);
-  const home = $('#homeBtn'), r = rootPerson();
-  home.hidden = !r || r === focus;
-  home.textContent = r && r === myPerson() ? 'Voltar para mim' : 'Voltar ao início';
   $('#whoHint').hidden = !(me && !isGuest() && !myPerson());
 }
 $('#allBtn').addEventListener('click', () => { showAll = !showAll; renderIndex(); });
-$('#backBtn').addEventListener('click', () => { if (goBack()) scrollTo({ top: $('#chartTitle').offsetTop - 10, behavior: 'smooth' }); });
-$('#homeBtn').addEventListener('click', () => { const r = rootPerson(); if (r) { setFocus(r); scrollTo({ top: $('#chartTitle').offsetTop - 10, behavior: 'smooth' }); } });
+// Controles de dentro do cartão da pessoa: voltar para a ficha anterior, voltar para a sua própria
+// ficha (e recentrar a árvore nela), ouvir em voz alta e ir ver a árvore a partir desta pessoa.
+function updateCardNav() {
+  $('#cardBack').hidden = !trail.some(id => P(id) && id !== focus);
+  const home = $('#cardHome'), r = rootPerson();
+  home.hidden = !r || r === focus;
+  home.textContent = r && r === myPerson() ? 'Voltar para mim' : 'Voltar ao início';
+}
+$('#cardBack').addEventListener('click', goBack);
+$('#cardHome').addEventListener('click', () => { const r = rootPerson(); if (r) go(r); });
+$('#cardTree').addEventListener('click', () => { anchor = focus; renderTree(); pdlg.close(); });
+pdlg.addEventListener('close', () => { if ('speechSynthesis' in window) speechSynthesis.cancel(); $('#cardSpeak').textContent = '🔊 Ouvir'; });
+// Lê a ficha em voz alta, como se alguém estivesse contando: quem é, filho de quem, onde nasceu,
+// com quem casou, os filhos que teve. Usa a leitura do próprio navegador (sem custo, sem internet).
+function speakPerson(p) {
+  if (!p || !('speechSynthesis' in window)) return;
+  const parts = [dn(p, nickOf(p) || p.name) + '.'];
+  const father = P(p.fatherId), mother = P(p.motherId);
+  if (father || mother) parts.push(`${p.sex === 'f' ? 'Filha' : p.sex === 'm' ? 'Filho' : 'Filho ou filha'} de ${[father?.name, mother?.name].filter(Boolean).join(' e ')}.`);
+  if (p.birth || p.birthPlace) parts.push(`Nasceu${p.birth ? ' em ' + p.birth : ''}${p.birthPlace ? ', em ' + p.birthPlace : ''}.`);
+  const sps = spousesOf(p.id).map(P).filter(Boolean);
+  if (sps.length) parts.push(`${p.sex === 'f' ? 'Casada' : 'Casado'} com ${sps.map(s => s.name).join(' e ')}.`);
+  const kids = childrenOf(p.id);
+  if (kids.length) parts.push(`${kids.length === 1 ? 'Teve um filho ou filha' : 'Teve ' + kids.length + ' filhos'}: ${kids.map(k => k.name).join(', ')}.`);
+  if (p.death || p.deathPlace) parts.push(`Faleceu${p.death ? ' em ' + p.death : ''}${p.deathPlace ? ', em ' + p.deathPlace : ''}.`);
+  if (p.notes) parts.push(p.notes);
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(parts.join(' '));
+  u.lang = 'pt-BR';
+  u.onend = u.onerror = () => { $('#cardSpeak').textContent = '🔊 Ouvir'; };
+  $('#cardSpeak').textContent = '⏹ Parar';
+  speechSynthesis.speak(u);
+}
+$('#cardSpeak').addEventListener('click', () => {
+  if ('speechSynthesis' in window && speechSynthesis.speaking) { speechSynthesis.cancel(); $('#cardSpeak').textContent = '🔊 Ouvir'; return; }
+  speakPerson(P(focus));
+});
 const q = $('#q'), res = $('#results');
 function search() {
   const t = norm(q.value.trim()); if (!t) { res.style.display = 'none'; return; }
@@ -465,9 +537,9 @@ const FIELDS = ['name', 'given', 'nick', 'sex', 'birth', 'birthPlace', 'death', 
 const DESC = { nao_teve: 'Não teve descendentes', nao_deixou: 'Não deixou descendentes' };
 const COLOR = { branca: 'Branca', preta: 'Preta', parda: 'Parda', amarela: 'Amarela', indigena: 'Indígena' };
 const dlg = $('#dlg'), form = $('#form');
-function fillSelect(sel, val, excl) {
+function fillSelect(sel, val, excl, addNew) {
   const opts = Object.values(people).filter(p => p.id !== excl).sort(byName);
-  sel.innerHTML = '<option value="">Não informado</option>' + opts.map(p => `<option value="${esc(p.id)}">${esc(dn(p))}${yr(p) !== '—' ? ' (' + esc(yr(p)) + ')' : ''}</option>`).join('');
+  sel.innerHTML = '<option value="">Não informado</option>' + opts.map(p => `<option value="${esc(p.id)}">${esc(dn(p))}${yr(p) !== '—' ? ' (' + esc(yr(p)) + ')' : ''}</option>`).join('') + (addNew ? '<option value="__new__">+ Pessoa nova…</option>' : '');
   sel.value = val || '';
 }
 /* ---------- datas: dia, mês e ano em listas (no celular abrem como rolagem) ---------- */
@@ -515,7 +587,7 @@ function openForm(id, c = {}) {
   for (const f of FIELDS) { const el = form.elements[f]; if (el.tagName !== 'SELECT' || f === 'sex' || f === 'color' || f === 'descendants') el.value = p[f] || ''; }
   document.querySelectorAll('.datef').forEach(b => b.load());
   form.elements.minorConsent.checked = false; formRules();
-  fillSelect(form.elements.fatherId, p.fatherId, id); fillSelect(form.elements.motherId, p.motherId, id); fillSelect(form.elements.spouseId, p.spouseId, id);
+  fillSelect(form.elements.fatherId, p.fatherId, id, !!id); fillSelect(form.elements.motherId, p.motherId, id, !!id); fillSelect(form.elements.spouseId, p.spouseId, id, !!id);
   $('#parentHint').hidden = !c.childOf;
   // Só preenche o outro pai/mãe quando a pessoa tem um único cônjuge ou companheiro conhecido.
   if (c.childOf) { const par = P(c.childOf), sp = [...new Set([...spousesOf(par.id), ...childrenOf(par.id).map(k => k.fatherId === par.id ? k.motherId : k.fatherId).filter(x => x && P(x))])]; form.elements[par.sex === 'f' ? 'motherId' : 'fatherId'].value = par.id; if (sp.length === 1) form.elements[par.sex === 'f' ? 'fatherId' : 'motherId'].value = sp[0]; }
@@ -539,6 +611,14 @@ function formRules() {
   $('#sensHint').hidden = selfOrDead;
 }
 form.addEventListener('input', formRules); form.addEventListener('change', formRules);
+// Pai/Mãe/Cônjuge só listam quem já está cadastrado; "+ Pessoa nova" manda para o formulário certo em vez de travar a busca.
+for (const [field, role] of [['fatherId', 'father'], ['motherId', 'mother'], ['spouseId', 'spouse']]) {
+  form.elements[field].addEventListener('change', e => {
+    if (e.target.value !== '__new__' || !editing) return;
+    const who = editing;
+    openForm(null, role === 'spouse' ? { spouseOf: who } : { parentOf: who, parentRole: role });
+  });
+}
 form.addEventListener('submit', async e => {
   e.preventDefault(); if (ctx.confirmDel) return;
   const d = {}; for (const f of FIELDS) d[f] = String(form.elements[f].value || '').trim();
@@ -584,6 +664,15 @@ lform.addEventListener('submit', async e => {
   e.preventDefault();
   try { await api(`/api/people/${encodeURIComponent(linkPerson)}/links`, { method: 'POST', body: { url: lform.elements.url.value, title: lform.elements.title.value } }); ldlg.close(); await load(); }
   catch (err) { $('#lErr').textContent = err.message; }
+});
+
+/* ---------- ligação com outro livro ---------- */
+$('#xform').addEventListener('submit', async e => {
+  e.preventDefault(); const f = e.target, p = P(focus); if (!p) return;
+  try {
+    await api('/api/cross-link/request', { method: 'POST', body: { personId: p.id, toBook: f.elements.toBook.value, guessName: f.elements.guessName.value } });
+    $('#xdlg').close(); await load();
+  } catch (err) { $('#xErr').textContent = err.message; }
 });
 
 /* ---------- documentos ---------- */
@@ -728,8 +817,16 @@ async function loadBookRequests() {
     <div class="actions small">${r.status === 'pending' ? `<button type="button" data-bookreq="${r.id}" data-act2="done">Marcar como atendido</button>` : `<button type="button" class="link" data-bookreq="${r.id}" data-act2="reopen">reabrir</button>`}<button type="button" class="link danger" data-bookreq="${r.id}" data-act2="delete">apagar</button></div></div>`).join('') : '<p class="none">Nenhum pedido ainda. Divulgue o endereço /comecar.</p>';
   $('#codeBooks').innerHTML = d.codeBooks && d.codeBooks.length ? `<p class="note"><b>Livros criados (${d.codeBooks.length}):</b></p><ul class="notes">${d.codeBooks.map(b => `<li><b>${esc(b.code)}</b> · ${esc(b.family)}${b.place ? ' · ' + esc(b.place) : ''} · <a href="${esc(b.url)}" target="_blank">abrir</a><small>${esc(b.email)} · ${esc(fmtDate(b.createdAt))}</small></li>`).join('')}</ul>` : '';
 }
+async function loadCrossLinks() {
+  const d = await api('/api/admin/cross-links');
+  $('#xlCount').textContent = d.pending.length ? `(${d.pending.length} aguardando)` : '';
+  const opts = Object.values(people).sort(byName).map(p => `<option value="${esc(p.id)}">${esc(p.name)}${yr(p) !== '—' ? ' (' + esc(yr(p)) + ')' : ''}</option>`).join('');
+  $('#xlList').innerHTML = d.pending.length ? d.pending.map(x => `<div class="alert"><p>${esc(x.title)}</p>${x.fromPerson?.photoUrl ? `<img src="${esc(x.fromPerson.photoUrl)}" alt="" style="height:60px;width:60px;border-radius:50%;object-fit:cover">` : ''}
+    <p class="note">${esc(fmtDate(x.createdAt))}</p>
+    <div class="actions small"><select data-xlsel="${x.id}"><option value="">Quem é, na sua árvore?</option>${opts}</select><button type="button" class="primary" data-xldecide="${x.id}">Confirmar</button><button type="button" class="link danger" data-xlreject="${x.id}">Não é a mesma pessoa</button></div></div>`).join('') : '<p class="none">Nenhum pedido de ligação aguardando.</p>';
+}
 async function loadAdmin() {
-  loadBookRequests().catch(() => {}); loadReports().catch(() => {});
+  loadBookRequests().catch(() => {}); loadReports().catch(() => {}); loadCrossLinks().catch(() => {});
   $('#famform').elements.name.value = familyName;
   $('#aErr').textContent = '';
   loadFamilyLink().catch(err => $('#aErr').textContent = err.message);
@@ -744,7 +841,7 @@ async function loadAdmin() {
   const open = d.invites.filter(i => !i.usedBy && i.expires > Date.now());
   $('#invites').innerHTML = open.length ? `<p class="note">Convites ainda não usados (valem 30 dias):</p><table class="tbl"><tbody>${open.map(i => `<tr><td>${esc(i.label || 'sem nome')}</td><td>${ROLE[i.role]}</td><td><button type="button" class="link" data-copy="${esc(i.token)}">copiar link</button> <button type="button" class="link" data-revoke="${esc(i.token)}">cancelar</button></td></tr>`).join('')}</tbody></table>` : '';
 }
-$('#adminBtn').addEventListener('click', async () => { $('#newInvite').hidden = true; $('#adlg').showModal(); try { await loadAdmin(); for (const [sec, id] of [['relatos', '#relCount'], ['pedidos', '#reqCount'], ['sugestoes', '#sugCount'], ['livros', '#bookCount'], ['denuncias', '#repCount']]) if ($(id).textContent.trim()) $(`.asec[data-sec="${sec}"]`).open = true; } catch (err) { $('#aErr').textContent = err.message; } });
+$('#adminBtn').addEventListener('click', async () => { $('#newInvite').hidden = true; $('#adlg').showModal(); try { await loadAdmin(); for (const [sec, id] of [['relatos', '#relCount'], ['pedidos', '#reqCount'], ['sugestoes', '#sugCount'], ['livros', '#bookCount'], ['ligacoes', '#xlCount'], ['denuncias', '#repCount']]) if ($(id).textContent.trim()) $(`.asec[data-sec="${sec}"]`).open = true; } catch (err) { $('#aErr').textContent = err.message; } });
 const inviteUrl = t => `${location.origin}${BASE}/convite/${t}`;
 async function copy(text, btn) { try { await navigator.clipboard.writeText(text); if (btn) { const t = btn.textContent; btn.textContent = 'copiado'; setTimeout(() => btn.textContent = t, 2000); } } catch {} }
 $('#iform').addEventListener('submit', async e => {
@@ -783,6 +880,13 @@ $('#adlg').addEventListener('click', async e => {
   if (e.target.closest('#famOff')) { if (!(await confirmBtn(e.target.closest('#famOff')))) return; await api('/api/admin/family-link', { method: 'DELETE' }).catch(err => $('#aErr').textContent = err.message); loadFamilyLink(); return; }
   const rpc = e.target.closest('[data-repclose]'); if (rpc) { await api(`/api/admin/reports/${rpc.dataset.repclose}/close`, { method: 'POST' }).catch(err => $('#aErr').textContent = err.message); loadReports(); return; }
   const ab = e.target.closest('[data-bookapprove]'); if (ab) { await approveBook(ab); return; }
+  const xd = e.target.closest('[data-xldecide]'); if (xd) {
+    const sel = $(`[data-xlsel="${xd.dataset.xldecide}"]`);
+    if (!sel.value) { $('#aErr').textContent = 'Escolha quem ela é, na sua árvore.'; return; }
+    await api(`/api/admin/cross-links/${xd.dataset.xldecide}/decide`, { method: 'POST', body: { matchPersonId: sel.value } }).catch(err => $('#aErr').textContent = err.message);
+    loadCrossLinks(); return;
+  }
+  const xr = e.target.closest('[data-xlreject]'); if (xr) { if (!(await confirmBtn(xr))) return; await api(`/api/admin/cross-links/${xr.dataset.xlreject}/decide`, { method: 'POST', body: {} }).catch(err => $('#aErr').textContent = err.message); loadCrossLinks(); return; }
   const br = e.target.closest('[data-bookreq]'); if (br) { if (br.dataset.act2 === 'delete' && !(await confirmBtn(br))) return; await api(`/api/admin/book-requests/${br.dataset.bookreq}/${br.dataset.act2}`, { method: 'POST' }).catch(err => $('#aErr').textContent = err.message); loadBookRequests(); return; }
   const pk = e.target.closest('[data-personok]'); if (pk) { await api('/api/admin/users/' + pk.dataset.personok, { method: 'PUT', body: { personId: pk.dataset.pid } }).catch(err => $('#aErr').textContent = err.message); await loadAdmin(); load(); return; }
   const du = e.target.closest('[data-deluser]'); if (du) { if (!(await confirmBtn(du))) return; await api('/api/admin/users/' + du.dataset.deluser, { method: 'DELETE' }).catch(err => $('#aErr').textContent = err.message); await loadAdmin(); load(); return; }
@@ -974,9 +1078,14 @@ $('#onform').addEventListener('submit', async e => {
     me.personId = meId; $('#ondlg').close(); focus = meId; await load();
   } catch (err) { $('#onErr').textContent = err.message; }
 });
+let firstRenderDone = false;
 function renderAll() {
-  if (!P(focus)) { const h = decodeURIComponent(location.hash.slice(1)); focus = P(h) ? h : rootPerson() || (Object.values(people).find(p => p.createdBy === me?.id)?.id || Object.keys(people)[0] || null); }
-  drawChart(); renderRecord(); renderIndex(); maybeOnboard();
+  const h = decodeURIComponent(location.hash.slice(1));
+  if (!P(focus)) focus = P(h) ? h : rootPerson() || (Object.values(people).find(p => p.createdBy === me?.id)?.id || Object.keys(people)[0] || null);
+  if (!P(anchor)) anchor = focus;
+  renderTree(); renderRecord(); renderIndex(); maybeOnboard();
+  // Um link direto para alguém (ex.: veio de um aviso por e-mail) já abre o cartão dela.
+  if (!firstRenderDone) { firstRenderDone = true; if (P(h)) pdlg.showModal(); }
 }
 addEventListener('hashchange', () => { const h = decodeURIComponent(location.hash.slice(1)); if (P(h) && h !== focus) setFocus(h); });
 

@@ -82,22 +82,31 @@
 <section class="band">
   <div class="chartbar">
     <h2 id="chartTitle">Antepassados</h2>
-    <span class="navbtns"><button type="button" id="backBtn" class="btn small" hidden aria-label="Voltar um passo">← Voltar</button>
-    <button type="button" id="homeBtn" class="btn small" hidden>Voltar para mim</button></span>
     <div class="chartopts" id="gensWrap">
       <label>Gerações <select id="gens"><option>3</option><option selected>4</option><option>5</option></select></label>
     </div>
   </div>
   <p class="hint" id="whoHint" hidden>Você ainda não está ligado a ninguém na árvore. Procure o seu nome acima, abra a sua ficha e toque em <b>Esta pessoa sou eu</b>. Depois disso, a árvore sempre começa por você.</p>
+  <p class="hint">Toque numa pessoa para abrir a ficha dela sem perder esta árvore de vista.</p>
   <div class="scroll"><div class="fig" id="fig"></div></div>
 </section>
 
-<section class="band nopad">
+<!-- Ficha de uma pessoa: abre por cima da árvore, sem trocar de página. A árvore só muda de
+     centro quando a própria pessoa escolhe "Ver a árvore desta pessoa". -->
+<dialog id="pdlg" class="fullcard">
+  <div class="cardbar">
+    <button type="button" id="cardBack" class="btn small" hidden aria-label="Voltar à ficha anterior">← Voltar</button>
+    <button type="button" id="cardHome" class="btn small" hidden>Voltar para mim</button>
+    <span class="spacer"></span>
+    <button type="button" id="cardSpeak" class="btn small">🔊 Ouvir</button>
+    <button type="button" id="cardTree" class="btn small">Ver a árvore desta pessoa</button>
+    <button type="button" class="closeDlg btn small" aria-label="Fechar a ficha">Fechar</button>
+  </div>
   <div class="record">
     <div class="slip" id="slip"></div>
     <div class="slip kin" id="kin"></div>
   </div>
-</section>
+</dialog>
 
 <section class="band nopad">
   <div class="chartbar"><h2><span id="indexTitle">Todas as pessoas</span> <span id="count" class="note"></span></h2><button type="button" id="allBtn" class="btn small" hidden></button></div>
@@ -179,6 +188,18 @@
     <label class="f">Título (ex.: Festa de 100 anos da vó)<input name="title" maxlength="200"></label>
     <div class="err" id="lErr"></div>
     <div class="actions"><button class="primary" type="submit">Salvar</button><button type="button" class="closeDlg">Cancelar</button></div>
+  </form>
+</dialog>
+
+<!-- Ligação com outro livro -->
+<dialog id="xdlg">
+  <form id="xform">
+    <h2>Esta pessoa está em outro livro?</h2>
+    <p class="note">Se a família Lopes (por exemplo) descobriu que esta pessoa também está na árvore deles, peça a ligação aqui. O administrador do outro livro confirma antes de qualquer dado aparecer dos dois lados.</p>
+    <label class="f">Código do outro livro (deixe em branco se for o livro principal)<input name="toBook" maxlength="5" style="text-transform:uppercase" placeholder="ex.: K7P2Q"></label>
+    <label class="f">Nome dela, no outro livro<input name="guessName" required maxlength="200"></label>
+    <div class="err" id="xErr"></div>
+    <div class="actions"><button class="primary" type="submit">Enviar pedido</button><button type="button" class="closeDlg">Cancelar</button></div>
   </form>
 </dialog>
 
@@ -296,6 +317,10 @@
     <p class="note">Pedidos feitos na página pública <a href="/comecar" target="_blank">/comecar</a>. Para atender, toque em <b>Aprovar e criar o livro</b>: o site cria o livro com um código curto (ex.: <code>K7P2Q</code>) e manda para a pessoa o endereço e a chave de instalação por e-mail. Cada livro é separado: outros dados, outras contas.</p>
     <div id="bookList"></div>
     <div id="codeBooks"></div>
+    </details>
+    <details class="asec" data-sec="ligacoes"><summary>Ligações entre livros <span id="xlCount" class="note"></span></summary>
+    <p class="note">Quando alguém acha que uma pessoa da árvore dele é a mesma pessoa de outro livro, o pedido aparece aqui. Escolha quem ela é, na sua árvore, para confirmar, ou recuse se não for a mesma pessoa.</p>
+    <div id="xlList"></div>
     </details>
     <details class="asec" data-sec="pedidos"><summary>Pedidos para participar <span id="reqCount" class="note"></span></summary>
     <div id="requests"></div>

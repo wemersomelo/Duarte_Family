@@ -5,6 +5,8 @@
 
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
+const http = require('http');
 const crypto = require('crypto');
 const express = require('express');
 const multer = require('multer');
@@ -31,6 +33,11 @@ const COOKIE_SECURE = process.env.COOKIE_SECURE === '1';
 const SESSION_DAYS = 60;
 const MAX_UPLOAD_MB = Number(process.env.MAX_UPLOAD_MB || 20);
 const MAX_USER_STORAGE_MB = Number(process.env.MAX_USER_STORAGE_MB || 2000);
+// Ligação entre livros: um socket interno (só no disco, nunca na internet) por onde o livro
+// principal (hub) e os livros de família se falam. Todo processo (hub ou livro) herda o mesmo
+// caminho e a mesma senha interna, porque o hub as define em si mesmo antes de abrir qualquer livro.
+const HUB_SOCK = process.env.HUB_SOCK || path.join(os.tmpdir(), 'dequem-hub.sock');
+if (!BOOK_CODE) process.env.HUB_SOCK = HUB_SOCK;
 let sharp = null; try { sharp = require('sharp'); } catch { /* sem sharp: fotos guardadas como vieram */ }
 
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -123,6 +130,16 @@ function startPerson() {
 // Nome da família deste livro: escolhido na instalação e editável em Administrar.
 const familyName = () => getSetting('familia') || BRAND.family || 'Nossa família';
 const setSetting = (k, v) => db.prepare('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(k, v);
+// O hub gera, uma vez, uma senha interna para os livros se reconhecerem no socket (nunca sai daqui).
+if (!BOOK_CODE) {
+  let hubSecret = getSetting('hub_secret');
+  if (!hubSecret) { hubSecret = crypto.randomBytes(24).toString('hex'); setSetting('hub_secret', hubSecret); }
+  process.env.HUB_SECRET = hubSecret;
+  try { fs.unlinkSync(HUB_SOCK); } catch { /* não existia */ }
+  const hubServer = http.createServer(app).listen(HUB_SOCK, () => { try { fs.chmodSync(HUB_SOCK, 0o600); } catch {} });
+  hubServer.on('error', e => console.error('socket interno do hub:', e.message));
+  hubServer.unref(); // não impede o processo de terminar sozinho (importante para os testes)
+}
 const GUEST_DAYS = 30;
 app.use((req, res, next) => {
   req.guest = false;
@@ -207,6 +224,38 @@ const isKinOfDeceased = (req, p) => !!req.user && req.user.role !== 'viewer' && 
 const canManagePerson = (req, p) => req.user.role === 'admin' || isSelf(req, p) || (owns(req, p.created_by) && !managerOf(p.id)) || isKinOfDeceased(req, p);
 // Quem remove uma nota, link ou foto: quem acrescentou, o administrador, ou a pessoa dona da ficha (confirmada).
 const canRemoveOn = (req, createdBy, pid) => (req.user.role !== 'viewer' && owns(req, createdBy)) || isManager(req, pid);
+
+// ---------- ligação entre livros (pessoa em comum entre duas famílias) ----------
+// Só o hub guarda o estado da ligação (tabela cross_links); cada livro só sabe da própria ponta.
+// A conversa entre livro e hub passa pelo socket HUB_SOCK, nunca pela internet, e carrega sempre
+// a senha interna (x-hub-secret) para ninguém de fora conseguir chamar essas rotas.
+const needHubSecret = (req, res, next) => (process.env.HUB_SECRET && req.get('x-hub-secret') === process.env.HUB_SECRET) ? next() : res.status(403).json({ error: 'Acesso interno.' });
+function callHub(method, urlPath, body) {
+  return new Promise((resolve, reject) => {
+    const data = body !== undefined ? JSON.stringify(body) : undefined;
+    const r = http.request({ socketPath: HUB_SOCK, method, path: urlPath, headers: { 'x-hub-secret': process.env.HUB_SECRET || '', ...(data ? { 'content-type': 'application/json' } : {}) } }, resp => {
+      let buf = ''; resp.on('data', c => buf += c);
+      resp.on('end', () => { let j = {}; try { j = JSON.parse(buf || '{}'); } catch { /* resposta vazia ou inválida */ } resolve({ status: resp.statusCode, body: j }); });
+    });
+    r.on('error', reject);
+    if (data) r.write(data);
+    r.end();
+  });
+}
+// Chama um livro específico pelo código ('' = livro principal) através do hub.
+const callBook = (code, method, urlPath, body) => callHub(method, (code ? '/' + code : '') + urlPath, body);
+// Nome da família de um livro, visto do hub ('' = o próprio livro principal).
+const bookFamilyName = code => code ? ((db.prepare('SELECT family FROM books WHERE code=?').get(code) || {}).family || code) : familyName();
+// pid é antepassado (pai, avô, bisavô...) de descId?
+function isAncestorOf(pid, descId, ep) {
+  ep = ep || effectiveParents();
+  let gen = [descId];
+  for (let i = 0; i < 20 && gen.length; i++) {
+    gen = gen.flatMap(x => ep[x] ? [ep[x].f, ep[x].m] : []).filter(Boolean);
+    if (gen.includes(pid)) return true;
+  }
+  return false;
+}
 
 // Limite simples de tentativas de login.
 const attempts = new Map();
@@ -316,7 +365,7 @@ function personOut(p) {
   return {
     id: p.id, name: p.name, given: p.given || '', nick: p.nick, sex: p.sex, birth: p.birth, birthPlace: p.birth_place,
     death: p.death, deathPlace: p.death_place, fatherId: p.father_id, motherId: p.mother_id,
-    spouseId: p.spouse_id, marriage: p.marriage || '', marriagePlace: p.marriage_place || '', descendants: p.descendants || '', private: !!p.private, minorOk: !!p.minor_ok, notes: p.notes, sources: p.sources, color: p.color || '', origin: p.origin || '', photoFileId: p.photo_file_id || '', createdBy: p.created_by,
+    spouseId: p.spouse_id, marriage: p.marriage || '', marriagePlace: p.marriage_place || '', descendants: p.descendants || '', private: !!p.private, minorOk: !!p.minor_ok, notes: p.notes, sources: p.sources, color: p.color || '', origin: p.origin || '', photoFileId: p.photo_file_id || '', photoPublic: !!p.photo_public, ascendPublic: !!p.ascend_public, createdBy: p.created_by,
     createdAt: p.created_at, updatedAt: p.updated_at
   };
 }
@@ -328,6 +377,7 @@ app.get('/api/status', (req, res) => {
   const pending = req.user && req.user.role === 'admin' ? db.prepare("SELECT COUNT(*) n FROM access_requests WHERE status='pending'").get().n : 0;
   const reportsN = req.user && req.user.role === 'admin' ? db.prepare("SELECT COUNT(*) n FROM reports WHERE status='open'").get().n : 0;
   const bookReqs = req.user && req.user.role === 'admin' ? db.prepare("SELECT COUNT(*) n FROM book_requests WHERE status='pending'").get().n : 0;
+  const crossLinksN = req.user && req.user.role === 'admin' ? db.prepare("SELECT COUNT(*) n FROM pending WHERE kind='cross_link' AND status='open'").get().n : 0;
   // Quem pediu acesso neste aparelho vê em que pé está o pedido (o convite em si só chega pelo e-mail).
   let request = null;
   const claim = !req.user && parseCookies(req)[CK('pedido')];
@@ -337,7 +387,7 @@ app.get('/api/status', (req, res) => {
   }
   const inboxNew = req.user && req.user.role === 'admin' ? inboxState().filter(x => x.state !== 'importado').length : 0;
   let suggestionsN = 0; if (req.user && req.user.role === 'admin') try { suggestionsN = sugestoes.suggest(db, effectiveParents).length; } catch (e) { console.error(e); }
-  res.json({ request, inboxNew, suggestions: suggestionsN, needsSetup: users === 0, termsVersion: TERMS_VERSION, needsTerms: !!(req.user && (db.prepare('SELECT terms_version v FROM users WHERE id=?').get(req.user.id) || {}).v !== TERMS_VERSION), pendingRequests: pending, bookRequests: bookReqs, reports: reportsN, hubUrl: process.env.HUB_URL || '', book: BOOK_CODE, codeLogin: mail.configured(), user: req.user || (req.guest ? { id: null, name: 'Visitante', role: 'guest' } : null), familyName: familyName(), familySuggestion: BRAND.family, brand: BRAND, defaultPerson: startPerson() });
+  res.json({ request, inboxNew, suggestions: suggestionsN, needsSetup: users === 0, termsVersion: TERMS_VERSION, needsTerms: !!(req.user && (db.prepare('SELECT terms_version v FROM users WHERE id=?').get(req.user.id) || {}).v !== TERMS_VERSION), pendingRequests: pending, bookRequests: bookReqs, crossLinks: crossLinksN, reports: reportsN, hubUrl: process.env.HUB_URL || '', book: BOOK_CODE, codeLogin: mail.configured(), user: req.user || (req.guest ? { id: null, name: 'Visitante', role: 'guest' } : null), familyName: familyName(), familySuggestion: BRAND.family, brand: BRAND, defaultPerson: startPerson() });
 });
 
 app.put('/api/admin/family-name', needAdmin, (req, res) => {
@@ -681,7 +731,7 @@ app.post('/api/access-requests', (req, res) => {
 });
 
 // ---------- leitura da árvore ----------
-app.get('/api/tree', needUserOrGuest, (req, res) => {
+app.get('/api/tree', needUserOrGuest, async (req, res) => {
   let people = db.prepare('SELECT * FROM people').all().map(personOut);
   // Ligações de pai/mãe feitas por quem não é dono do registro do filho.
   const links = db.prepare('SELECT * FROM links ORDER BY id').all();
@@ -728,7 +778,10 @@ app.get('/api/tree', needUserOrGuest, (req, res) => {
     });
   }
   const visible = x => !hiddenIds.has(x.personId) || x.createdBy === req.user.id;
-  res.json({ people, notes: notes.filter(visible), files, media: media.filter(visible), users, relatoLinks, me: req.user });
+  // Selo de ligação com outro livro (se o hub não responder a tempo, a árvore carrega sem o selo).
+  let crossLinks = {};
+  try { const r = await callHub('GET', '/_hub/cross-link/book?code=' + encodeURIComponent(BOOK_CODE)); if (r.status === 200) crossLinks = r.body.links || {}; } catch { /* hub indisponível agora */ }
+  res.json({ people, notes: notes.filter(visible), files, media: media.filter(visible), users, relatoLinks, crossLinks, me: req.user });
 });
 
 // Cada conta pode dizer quem ela é na árvore.
@@ -998,9 +1051,25 @@ app.put('/api/people/:id/photo', needUser, (req, res) => {
     if (!f || !/^image\/(jpeg|png|webp)$/.test(f.mime)) return res.status(400).json({ error: 'Escolha uma foto (JPG, PNG ou WebP) desta pessoa.' });
     if (f.doc) return res.status(400).json({ error: 'Este arquivo está marcado como documento (restrito). Para usar como foto de perfil, libere-o como foto primeiro.' });
   }
-  db.prepare('UPDATE people SET photo_file_id=?, updated_at=?, updated_by=? WHERE id=?').run(fileId, now(), req.user.id, p.id);
+  const photoPublic = 'photoPublic' in req.body ? (req.body.photoPublic ? 1 : 0) : p.photo_public;
+  db.prepare('UPDATE people SET photo_file_id=?, photo_public=?, updated_at=?, updated_by=? WHERE id=?').run(fileId, photoPublic, now(), req.user.id, p.id);
   log(req, 'escolheu foto principal', p.id, { antes: p.photo_file_id || '', depois: fileId });
-  res.json({ ok: true });
+  res.json({ ok: true, photoPublic: !!photoPublic });
+});
+// Pública: pode aparecer para outra família, se um dia confirmarem que é a mesma pessoa.
+// Ascendência pública: os descendentes dela, no outro livro, podem ver a subida de pais e avós.
+// As duas são decisão de quem cuida da ficha, não do administrador do livro sozinho.
+app.put('/api/people/:id/public-settings', needUser, (req, res) => {
+  const p = db.prepare('SELECT * FROM people WHERE id=?').get(req.params.id);
+  if (!p) return res.status(404).json({ error: 'Pessoa não encontrada.' });
+  if (req.user.role === 'viewer' && !isSelf(req, p)) return res.status(403).json({ error: 'Seu acesso é só de leitura.' });
+  if (!canManagePerson(req, p)) return res.status(403).json({ error: 'Só a própria pessoa, quem cadastrou ou o administrador muda isso.' });
+  const set = {};
+  if ('photoPublic' in req.body) set.photo_public = req.body.photoPublic ? 1 : 0;
+  if ('ascendPublic' in req.body) set.ascend_public = req.body.ascendPublic ? 1 : 0;
+  const cols = Object.keys(set);
+  if (cols.length) db.prepare(`UPDATE people SET ${cols.map(c => c + '=?').join(',')} WHERE id=?`).run(...cols.map(c => set[c]), p.id);
+  res.json({ ok: true, photoPublic: !!('photo_public' in set ? set.photo_public : p.photo_public), ascendPublic: !!('ascend_public' in set ? set.ascend_public : p.ascend_public) });
 });
 
 // ---------- documentos e fotos ----------
@@ -1482,6 +1551,171 @@ app.post('/api/admin/duplicates/not', needAdmin, (req, res) => {
   log(req, 'marcou como pessoas diferentes', null, { a: x, b: y });
   res.json({ ok: true });
 });
+
+// ---------- ligação entre livros: rotas de cada livro ----------
+// Foto pública de uma pessoa: sem precisar de conta, só se ela mesma (ou quem cuida da ficha)
+// liberou. É o que permite a foto aparecer na ficha dela em outro livro, depois de confirmada a ligação.
+app.get('/api/files/public/:personId', (req, res) => {
+  const p = db.prepare('SELECT * FROM people WHERE id=?').get(req.params.personId);
+  if (!p || !p.photo_public || !p.photo_file_id) return res.status(404).end();
+  const f = db.prepare('SELECT * FROM files WHERE id=?').get(p.photo_file_id);
+  if (!f) return res.status(404).end();
+  res.set('Content-Type', f.mime);
+  res.set('Cache-Control', 'public, max-age=3600');
+  res.sendFile(path.join(UPLOAD_DIR, path.basename(f.stored_name)));
+});
+// O que o outro livro vê desta pessoa, pelo socket interno: só o básico, nunca documentos ou notas.
+app.get('/api/_internal/person/:id/public-summary', needHubSecret, (req, res) => {
+  const p = db.prepare('SELECT * FROM people WHERE id=?').get(req.params.id);
+  if (!p) return res.status(404).json({ error: 'Não encontrada.' });
+  res.json({
+    name: p.name, given: p.given || '', birth: p.birth || '', birthPlace: p.birth_place || '', death: p.death || '', deathPlace: p.death_place || '',
+    photoUrl: (p.photo_public && p.photo_file_id) ? (BASE + '/api/files/public/' + encodeURIComponent(p.id)) : null,
+    ascendPublic: !!p.ascend_public
+  });
+});
+// Sobe pai e mãe (e os pais deles...) a partir de uma pessoa, até onde o livro tiver cadastrado.
+function buildAscendancy(id, depth) {
+  if (!id || depth > 12) return null;
+  const p = db.prepare('SELECT * FROM people WHERE id=?').get(id); if (!p) return null;
+  const ep = effectiveParents()[id] || {};
+  return {
+    id: p.id, name: p.name, given: p.given || '', birth: p.birth || '', birthPlace: p.birth_place || '', death: p.death || '', deathPlace: p.death_place || '',
+    photoUrl: (p.photo_public && p.photo_file_id) ? (BASE + '/api/files/public/' + encodeURIComponent(p.id)) : null,
+    father: ep.f ? buildAscendancy(ep.f, depth + 1) : null, mother: ep.m ? buildAscendancy(ep.m, depth + 1) : null
+  };
+}
+app.get('/api/_internal/person/:id/ascendancy', needHubSecret, (req, res) => {
+  const p = db.prepare('SELECT * FROM people WHERE id=?').get(req.params.id);
+  if (!p) return res.status(404).json({ error: 'Não encontrada.' });
+  if (!p.ascend_public) return res.status(403).json({ error: 'Esta família não liberou ver os antepassados.' });
+  res.json({ ascendancy: buildAscendancy(req.params.id, 0) });
+});
+// Chega um pedido de ligação de outro livro: vira uma pendência para o administrador decidir.
+app.post('/api/_internal/cross-link/incoming', needHubSecret, (req, res) => {
+  const { hubId, fromBook, fromFamily, fromPerson, guessName, requestedBy } = req.body;
+  if (!hubId || !fromPerson) return res.status(400).json({ error: 'Dados incompletos.' });
+  const data = JSON.stringify({ hubId, fromBook: fromBook || '', fromFamily: fromFamily || '', fromPerson, guessName: guessName || '', requestedBy: requestedBy || '' });
+  const title = `${requestedBy || 'Alguém'}, do livro da família ${fromFamily || fromBook}, acha que ${fromPerson.name} é a mesma pessoa que ${guessName || '(nome não informado)'}, na sua árvore.`;
+  const info = db.prepare("INSERT INTO pending(kind,title,data,status,created_at) VALUES('cross_link',?,?,'open',?)").run(title, data, now());
+  const ins = db.prepare('INSERT INTO notifications(user_id,person_id,text,by_user,created_at) VALUES(?,?,?,?,?)');
+  for (const a of db.prepare("SELECT id FROM users WHERE role='admin' AND active=1").all()) ins.run(a.id, null, `Pedido de ligação entre livros: a família ${fromFamily || fromBook} acha que vocês têm uma pessoa em comum.`, null, now());
+  res.json({ ok: true, pendingId: info.lastInsertRowid });
+});
+// O outro livro decidiu (confirmou ou recusou) o pedido que este livro fez.
+app.post('/api/_internal/cross-link/decided', needHubSecret, (req, res) => {
+  const { status, family } = req.body;
+  const text = status === 'confirmed' ? `A família ${family || 'do outro livro'} confirmou: é a mesma pessoa.` : `A família ${family || 'do outro livro'} disse que não é a mesma pessoa.`;
+  const ins = db.prepare('INSERT INTO notifications(user_id,person_id,text,by_user,created_at) VALUES(?,?,?,?,?)');
+  for (const a of db.prepare("SELECT id FROM users WHERE role='admin' AND active=1").all()) ins.run(a.id, null, text, null, now());
+  res.json({ ok: true });
+});
+// Pedir uma ligação: quem acha que uma pessoa da própria árvore é a mesma de outro livro.
+app.post('/api/cross-link/request', needWriter, async (req, res) => {
+  const p = db.prepare('SELECT * FROM people WHERE id=?').get(String(req.body.personId || ''));
+  if (!p) return res.status(404).json({ error: 'Pessoa não encontrada.' });
+  const toBook = String(req.body.toBook || '').trim().toUpperCase();
+  if (toBook && !/^[A-Z0-9]{5}$/.test(toBook)) return res.status(400).json({ error: 'Código de livro inválido (5 letras/números).' });
+  if (toBook === BOOK_CODE) return res.status(400).json({ error: 'Escolha outro livro, não este.' });
+  const guessName = String(req.body.guessName || '').trim().slice(0, 200);
+  if (!guessName) return res.status(400).json({ error: 'Escreva o nome dela no outro livro.' });
+  const fromPerson = {
+    id: p.id, name: p.name, given: p.given || '', birth: p.birth || '', birthPlace: p.birth_place || '', death: p.death || '', deathPlace: p.death_place || '',
+    photoUrl: (p.photo_public && p.photo_file_id) ? (BASE + '/api/files/public/' + encodeURIComponent(p.id)) : null
+  };
+  const r = await callHub('POST', '/_hub/cross-link/request', { fromBook: BOOK_CODE, fromFamily: familyName(), fromPerson, toBook, guessName, requestedBy: req.user.name }).catch(() => ({ status: 503 }));
+  if (r.status !== 200) return res.status(r.status === 404 ? 404 : 503).json({ error: r.body?.error || 'Não foi possível enviar o pedido agora. Tente de novo em alguns segundos.' });
+  log(req, 'pediu ligação com outro livro', p.id, { toBook, guessName });
+  res.json({ ok: true });
+});
+// Pendências de ligação entre livros, para o administrador decidir.
+app.get('/api/admin/cross-links', needAdmin, (req, res) => {
+  const pending = db.prepare("SELECT id,title,data,created_at createdAt FROM pending WHERE kind='cross_link' AND status='open' ORDER BY created_at DESC").all()
+    .map(r => ({ id: r.id, title: r.title, createdAt: r.createdAt, ...JSON.parse(r.data || '{}') }));
+  res.json({ pending });
+});
+app.post('/api/admin/cross-links/:id/decide', needAdmin, async (req, res) => {
+  const row = db.prepare("SELECT * FROM pending WHERE id=? AND kind='cross_link'").get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Pedido não encontrado (talvez já resolvido).' });
+  const data = JSON.parse(row.data || '{}');
+  const matchId = String(req.body.matchPersonId || ''), reject = !matchId;
+  let matchName = '';
+  if (!reject) {
+    const m = db.prepare('SELECT * FROM people WHERE id=?').get(matchId);
+    if (!m) return res.status(404).json({ error: 'Pessoa não encontrada na sua árvore.' });
+    matchName = m.name;
+  }
+  db.prepare("UPDATE pending SET status='closed' WHERE id=?").run(row.id);
+  const r = await callHub('POST', `/_hub/cross-link/${data.hubId}/decide`, { status: reject ? 'rejected' : 'confirmed', toBook: BOOK_CODE, toPerson: reject ? '' : matchId }).catch(() => ({ status: 503 }));
+  if (r.status !== 200) return res.status(503).json({ error: 'O livro principal não respondeu agora. Tente de novo em alguns segundos.' });
+  log(req, reject ? 'recusou ligação entre livros' : 'confirmou ligação entre livros', reject ? null : matchId, { outraFamilia: data.fromFamily || data.fromBook, nome: matchName });
+  res.json({ ok: true });
+});
+// Ver a subida de pais e avós da pessoa ligada, no outro livro: só quem desce dela, ou o administrador.
+app.get('/api/cross-link/:id/ascendancy', needUser, async (req, res) => {
+  const pid = req.params.id;
+  if (!exists(pid)) return res.status(404).json({ error: 'Pessoa não encontrada.' });
+  if (req.user.role !== 'admin' && !(req.user.personId && isAncestorOf(pid, req.user.personId))) return res.status(403).json({ error: 'Só quem desce desta pessoa, ou o administrador, vê isso.' });
+  const r = await callHub('GET', '/_hub/cross-link/for?book=' + encodeURIComponent(BOOK_CODE) + '&person=' + encodeURIComponent(pid)).catch(() => ({ status: 503 }));
+  if (r.status !== 200 || !r.body.found || r.body.status !== 'confirmed' || !r.body.other) return res.status(404).json({ error: 'Esta pessoa não tem ligação confirmada com outro livro.' });
+  const { book, person, family } = r.body.other;
+  const a = await callBook(book, 'GET', `/api/_internal/person/${encodeURIComponent(person)}/ascendancy`).catch(() => ({ status: 503 }));
+  if (a.status !== 200) return res.status(a.status === 403 ? 403 : 502).json({ error: a.body?.error || 'O outro livro não respondeu agora.' });
+  res.json({ family, ascendancy: a.body.ascendancy });
+});
+
+// ---------- ligação entre livros: rotas só do hub (livro principal) ----------
+if (!BOOK_CODE) {
+  app.post('/_hub/cross-link/request', needHubSecret, async (req, res) => {
+    const { fromBook, fromFamily, fromPerson, toBook, guessName, requestedBy } = req.body;
+    if (!fromPerson || typeof toBook !== 'string') return res.status(400).json({ error: 'Dados incompletos.' });
+    if (toBook && !db.prepare("SELECT 1 FROM books WHERE code=? AND status='active'").get(toBook)) return res.status(404).json({ error: 'Livro não encontrado.' });
+    const data = JSON.stringify({ guessName: guessName || '', requestedBy: requestedBy || '', fromPerson });
+    const info = db.prepare('INSERT INTO cross_links(from_book,from_person,to_book,status,data,created_at) VALUES(?,?,?,?,?,?)').run(String(fromBook || ''), String(fromPerson.id), String(toBook), 'pending', data, new Date().toISOString());
+    const id = info.lastInsertRowid;
+    const fwd = await callBook(toBook, 'POST', '/api/_internal/cross-link/incoming', { hubId: id, fromBook: fromBook || '', fromFamily: fromFamily || bookFamilyName(fromBook || ''), fromPerson, guessName, requestedBy }).catch(() => ({ status: 503 }));
+    if (fwd.status !== 200) { db.prepare('DELETE FROM cross_links WHERE id=?').run(id); return res.status(503).json({ error: 'O outro livro não respondeu agora. Tente de novo em alguns segundos.' }); }
+    res.json({ ok: true, id });
+  });
+  app.post('/_hub/cross-link/:id/decide', needHubSecret, async (req, res) => {
+    const row = db.prepare('SELECT * FROM cross_links WHERE id=?').get(req.params.id);
+    if (!row) return res.status(404).json({ error: 'Não encontrado.' });
+    const status = req.body.status === 'confirmed' ? 'confirmed' : 'rejected', toPerson = status === 'confirmed' ? String(req.body.toPerson || '') : '';
+    db.prepare('UPDATE cross_links SET status=?, to_person=?, decided_at=? WHERE id=?').run(status, toPerson, new Date().toISOString(), row.id);
+    await callBook(row.from_book, 'POST', '/api/_internal/cross-link/decided', { hubId: row.id, status, family: bookFamilyName(row.to_book) }).catch(() => {});
+    res.json({ ok: true });
+  });
+  // Ligações (pendentes ou confirmadas) que tocam um livro, para ele mostrar o selo na ficha.
+  app.get('/_hub/cross-link/book', needHubSecret, async (req, res) => {
+    const code = String(req.query.code || '');
+    const rows = db.prepare("SELECT * FROM cross_links WHERE status<>'rejected' AND (from_book=? OR to_book=?)").all(code, code);
+    const out = {};
+    for (const row of rows) {
+      const mine = row.from_book === code, myPerson = mine ? row.from_person : row.to_person;
+      if (!myPerson) continue;
+      const otherBook = mine ? row.to_book : row.from_book, otherPerson = mine ? row.to_person : row.from_person;
+      const other = { book: otherBook, family: bookFamilyName(otherBook) };
+      if (row.status === 'confirmed' && otherPerson) {
+        const r = await callBook(otherBook, 'GET', `/api/_internal/person/${encodeURIComponent(otherPerson)}/public-summary`).catch(() => ({ status: 503 }));
+        if (r.status === 200) Object.assign(other, r.body);
+      } else {
+        const d = JSON.parse(row.data || '{}');
+        other.name = mine ? (d.guessName || '') : (d.fromPerson?.name || '');
+      }
+      out[myPerson] = { requestId: row.id, status: row.status, other };
+    }
+    res.json({ links: out });
+  });
+  // Ligação confirmada de uma pessoa específica (usado para buscar a ascendência dela).
+  app.get('/_hub/cross-link/for', needHubSecret, (req, res) => {
+    const book = String(req.query.book || ''), person = String(req.query.person || '');
+    const row = db.prepare("SELECT * FROM cross_links WHERE status<>'rejected' AND ((from_book=? AND from_person=?) OR (to_book=? AND to_person=?))").get(book, person, book, person);
+    if (!row) return res.json({ found: false });
+    const mine = row.from_book === book && row.from_person === person;
+    const otherBook = mine ? row.to_book : row.from_book, otherPerson = mine ? row.to_person : row.from_person;
+    res.json({ found: true, status: row.status, other: otherPerson ? { book: otherBook, person: otherPerson, family: bookFamilyName(otherBook) } : null });
+  });
+}
 
 // ---------- páginas ----------
 // 'no-cache': o navegador sempre confere se há versão nova (rápido, usa ETag), então atualizações aparecem na hora.

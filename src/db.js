@@ -169,6 +169,20 @@ function openDb(file) {
     CREATE TABLE IF NOT EXISTS not_duplicates (
       a TEXT NOT NULL, b TEXT NOT NULL, PRIMARY KEY (a, b)
     );
+    -- Ligações entre livros de famílias diferentes (pessoa em comum). Só existe de verdade no
+    -- livro principal (o hub); nos outros livros a tabela fica criada mas vazia.
+    -- from_book/to_book: '' = livro principal. status: pending | confirmed | rejected.
+    CREATE TABLE IF NOT EXISTS cross_links (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      from_book TEXT NOT NULL,
+      from_person TEXT NOT NULL,
+      to_book TEXT NOT NULL,
+      to_person TEXT DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'pending',
+      data TEXT,
+      created_at TEXT NOT NULL,
+      decided_at TEXT
+    );
     CREATE INDEX IF NOT EXISTS relato_people_person ON relato_people(person_id);
     CREATE INDEX IF NOT EXISTS notes_person ON notes(person_id);
     CREATE INDEX IF NOT EXISTS files_person ON files(person_id);
@@ -215,6 +229,10 @@ function openDb(file) {
   if (!cols('notifications').includes('mailed_at')) db.exec(`ALTER TABLE notifications ADD COLUMN mailed_at TEXT`);
   if (!cols('users').includes('email_updates')) db.exec(`ALTER TABLE users ADD COLUMN email_updates INTEGER NOT NULL DEFAULT 1`);
   if (!cols('people').includes('photo_file_id')) db.exec(`ALTER TABLE people ADD COLUMN photo_file_id TEXT DEFAULT ''`);
+  // people.photo_public: a própria pessoa (ou quem cuida da ficha) liberou a foto de perfil para
+  // aparecer em outro livro, se um dia descobrirem parentesco. people.ascend_public: liberou que
+  // os descendentes dela, no outro livro, vejam a subida de pais e avós. As duas começam fechadas.
+  for (const c of ['photo_public', 'ascend_public']) if (!cols('people').includes(c)) db.exec(`ALTER TABLE people ADD COLUMN ${c} INTEGER NOT NULL DEFAULT 0`);
   db.prepare('DELETE FROM sessions WHERE expires < ?').run(Date.now());
   return db;
 }
