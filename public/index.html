@@ -105,6 +105,7 @@
       <label class="f">Local do casamento<input name="marriagePlace" maxlength="200" placeholder="Cidade, UF"></label>
     </div>
     <label class="f">Descendentes<select name="descendants"><option value="">Não informado (ou teve filhos)</option><option value="nao_teve">Não teve descendentes (não teve filhos)</option><option value="nao_deixou">Não deixou descendentes (teve filhos, mas nenhum deixou família)</option></select></label>
+    <p class="note">Por que duas opções: <b>"Não teve"</b> é quem nunca teve filhos; ali a linha da família termina e não há filhos para procurar. <b>"Não deixou"</b> é quem teve filhos, mas eles morreram sem ter filhos (por exemplo, o único filho morreu criança); esses filhos devem ser cadastrados, com nascimento e óbito, mas não adianta procurar netos. Se a pessoa teve filhos com família, deixe "Não informado".</p>
     <label class="f">Histórias e observações<textarea name="notes" maxlength="5000"></textarea></label>
     <label class="f">Fontes (documentos, quem contou)<textarea name="sources" maxlength="2000"></textarea></label>
     <div class="err" id="formErr"></div>
