@@ -12,6 +12,7 @@ const bcrypt = require('bcryptjs');
 const { openDb } = require('./src/db');
 const { toGedcom } = require('./src/gedcom');
 const mail = require('./src/mail');
+const BRAND = require('./src/brand');
 const { runLote, norm } = require('./src/lote');
 const relatos = require('./src/relatos');
 const sugestoes = require('./src/sugestoes');
@@ -251,8 +252,8 @@ function sendDigest(nowMs = Date.now()) {
   for (const u of db.prepare('SELECT id,email FROM users WHERE active=1 AND email_updates=1').all()) {
     const list = db.prepare('SELECT id,person_id,text FROM notifications WHERE user_id=? AND mailed_at IS NULL AND read_at IS NULL AND created_at<? AND created_at>=? ORDER BY id').all(u.id, cutoff, since);
     if (!list.length) continue;
-    const body = `Novidades no Family Book da família:\n\n${list.map(n => '• ' + n.text + (site ? `\n  ${site}/#${encodeURIComponent(n.person_id)}` : '')).join('\n')}\n\nSe algo não for verdade, corrija ou avise o administrador, para a informação errada não se espalhar.\nPara não receber mais este e-mail, desmarque a opção na janela Avisos do site.`;
-    mail.send(u.email, `Family Book: ${list.length} novidade${list.length > 1 ? 's' : ''}`, body);
+    const body = `Novidades no ${BRAND.name} da família:\n\n${list.map(n => '• ' + n.text + (site ? `\n  ${site}/#${encodeURIComponent(n.person_id)}` : '')).join('\n')}\n\nSe algo não for verdade, corrija ou avise o administrador, para a informação errada não se espalhar.\nPara não receber mais este e-mail, desmarque a opção na janela Avisos do site.`;
+    mail.send(u.email, `${BRAND.name}: ${list.length} novidade${list.length > 1 ? 's' : ''}`, body);
     db.prepare(`UPDATE notifications SET mailed_at=? WHERE id IN (${list.map(() => '?').join(',')})`).run(now(), ...list.map(n => n.id));
     sent++;
   }
@@ -302,7 +303,7 @@ app.get('/api/status', (req, res) => {
   }
   const inboxNew = req.user && req.user.role === 'admin' ? inboxState().filter(x => x.state !== 'importado').length : 0;
   let suggestionsN = 0; if (req.user && req.user.role === 'admin') try { suggestionsN = sugestoes.suggest(db, effectiveParents).length; } catch (e) { console.error(e); }
-  res.json({ request, inboxNew, suggestions: suggestionsN, needsSetup: users === 0, pendingRequests: pending, user: req.user || (req.guest ? { id: null, name: 'Visitante', role: 'guest' } : null), familyName: process.env.FAMILY_SUBTITLE || 'Família Duarte Melo', defaultPerson: startPerson() });
+  res.json({ request, inboxNew, suggestions: suggestionsN, needsSetup: users === 0, pendingRequests: pending, user: req.user || (req.guest ? { id: null, name: 'Visitante', role: 'guest' } : null), familyName: BRAND.family, brand: BRAND, defaultPerson: startPerson() });
 });
 
 app.post('/api/setup', (req, res) => {
@@ -883,7 +884,7 @@ app.post('/api/admin/access-requests/:id/approve', needAdmin, (req, res) => {
     .run(token, role, `${r.name} (${r.relation})`.slice(0, 100), r.email, req.user.id, now(), Date.now() + 30 * 864e5, who.pid);
   db.prepare("UPDATE access_requests SET status='approved', decided_by=?, decided_at=?, invite_token=? WHERE id=?").run(req.user.id, now(), token, r.id);
   log(req, 'aprovou pedido de acesso', r.email, { name: r.name, relation: r.relation, role });
-  const family = 'Family Book';
+  const family = BRAND.name;
   mail.send(r.email, `Seu acesso ao ${family} foi aprovado`,
     `Olá, ${r.name}!\n\nSeu pedido para participar do ${family}, a árvore da família, foi aprovado.\n\n${who.name ? `Você já está na árvore como ${who.name}. ` : ''}Toque no link abaixo para criar a sua senha. Ele confirma o seu e-mail e vale 30 dias:\n${baseUrl(req)}/convite/${token}\n\nDepois, é só entrar em ${baseUrl(req)} com o e-mail ${r.email} e a sua senha.\n\nSe você não pediu este acesso, ignore este e-mail.`)
     .then(mailed => res.json({ token, email: r.email, name: r.name, mailed }));
@@ -1189,6 +1190,25 @@ app.post('/api/admin/duplicates/not', needAdmin, (req, res) => {
 
 // ---------- páginas ----------
 // 'no-cache': o navegador sempre confere se há versão nova (rápido, usa ETag), então atualizações aparecem na hora.
+// Página principal e manifesto com a marca do .env (BRAND_NAME, BRAND_LINE, BRAND_SLOGAN, FAMILY_SUBTITLE).
+const escHtml = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+let indexHtml = null;
+function sendIndex(req, res) {
+  if (!indexHtml || process.env.NODE_ENV === 'development') indexHtml = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8');
+  const html = indexHtml.replace(/\{\{BRAND_NAME\}\}/g, escHtml(BRAND.name)).replace(/\{\{BRAND_LINE\}\}/g, escHtml(BRAND.line))
+    .replace(/\{\{BRAND_SLOGAN\}\}/g, escHtml(BRAND.slogan)).replace(/\{\{FAMILY\}\}/g, escHtml(BRAND.family));
+  res.set('Cache-Control', 'no-cache').type('html').send(html);
+}
+app.get(['/', '/index.html'], sendIndex);
+app.get('/manifest.webmanifest', (req, res) => res.type('application/manifest+json').set('Cache-Control', 'no-cache').send(JSON.stringify({
+  name: `${BRAND.name} · ${BRAND.line}`, short_name: BRAND.name, start_url: '/', display: 'standalone',
+  background_color: '#F8EFE6', theme_color: '#F8EFE6', lang: 'pt-BR',
+  icons: [
+    { src: '/brand/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+    { src: '/brand/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+    { src: '/brand/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }
+  ]
+}, null, 2)));
 app.use(express.static(path.join(__dirname, 'public'), { index: 'index.html', setHeaders: res => res.set('Cache-Control', 'no-cache') }));
 app.get('/familia/:token', (req, res) => {
   const current = getSetting('family_link'), t = String(req.params.token);
@@ -1199,7 +1219,7 @@ app.get('/familia/:token', (req, res) => {
   res.redirect(302, '/?link=invalido');
 });
 app.get('/robots.txt', (req, res) => res.type('text/plain').send('User-agent: *\nDisallow: /\n'));
-app.get(/^\/((convite|senha)\/[\w-]+)?$/, (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+app.get(/^\/((convite|senha)\/[\w-]+)?$/, sendIndex);
 app.use('/api', (req, res) => res.status(404).json({ error: 'Não encontrado.' }));
 // Erros: resposta simples, sem detalhes internos.
 app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars

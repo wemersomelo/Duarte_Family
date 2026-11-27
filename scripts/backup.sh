@@ -14,3 +14,12 @@ rm -f "$APP_DIR/data/backup-temp.db"
 chmod 600 "$DEST/arvore-$STAMP.tgz"
 find "$DEST" -name 'arvore-*.tgz' -mtime +30 -delete
 echo "Cópia salva: $DEST/arvore-$STAMP.tgz"
+# Livros das famílias de teste (scripts/novo-livro.sh)
+for d in "$APP_DIR"/livros/*/; do
+  [ -d "$d/data" ] || continue
+  s=$(basename "$d")
+  docker compose exec -T "livro-$s" node -e "require('better-sqlite3')('/data/arvore.db',{readonly:true}).backup('/data/backup-temp.db').then(()=>process.exit(0)).catch(e=>{console.error(e);process.exit(1)})" || continue
+  tar czf "$DEST/livro-$s-$STAMP.tgz" -C "$d/data" backup-temp.db $( [ -d "$d/data/uploads" ] && echo uploads )
+  rm -f "$d/data/backup-temp.db"; chmod 600 "$DEST/livro-$s-$STAMP.tgz"
+done
+find "$DEST" -name 'livro-*.tgz' -mtime +30 -delete

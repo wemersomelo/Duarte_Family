@@ -3,3 +3,7 @@ data/
 *.db
 *.db-*
 .env
+livros/
+docker-compose.livros.yml
+livros-caddy/*.caddy
+!livros-caddy/_vazio.caddy

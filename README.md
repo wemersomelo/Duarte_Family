@@ -96,3 +96,8 @@ Variáveis úteis: `DATA_DIR` (onde guardar os dados), `PORT`, `FAMILY_NAME`, `D
 - Cabeçalhos de proteção (CSP, HSTS, anti-iframe) e aviso para buscadores não indexarem o site.
 - Histórico de ações para o administrador; itens removidos ficam guardados no histórico e fotos removidas vão para `data/uploads/lixeira`.
 - O administrador cria links de nova senha para quem esqueceu a sua.
+
+## Marca e famílias de teste
+
+- **Trocar o nome do site:** no `.env`, mude `BRAND_NAME`, `BRAND_LINE`, `BRAND_SLOGAN` e `FAMILY_SUBTITLE` e rode `docker compose up -d`. O título, a tela de entrada, o topo, o app do celular e os e-mails mudam juntos. O logo fica em `public/brand/`.
+- **Abrir um livro para outra família (teste):** `scripts/novo-livro.sh <apelido> <endereço> "<Nome da família>" <e-mail>`. Cria um site separado no mesmo servidor, com dados, contas e senha de instalação próprios, e o endereço no Caddy. O endereço precisa apontar para o servidor (registro A). As cópias de segurança diárias já incluem os livros.

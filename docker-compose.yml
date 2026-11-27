@@ -19,6 +19,7 @@ services:
       DOMAIN: ${DOMAIN}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./livros-caddy:/etc/caddy/livros:ro
       - caddy_data:/data
     depends_on:
       - arvore

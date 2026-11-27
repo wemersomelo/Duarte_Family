@@ -6,3 +6,6 @@
 	header -Server
 	reverse_proxy arvore:3000
 }
+
+# Famílias de teste (scripts/novo-livro.sh): cada uma com o seu endereço.
+import /etc/caddy/livros/*.caddy
