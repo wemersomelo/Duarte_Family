@@ -156,6 +156,12 @@ function kinOfDeceased(myPid, ep) {
   const dead = new Set(db.prepare('SELECT * FROM people').all().map(personOut).filter(isDeceased).map(p => p.id));
   return new Set([...out].filter(id => dead.has(id)));
 }
+// Contas dos parentes diretos de um falecido (para quem não pode corrigir saber com quem falar).
+function kinContacts(pid) {
+  const ep = effectiveParents();
+  return db.prepare("SELECT id,name,person_id FROM users WHERE person_id<>'' AND person_ok=1 AND active=1 AND role<>'viewer'").all()
+    .filter(u => kinOfDeceased(u.person_id, ep).has(pid)).map(u => u.name);
+}
 const isKinOfDeceased = (req, p) => !!req.user && req.user.role !== 'viewer' && req.user.personOk && kinOfDeceased(req.user.personId).has(p.id);
 // Quem altera a ficha: o administrador, a própria pessoa, quem a cadastrou (enquanto ela não assumir a própria ficha)
 // e, se a pessoa já faleceu, os parentes diretos dela.
@@ -440,6 +446,12 @@ function notifyAdmins(req, subject, text) {
   const admins = db.prepare("SELECT email FROM users WHERE role='admin' AND active=1 AND id<>?").all(req.user.id).map(u => u.email);
   if (admins.length) mail.send(admins.join(','), subject, text + `\n\n${baseUrl(req)}`);
 }
+app.get('/api/people/:id/kin-contacts', needUser, (req, res) => {
+  const p = db.prepare('SELECT * FROM people WHERE id=?').get(req.params.id);
+  if (!p) return res.status(404).json({ error: 'Pessoa não encontrada.' });
+  const admins = db.prepare("SELECT name FROM users WHERE role='admin' AND active=1").all().map(u => u.name);
+  res.json({ contacts: kinContacts(p.id), admins });
+});
 app.put('/api/me/person', needUser, (req, res) => {
   const pid = String(req.body.personId || '');
   if (pid && !exists(pid)) return res.status(404).json({ error: 'Pessoa não encontrada.' });
@@ -529,6 +541,7 @@ app.put('/api/people/:id', needUser, (req, res) => {
   const p = db.prepare('SELECT * FROM people WHERE id=?').get(req.params.id);
   if (!p) return res.status(404).json({ error: 'Pessoa não encontrada.' });
   if (req.user.role === 'viewer' && !isSelf(req, p)) return res.status(403).json({ error: 'Seu acesso é só de leitura.' });
+  if (!canManagePerson(req, p) && isDeceased(personOut(p))) { const k = kinContacts(p.id); return res.status(403).json({ error: `Só os parentes diretos de ${p.name} (cônjuge, pais, irmãos, filhos, netos e bisnetos) ou o administrador podem alterar esta ficha. ${k.length ? 'Entre em contato com: ' + k.join(', ') + '.' : 'Nenhum parente direto tem conta ainda; fale com o administrador.'}` }); }
   if (!canManagePerson(req, p)) return res.status(403).json({ error: managerOf(p.id) ? 'Esta ficha agora é administrada pela própria pessoa. Use "Acrescentar informação".' : 'Você só pode alterar o que você mesmo adicionou. Use "Acrescentar informação".' });
   const d = clean(req.body);
   if ('name' in d && !d.name) return res.status(400).json({ error: 'O nome não pode ficar vazio.' });

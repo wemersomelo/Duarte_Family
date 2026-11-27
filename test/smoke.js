@@ -325,7 +325,8 @@ function client() {
     const nk = client(); await nk('POST', '/api/invites/' + tk, { name: 'Neto', email: 'neto@ex.com', password: 'senha-forte-7' });
     assert.equal((await nk('PUT', '/api/people/' + av, { deathPlace: 'Sooretama' })).status, 200, 'neto corrige o avô falecido');
     assert.equal((await nk('PUT', '/api/people/' + bis, { deathPlace: 'Itaipé' })).status, 200, 'bisneto corrige o bisavô');
-    assert.equal((await nk('PUT', '/api/people/' + tioMorto, { deathPlace: 'X' })).status, 403, 'tio não é parente direto');
+    { const r = await nk('PUT', '/api/people/' + tioMorto, { deathPlace: 'X' }); assert.equal(r.status, 403, 'tio não é parente direto'); assert.match(r.data.error, /parentes diretos/); }
+    { const k = (await nk('GET', `/api/people/${bis}/kin-contacts`)).data; assert.ok(k.contacts.includes('Neto'), 'lista quem pode corrigir'); }
     assert.equal((await nk('PUT', '/api/people/' + primoMorto, { deathPlace: 'X' })).status, 403, 'primo não');
     assert.equal((await nk('PUT', '/api/people/' + tioVivo, { birth: '1951' })).status, 403, 'vivo não');
     assert.equal((await nk('DELETE', '/api/people/' + av)).status, 403, 'não exclui');

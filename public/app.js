@@ -276,6 +276,7 @@ function renderRecord() {
   ${isGuest() ? '' : `<p class="by">Registrado por ${esc(who(p.createdBy))}${p.managedBy ? ` · ficha administrada pela própria pessoa${p.managedBy === me.id ? ' (você)' : ''}` : ''}</p>`}
   ${p.living ? '<p class="none">Dados de pessoas vivas (datas, lugares, fotos e lembranças) ficam visíveis só para quem tem convite.</p>' : ''}
   ${canContribute() ? `<div class="actions">${canWrite() ? '<button type="button" class="primary" data-act="note">+ Acrescentar informação</button>' : ''}<button type="button"${canWrite() ? '' : ' class="primary"'} data-act="memory">+ Deixar uma lembrança</button><button type="button" data-act="files">+ Fotos e documentos</button><button type="button" data-act="link">+ Vídeo ou link</button></div>` : ''}
+  ${!ed && isDead(p) && canContribute() && !isGuest() ? '<div class="actions small"><button type="button" data-act="kinask">Corrigir dados</button></div><div id="kinMsg"></div>' : ''}
   ${canWrite() || ed ? `<div class="actions small">${ed ? `<button type="button"${isSelfP(p) ? ' class="primary"' : ''} data-act="edit">${isSelfP(p) ? 'Editar meus dados' : 'Editar'}</button>` : ''}${canWrite() ? (p.fatherId || p.motherId ? '<button type="button" data-act="sibling">+ Irmão ou irmã</button>' : '') + '<button type="button" data-act="child">+ Filho ou filha</button><button type="button" data-act="spouse">+ Cônjuge</button>' : ''}${ownsP(p) ? '<button type="button" class="danger" data-act="del">Excluir</button>' : ''}</div>` : ''}
   ${p.living ? '' : `<h4>Fotos e documentos (${pf.length})</h4>
   ${pf.length ? `<div class="docs">${pf.map(f => `<div class="doc${f.id === p.photoFileId ? ' main' : ''}"><button type="button" class="thumb${f.mime === 'application/pdf' ? ' pdf' : ''}" data-view="${esc(f.id)}" ${isImg(f) ? `style="background-image:url('/api/files/${encodeURIComponent(f.id)}')"` : ''} aria-label="Abrir ${esc(f.name)}">${f.mime === 'application/pdf' ? 'PDF' : /hei[cf]/.test(f.mime) ? 'HEIC' : ''}</button><small title="${esc(f.caption || f.name)}">${esc(f.caption || f.name)}</small>${f.doc ? '<small class="docb" title="Só o administrador vê">documento · só você vê</small>' : ''}${f.id === p.photoFileId ? '<small class="star">foto principal</small>' : ed && isImg(f) && !f.doc ? `<button type="button" class="link" data-mainphoto="${esc(f.id)}">usar como foto principal</button>` : ''}${me.role === 'admin' && f.mime !== 'application/pdf' ? `<button type="button" class="link" data-docflag="${esc(f.id)}" data-to="${f.doc ? 0 : 1}">${f.doc ? 'liberar como foto' : 'marcar como documento'}</button>` : ''}${mine(f) ? `<button type="button" class="link" data-rmfile="${esc(f.id)}">remover</button>` : ''}</div>`).join('')}</div>` : '<p class="none">Nenhum ainda.</p>'}
@@ -334,6 +335,14 @@ document.addEventListener('click', async e => {
   if (a.dataset.act === 'memory') openNote(p.id, 'memory');
   if (a.dataset.act === 'link') openLink(p.id);
   if (a.dataset.act === 'files') openFiles(p.id);
+  if (a.dataset.act === 'kinask') {
+    api(`/api/people/${encodeURIComponent(p.id)}/kin-contacts`).then(r => {
+      $('#kinMsg').innerHTML = `<div class="hint"><p><b>Só os parentes diretos de ${esc(p.name)}</b> (cônjuge, pais, irmãos, filhos, netos e bisnetos) ou o administrador podem alterar esta ficha.</p>
+        <p>${r.contacts.length ? 'Entre em contato com: <b>' + r.contacts.map(esc).join(', ') + '</b>' + (r.admins.length ? ', ou com o administrador (' + r.admins.map(esc).join(', ') + ')' : '') + '.' : 'Nenhum parente direto tem conta ainda. Fale com o administrador' + (r.admins.length ? ' (' + r.admins.map(esc).join(', ') + ')' : '') + '.'}</p>
+        <p>Enquanto isso, use <b>+ Acrescentar informação</b> para deixar a correção registrada na ficha, com a fonte.</p></div>`;
+    }).catch(err => alertStatus(err));
+    return;
+  }
   if (a.dataset.act === 'isme' || a.dataset.act === 'notme') {
     (async () => {
       const pid = a.dataset.act === 'isme' ? p.id : '';
