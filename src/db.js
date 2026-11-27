@@ -181,6 +181,7 @@ function openDb(file) {
   // passa a administrar a própria ficha e quem a cadastrou perde o direito de alterá-la.
   if (!cols('users').includes('person_ok')) db.exec(`ALTER TABLE users ADD COLUMN person_ok INTEGER NOT NULL DEFAULT 0`);
   // users.email_updates: 1 = quer receber por e-mail os avisos da família (perguntado ao criar a conta)
+  if (!cols('notifications').includes('mailed_at')) db.exec(`ALTER TABLE notifications ADD COLUMN mailed_at TEXT`);
   if (!cols('users').includes('email_updates')) db.exec(`ALTER TABLE users ADD COLUMN email_updates INTEGER NOT NULL DEFAULT 1`);
   if (!cols('people').includes('photo_file_id')) db.exec(`ALTER TABLE people ADD COLUMN photo_file_id TEXT DEFAULT ''`);
   db.prepare('DELETE FROM sessions WHERE expires < ?').run(Date.now());

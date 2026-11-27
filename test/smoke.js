@@ -293,8 +293,7 @@ function client() {
     const pr = client(); await pr('POST', '/api/invites/' + tok2, { name: 'Primo', email: 'primo2@ex.com', password: 'senha-forte-8' });
     const mail = require('../src/mail'); Object.assign(process.env, { SMTP_HOST: 'test', SMTP_USER: 'a@ex.com', SMTP_PASS: 'x' }); mail.sent.length = 0;
     await pr('PUT', '/api/me/person', { personId: outro });
-    await new Promise(r => setTimeout(r, 100));
-    assert.ok(mail.sent.some(m => /se identificou/.test(m.subject)), 'admin recebe aviso');
+    assert.ok((await admin('GET', '/api/notifications')).data.notifications.some(n => /tocou em "Esta pessoa sou eu"/.test(n.text)), 'admin recebe aviso');
     assert.equal((await tia('PUT', '/api/people/' + outro, { birth: '1980' })).status, 403, 'quem cadastrou perde a edição na hora');
     await pr('PUT', '/api/people/' + outro, { birth: '1999', birthPlace: 'Lugar Errado' });
     await pr('POST', `/api/people/${outro}/notes`, { text: 'nota do impostor', kind: 'info' });
@@ -308,8 +307,7 @@ function client() {
     assert.equal(po.birth, '1950'); assert.equal(po.birthPlace || '', '', 'dados voltaram');
     assert.ok(t2.notes.some(n => n.text === 'nota antiga da tia'), 'nota removida voltou');
     assert.ok(!t2.notes.some(n => n.text === 'nota do impostor'), 'nota acrescentada saiu');
-    await new Promise(r => setTimeout(r, 100));
-    assert.ok(mail.sent.some(m => /não é/.test(m.subject)), 'admin avisado do "não sou eu"');
+    assert.ok((await admin('GET', '/api/notifications')).data.notifications.some(n => /"não sou eu"/.test(n.text)), 'admin avisado do "não sou eu"');
     for (const k of ['SMTP_HOST', 'SMTP_USER', 'SMTP_PASS']) delete process.env[k];
     assert.equal((await tia('PUT', '/api/people/' + outro, { birth: '1951' })).status, 200, 'quem cadastrou volta a editar'); }
 
@@ -342,6 +340,27 @@ function client() {
       await q('PUT', '/api/me/email-updates', { on: true });
       assert.equal((await q('GET', '/api/notifications')).data.emailUpdates, true, 'muda depois em Avisos'); }
     assert.equal((await nk('GET', '/api/notifications')).data.emailUpdates, true, 'padrão: recebe');
+    { // resumo diário: meia-noite de Brasília, avisos até as 20h do dia anterior, 1 e-mail por dia
+      const mail = require('../src/mail'); Object.assign(process.env, { SMTP_HOST: 'test', SMTP_USER: 'a@ex.com', SMTP_PASS: 'x' }); mail.sent.length = 0;
+      const { db } = require('../server');
+      const t = Date.now(), d0 = new Date(t - 3 * 3600e3).toISOString().slice(0, 10);
+      const mid = Date.UTC(+d0.slice(0, 4), +d0.slice(5, 7) - 1, +d0.slice(8, 10)) + 3 * 3600e3; // 00:00 de Brasília, hoje
+      const uid = (await admin('GET', '/api/admin')).data.users.find(u => u.email === 'neto@ex.com').id;
+      const at = ms => new Date(ms).toISOString();
+      db.prepare('UPDATE notifications SET mailed_at=?, read_at=? WHERE user_id=?').run(at(t), at(t), uid);
+      db.prepare('INSERT INTO notifications(user_id,person_id,text,created_at) VALUES(?,?,?,?)').run(uid, av, 'antes das 20h', at(mid - 5 * 3600e3));
+      db.prepare('INSERT INTO notifications(user_id,person_id,text,created_at) VALUES(?,?,?,?)').run(uid, av, 'depois das 20h', at(mid - 2 * 3600e3));
+      require('../server').db.prepare("DELETE FROM settings WHERE key='resumo_enviado'").run();
+      app.locals.sendDigest(mid + 60e3);
+      await new Promise(r => setTimeout(r, 100));
+      const m = mail.sent.filter(x => x.to === 'neto@ex.com');
+      assert.equal(m.length, 1, 'um e-mail');
+      assert.ok(/antes das 20h/.test(m[0].text) && !/depois das 20h/.test(m[0].text), 'só o que foi até as 20h');
+      app.locals.sendDigest(mid + 3600e3); await new Promise(r => setTimeout(r, 100));
+      assert.equal(mail.sent.filter(x => x.to === 'neto@ex.com').length, 1, 'no máximo 1 por dia');
+      app.locals.sendDigest(mid + 86400e3 + 60e3); await new Promise(r => setTimeout(r, 100));
+      assert.ok(/depois das 20h/.test(mail.sent.filter(x => x.to === 'neto@ex.com')[1]?.text || ''), 'o resto vai na meia-noite seguinte');
+      for (const k of ['SMTP_HOST', 'SMTP_USER', 'SMTP_PASS']) delete process.env[k]; }
     await nk('POST', '/api/notifications/read');
     assert.equal((await nk('GET', '/api/notifications')).data.unread, 0);
     assert.equal((await nk('PUT', '/api/people/' + primoMorto, { deathPlace: 'X' })).status, 403, 'primo não');

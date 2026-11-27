@@ -234,12 +234,30 @@ function notifyKin(req, action, pid, detail) {
   const to = db.prepare("SELECT id,name,email,role,person_id,email_updates FROM users WHERE active=1 AND id<>?").all(req.user.id)
     .filter(u => u.role === 'admin' || (u.person_id && (u.person_id === pid || kinOf(u.person_id, ep).has(pid))));
   const ins = db.prepare('INSERT INTO notifications(user_id,person_id,text,by_user,created_at) VALUES(?,?,?,?,?)');
-  for (const u of to) {
-    ins.run(u.id, pid, text, req.user.id, now());
-    // e-mail: no máximo um a cada 30 minutos por pessoa; o resto fica nos Avisos do site
-    const key = 'aviso_mail:' + u.id, last = Number(getSetting(key) || 0);
-    if (u.email_updates && Date.now() - last > 30 * 60e3) { setSetting(key, String(Date.now())); mail.send(u.email, `Novidade na árvore: ${p.name}`, `${text}.\n\nSe não for verdade, corrija ou avise o administrador. Veja todos os avisos no site, no botão Avisos:\n${baseUrl(req)}/#${encodeURIComponent(pid)}`); }
+  for (const u of to) ins.run(u.id, pid, text, req.user.id, now());
+  // o e-mail sai uma vez por dia, no resumo da meia-noite (sendDigest)
+}
+// Resumo diário por e-mail: sai à meia-noite de Brasília, com os avisos até as 20h do dia anterior.
+// O que acontecer depois das 20h vai no resumo da meia-noite seguinte. No máximo 1 e-mail por dia.
+const BRT = -3 * 3600e3; // Brasília, sem horário de verão
+function sendDigest(nowMs = Date.now()) {
+  const local = new Date(nowMs + BRT), day = local.toISOString().slice(0, 10);
+  if (getSetting('resumo_enviado') === day) return 0;
+  const midnightUtc = Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate()) - BRT;
+  const cutoff = new Date(midnightUtc - 4 * 3600e3).toISOString(); // 20h do dia anterior (Brasília)
+  const since = new Date(midnightUtc - 4 * 86400e3).toISOString(); // não manda avisos muito antigos
+  const site = process.env.DOMAIN ? 'https://' + process.env.DOMAIN : '';
+  let sent = 0;
+  for (const u of db.prepare('SELECT id,email FROM users WHERE active=1 AND email_updates=1').all()) {
+    const list = db.prepare('SELECT id,person_id,text FROM notifications WHERE user_id=? AND mailed_at IS NULL AND read_at IS NULL AND created_at<? AND created_at>=? ORDER BY id').all(u.id, cutoff, since);
+    if (!list.length) continue;
+    const body = `Novidades na árvore da família:\n\n${list.map(n => '• ' + n.text + (site ? `\n  ${site}/#${encodeURIComponent(n.person_id)}` : '')).join('\n')}\n\nSe algo não for verdade, corrija ou avise o administrador, para a informação errada não se espalhar.\nPara não receber mais este e-mail, desmarque a opção na janela Avisos do site.`;
+    mail.send(u.email, `Árvore da família: ${list.length} novidade${list.length > 1 ? 's' : ''}`, body);
+    db.prepare(`UPDATE notifications SET mailed_at=? WHERE id IN (${list.map(() => '?').join(',')})`).run(now(), ...list.map(n => n.id));
+    sent++;
   }
+  setSetting('resumo_enviado', day);
+  return sent;
 }
 
 // ---------- utilidades ----------
@@ -482,9 +500,10 @@ app.get('/api/me/person/changes', needUser, (req, res) => {
   const count = claim ? db.prepare("SELECT COUNT(*) n FROM activity a LEFT JOIN people p ON p.id=a.target WHERE a.user_id=? AND a.at>=? AND a.action NOT IN ('se identificou na árvore','ligado à ficha') AND (a.target=? OR (a.action IN ('editou pessoa','escolheu foto principal') AND COALESCE(p.created_by,-1)<>?))").get(req.user.id, claim.at, pid, req.user.id).n : 0;
   res.json({ count });
 });
-function notifyAdmins(req, subject, text) {
-  const admins = db.prepare("SELECT email FROM users WHERE role='admin' AND active=1 AND id<>?").all(req.user.id).map(u => u.email);
-  if (admins.length) mail.send(admins.join(','), subject, text + `\n\n${baseUrl(req)}`);
+// Aviso para os administradores: vai para os Avisos do site e entra no resumo diário por e-mail.
+function notifyAdmins(req, subject, text, pid) {
+  const ins = db.prepare('INSERT INTO notifications(user_id,person_id,text,by_user,created_at) VALUES(?,?,?,?,?)');
+  for (const a of db.prepare("SELECT id FROM users WHERE role='admin' AND active=1 AND id<>?").all(req.user.id)) ins.run(a.id, pid || null, text, req.user.id, now());
 }
 app.get('/api/people/:id/kin-contacts', needUser, (req, res) => {
   const p = db.prepare('SELECT * FROM people WHERE id=?').get(req.params.id);
@@ -521,10 +540,10 @@ app.put('/api/me/person', needUser, (req, res) => {
   if (pid) {
     log(req, 'se identificou na árvore', pid);
     const nm = db.prepare('SELECT name FROM people WHERE id=?').get(pid).name;
-    notifyAdmins(req, `${req.user.name} se identificou como ${nm}`, `${req.user.name} (${req.user.email}) tocou em "Esta pessoa sou eu" na ficha de ${nm} e agora administra essa ficha.\nSe não for a pessoa certa, abra Administrar > Pessoas com acesso e troque ou tire a ligação.`);
+    notifyAdmins(req, `${req.user.name} se identificou como ${nm}`, `${req.user.name} (${req.user.email}) tocou em "Esta pessoa sou eu" na ficha de ${nm} e agora administra essa ficha. Se não for a pessoa certa, abra Administrar > Pessoas com acesso e troque ou tire a ligação.`, pid);
   } else if (prev) {
     log(req, 'desfez a identificação na árvore', prev, { desfeitas: undone });
-    notifyAdmins(req, `${req.user.name} disse que não é ${prevName}`, `${req.user.name} (${req.user.email}) tocou em "não sou eu" na ficha de ${prevName}. ${undone ? undone + ' alteração(ões) que essa conta fez na ficha foram desfeitas automaticamente.' : 'Não havia alterações a desfazer.'}`);
+    notifyAdmins(req, `${req.user.name} disse que não é ${prevName}`, `${req.user.name} (${req.user.email}) tocou em "não sou eu" na ficha de ${prevName}. ${undone ? undone + ' alteração(ões) que essa conta fez na ficha foram desfeitas automaticamente.' : 'Não havia alterações a desfazer.'}`, prev);
   }
   res.json({ ok: true, personId: pid, undone });
 });
@@ -1189,7 +1208,9 @@ app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
   res.status(500).json({ error: 'Erro no servidor. Tente de novo.' });
 });
 
+app.locals.sendDigest = sendDigest; // usado nos testes
 if (require.main === module) {
+  setInterval(() => { try { sendDigest(); } catch (e) { console.error('resumo:', e.message); } }, 5 * 60e3);
   app.listen(PORT, () => console.log(`Árvore da Família rodando em http://localhost:${PORT} (dados em ${DATA_DIR})`));
 }
 module.exports = { app, db };
