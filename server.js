@@ -251,8 +251,8 @@ function sendDigest(nowMs = Date.now()) {
   for (const u of db.prepare('SELECT id,email FROM users WHERE active=1 AND email_updates=1').all()) {
     const list = db.prepare('SELECT id,person_id,text FROM notifications WHERE user_id=? AND mailed_at IS NULL AND read_at IS NULL AND created_at<? AND created_at>=? ORDER BY id').all(u.id, cutoff, since);
     if (!list.length) continue;
-    const body = `Novidades na árvore da família:\n\n${list.map(n => '• ' + n.text + (site ? `\n  ${site}/#${encodeURIComponent(n.person_id)}` : '')).join('\n')}\n\nSe algo não for verdade, corrija ou avise o administrador, para a informação errada não se espalhar.\nPara não receber mais este e-mail, desmarque a opção na janela Avisos do site.`;
-    mail.send(u.email, `Árvore da família: ${list.length} novidade${list.length > 1 ? 's' : ''}`, body);
+    const body = `Novidades no Family Book da família:\n\n${list.map(n => '• ' + n.text + (site ? `\n  ${site}/#${encodeURIComponent(n.person_id)}` : '')).join('\n')}\n\nSe algo não for verdade, corrija ou avise o administrador, para a informação errada não se espalhar.\nPara não receber mais este e-mail, desmarque a opção na janela Avisos do site.`;
+    mail.send(u.email, `Family Book: ${list.length} novidade${list.length > 1 ? 's' : ''}`, body);
     db.prepare(`UPDATE notifications SET mailed_at=? WHERE id IN (${list.map(() => '?').join(',')})`).run(now(), ...list.map(n => n.id));
     sent++;
   }
@@ -302,7 +302,7 @@ app.get('/api/status', (req, res) => {
   }
   const inboxNew = req.user && req.user.role === 'admin' ? inboxState().filter(x => x.state !== 'importado').length : 0;
   let suggestionsN = 0; if (req.user && req.user.role === 'admin') try { suggestionsN = sugestoes.suggest(db, effectiveParents).length; } catch (e) { console.error(e); }
-  res.json({ request, inboxNew, suggestions: suggestionsN, needsSetup: users === 0, pendingRequests: pending, user: req.user || (req.guest ? { id: null, name: 'Visitante', role: 'guest' } : null), familyName: process.env.FAMILY_NAME || 'Árvore da Família', defaultPerson: startPerson() });
+  res.json({ request, inboxNew, suggestions: suggestionsN, needsSetup: users === 0, pendingRequests: pending, user: req.user || (req.guest ? { id: null, name: 'Visitante', role: 'guest' } : null), familyName: process.env.FAMILY_SUBTITLE || 'Família Duarte Melo', defaultPerson: startPerson() });
 });
 
 app.post('/api/setup', (req, res) => {
@@ -882,9 +882,9 @@ app.post('/api/admin/access-requests/:id/approve', needAdmin, (req, res) => {
     .run(token, role, `${r.name} (${r.relation})`.slice(0, 100), r.email, req.user.id, now(), Date.now() + 30 * 864e5, who.pid);
   db.prepare("UPDATE access_requests SET status='approved', decided_by=?, decided_at=?, invite_token=? WHERE id=?").run(req.user.id, now(), token, r.id);
   log(req, 'aprovou pedido de acesso', r.email, { name: r.name, relation: r.relation, role });
-  const family = process.env.FAMILY_NAME || 'Árvore da Família';
-  mail.send(r.email, `Seu acesso à ${family} foi aprovado`,
-    `Olá, ${r.name}!\n\nSeu pedido para participar da ${family} foi aprovado.\n\n${who.name ? `Você já está na árvore como ${who.name}. ` : ''}Toque no link abaixo para criar a sua senha. Ele confirma o seu e-mail e vale 30 dias:\n${baseUrl(req)}/convite/${token}\n\nDepois, é só entrar em ${baseUrl(req)} com o e-mail ${r.email} e a sua senha.\n\nSe você não pediu este acesso, ignore este e-mail.`)
+  const family = 'Family Book';
+  mail.send(r.email, `Seu acesso ao ${family} foi aprovado`,
+    `Olá, ${r.name}!\n\nSeu pedido para participar do ${family}, a árvore da família, foi aprovado.\n\n${who.name ? `Você já está na árvore como ${who.name}. ` : ''}Toque no link abaixo para criar a sua senha. Ele confirma o seu e-mail e vale 30 dias:\n${baseUrl(req)}/convite/${token}\n\nDepois, é só entrar em ${baseUrl(req)} com o e-mail ${r.email} e a sua senha.\n\nSe você não pediu este acesso, ignore este e-mail.`)
     .then(mailed => res.json({ token, email: r.email, name: r.name, mailed }));
 });
 app.post('/api/admin/access-requests/:id/reject', needAdmin, (req, res) => {

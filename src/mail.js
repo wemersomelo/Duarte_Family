@@ -22,7 +22,7 @@ function getTransport() {
 async function send(to, subject, text) {
   if (!configured() || !to) return false;
   try {
-    const from = process.env.SMTP_FROM || `"${process.env.FAMILY_NAME || 'Árvore da Família'}" <${process.env.SMTP_USER}>`;
+    const from = process.env.SMTP_FROM || `"Family Book" <${process.env.SMTP_USER}>`;
     await getTransport().sendMail({ from, to, subject, text });
     if (process.env.SMTP_HOST === 'test') sent.push({ to, subject, text });
     return true;

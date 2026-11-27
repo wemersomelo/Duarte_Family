@@ -5,10 +5,11 @@
 <meta name="color-scheme" content="light">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#6E7B4A">
-<title>Árvore da Família</title>
+<title>Family Book</title>
 <link rel="manifest" href="/manifest.webmanifest">
-<link rel="icon" href="/icon.svg" type="image/svg+xml">
-<link rel="apple-touch-icon" href="/icon.svg">
+<link rel="icon" href="/brand/icon-32.png" type="image/png" sizes="32x32">
+<link rel="icon" href="/brand/icon-192.png" type="image/png" sizes="192x192">
+<link rel="apple-touch-icon" href="/brand/icon-180.png">
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
@@ -17,7 +18,13 @@
 <!-- Entrar / criar conta -->
 <section id="auth" class="auth" hidden>
   <div class="authcard">
-    <h1 id="authTitle">Árvore da Família</h1>
+    <div class="brandmark">
+      <img src="/brand/logo.png" alt="" class="brandlogo">
+      <h1 id="authTitle">Family Book</h1>
+      <p class="brandline"><span>Genealogia</span></p>
+      <p class="brandtag" id="authFamily">Família Duarte Melo</p>
+      <p class="brandslogan">A história da nossa família, de geração em geração</p>
+    </div>
     <p id="authSub" class="sub"></p>
     <form id="authForm">
       <label class="f" id="fName">Seu nome<input name="name" autocomplete="name" maxlength="80"></label>
@@ -36,7 +43,7 @@
 <div id="main" hidden>
 <header class="band head">
   <div class="toprow">
-    <h1 id="title">Árvore da Família</h1>
+    <div class="hbrand"><img src="/brand/icon-192.png" alt="" class="hicon"><div><h1 id="title">Family Book</h1><p class="hsub" id="hsub">Genealogia · Família Duarte Melo</p></div></div>
     <div class="menu">
       <span id="whoami" class="who"></span>
       <button type="button" id="notifBtn" class="ghost" hidden>Avisos</button>

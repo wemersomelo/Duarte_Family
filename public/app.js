@@ -77,11 +77,11 @@ async function api(path, opts = {}) {
 }
 
 /* ---------- entrar / convite / instalação ---------- */
-let authMode = 'login', inviteToken = null, resetToken = null, familyName = 'Árvore da Família', defaultPerson = '';
+let authMode = 'login', inviteToken = null, resetToken = null, familyName = 'Família Duarte Melo', defaultPerson = '';
 function showAuth(mode, info = {}) {
   authMode = mode;
   $('#main').hidden = true; $('#auth').hidden = false;
-  $('#authTitle').textContent = familyName;
+  $('#authFamily').textContent = familyName;
   const f = $('#authForm');
   $('#fName').hidden = mode === 'login' || mode === 'reset';
   f.querySelector('input[name=email]').closest('label').hidden = mode === 'reset';
@@ -124,7 +124,7 @@ async function start() {
   const st = await api('/api/status');
   familyName = st.familyName || familyName; defaultPerson = st.defaultPerson || '';
   showRequest(st.request);
-  document.title = familyName; $('#title').textContent = familyName;
+  document.title = 'Family Book · ' + familyName; $('#hsub').textContent = 'Genealogia · ' + familyName;
   const rm = location.pathname.match(/^\/senha\/([\w-]+)/);
   if (rm) {
     resetToken = rm[1];
@@ -209,7 +209,7 @@ function drawChart() {
   const avail = (fig.parentElement.clientWidth || innerWidth) - 2;
   const CW = Math.max(mob ? 78 : 104, Math.min(200, Math.floor((avail - 2 * M) / slots) - GX));
   const CH = mob ? 90 : 78, RH = CH + (mob ? 46 : 54), TOP = mob ? 4 : 22;
-  const PW = Math.min(avail - 2 * M, mob ? 230 : 300), PH = mob ? 90 : 92;
+  const PW = Math.min(avail - 2 * M, mob ? 230 : 300), PH = (mob ? 90 : 92) + (p.photoFileId ? 44 : 0);
   const W = Math.max(slots * (CW + GX) + 2 * M, avail);
   const rowY = g => g === 0 ? TOP : TOP + PH + (mob ? 46 : 54) + (g - 1) * RH;
   const H = rowY(G - 1) + CH + 12;
