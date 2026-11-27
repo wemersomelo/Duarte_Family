@@ -232,6 +232,17 @@ function client() {
     await admin('POST', '/api/admin/relatos/run', { token: r.token, apply: true });
     t = (await admin('GET', '/api/tree')).data.people.find(x => x.id === id); assert.equal(t.descendants, 'nao_deixou', 'pelo lote'); }
 
+  // administrador oculta / apaga um relato na ficha da pessoa
+  { const tree = (await admin('GET', '/api/tree')).data; const L = tree.relatoLinks[0];
+    assert.ok(L, 'há relato ligado');
+    assert.equal((await tia('POST', '/api/admin/relato-people', { relatoId: L.relatoId, personId: L.personId, action: 'hide' })).status, 403);
+    await admin('POST', '/api/admin/relato-people', { relatoId: L.relatoId, personId: L.personId, action: 'hide' });
+    const has = list => list.some(x => x.relatoId === L.relatoId && x.personId === L.personId);
+    assert.ok(has((await admin('GET', '/api/tree')).data.relatoLinks), 'admin ainda vê o oculto');
+    assert.ok(!has((await tia('GET', '/api/tree')).data.relatoLinks), 'os outros não veem');
+    await admin('POST', '/api/admin/relato-people', { relatoId: L.relatoId, personId: L.personId, action: 'remove' });
+    assert.ok(!has((await admin('GET', '/api/tree')).data.relatoLinks), 'apagado some para todos'); }
+
   // juntar duas fichas da mesma pessoa
   const dupA = (await admin('POST', '/api/people', { name: 'Duplicada Teste', birth: '1950', fatherId: pai })).data.id;
   const dupB = (await admin('POST', '/api/people', { name: 'Duplicada T.', birth: '1951', birthPlace: 'Catuji' })).data.id;

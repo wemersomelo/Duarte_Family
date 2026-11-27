@@ -84,7 +84,7 @@ function similar(a, p, aliases, strict) {
 
 function personCard(db, p) {
   const nm = id => { const q = id && db.prepare('SELECT name FROM people WHERE id=?').get(id); return q ? q.name : ''; };
-  const rel = db.prepare('SELECT relato_id FROM relato_people WHERE person_id=?').all(p.id).map(r => r.relato_id);
+  const rel = db.prepare('SELECT relato_id FROM relato_people WHERE person_id=? AND hidden<2').all(p.id).map(r => r.relato_id);
   return { id: p.id, name: p.name, nick: p.nick || '', birth: p.birth || '', death: p.death || '', father: nm(p.father_id), mother: nm(p.mother_id), spouse: nm(p.spouse_id), relatos: rel };
 }
 

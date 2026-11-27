@@ -190,3 +190,5 @@ body{font-variant-emoji:text}
 .ctx li{margin:3px 0}
 .ctx blockquote{margin:6px 0;padding:6px 10px;border-left:3px solid var(--line, #ccc);background:#fff;border-radius:4px;white-space:pre-wrap}
 tr.flash td{background:#fff3c4;transition:background .3s}
+
+.mlinks li.muted{opacity:.55}

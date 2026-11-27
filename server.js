@@ -343,7 +343,7 @@ app.get('/api/tree', needUserOrGuest, (req, res) => {
   const files = db.prepare('SELECT id,person_id personId,original_name name,mime,size,caption,created_by createdBy,created_at createdAt FROM files ORDER BY created_at').all();
   const users = db.prepare('SELECT id,name FROM users').all();
   // Relatos que citam cada pessoa (só para quem pode editar; os relatos são privados).
-  const relatoLinks = req.user && req.user.role !== 'viewer' ? db.prepare('SELECT rp.person_id personId, r.id relatoId, r.fonte, r.data FROM relato_people rp JOIN relatos r ON r.id=rp.relato_id ORDER BY r.data').all() : [];
+  const relatoLinks = req.user && req.user.role !== 'viewer' ? db.prepare(`SELECT rp.person_id personId, r.id relatoId, r.fonte, r.data, rp.hidden FROM relato_people rp JOIN relatos r ON r.id=rp.relato_id WHERE rp.hidden=0 OR (rp.hidden=1 AND ?) ORDER BY r.data`).all(req.user.role === 'admin' ? 1 : 0) : [];
   if (req.guest) {
     // Ligações primeiro (já aplicadas acima); depois esconde os dados dos vivos.
     const dead = new Set(people.filter(isDeceased).map(p => p.id));
@@ -855,11 +855,22 @@ app.post('/api/admin/relatos/inbox/ignore', needAdmin, (req, res) => {
   if (!item) return res.status(404).json({ error: 'Pasta não encontrada.' });
   setSetting('inbox:' + item.folder, item.sig); res.json({ ok: true });
 });
+// Na ficha da pessoa: ocultar, mostrar de novo ou apagar a ligação com um relato (só o administrador).
+// Apagar tira a citação da ficha e não volta ao reimportar; o relato e os dados que ele trouxe continuam.
+app.post('/api/admin/relato-people', needAdmin, (req, res) => {
+  const relatoId = String(req.body.relatoId || ''), personId = String(req.body.personId || ''), action = String(req.body.action || '');
+  const val = { hide: 1, show: 0, remove: 2 }[action];
+  if (val === undefined) return res.status(400).json({ error: 'Ação inválida.' });
+  const r = db.prepare('UPDATE relato_people SET hidden=? WHERE relato_id=? AND person_id=?').run(val, relatoId, personId);
+  if (!r.changes) return res.status(404).json({ error: 'Esta pessoa não está ligada a esse relato.' });
+  log(req, { hide: 'ocultou relato na ficha', show: 'mostrou relato na ficha', remove: 'apagou relato da ficha' }[action], personId, { relatoId });
+  res.json({ ok: true });
+});
 app.get('/api/relatos/:id', needWriter, (req, res) => {
   const r = db.prepare('SELECT id,fonte,data,ficha,relato,imported_at importedAt,applied,skipped FROM relatos WHERE id=?').get(req.params.id);
   if (!r) return res.status(404).json({ error: 'Relato não encontrado.' });
   r.files = db.prepare('SELECT id,name,mime,size FROM relato_files WHERE relato_id=? ORDER BY name').all(r.id);
-  r.people = db.prepare('SELECT person_id FROM relato_people WHERE relato_id=?').all(r.id).map(x => x.person_id);
+  r.people = db.prepare('SELECT person_id FROM relato_people WHERE relato_id=? AND hidden<2').all(r.id).map(x => x.person_id);
   res.json(r);
 });
 app.get('/api/relatos/:id/files/:fid', needWriter, (req, res) => {
@@ -934,7 +945,7 @@ app.post('/api/admin/merge', needAdmin, (req, res) => {
     db.prepare('UPDATE links SET parent_id=? WHERE parent_id=?').run(keep.id, gone.id);
     db.prepare('DELETE FROM links WHERE child_id=parent_id').run();
     for (const t of ['notes', 'files', 'media_links']) db.prepare(`UPDATE ${t} SET person_id=? WHERE person_id=?`).run(keep.id, gone.id);
-    db.prepare('INSERT OR IGNORE INTO relato_people(relato_id,person_id) SELECT relato_id,? FROM relato_people WHERE person_id=?').run(keep.id, gone.id);
+    db.prepare('INSERT OR IGNORE INTO relato_people(relato_id,person_id,hidden) SELECT relato_id,?,hidden FROM relato_people WHERE person_id=?').run(keep.id, gone.id);
     db.prepare('DELETE FROM relato_people WHERE person_id=?').run(gone.id);
     db.prepare('UPDATE person_aliases SET person_id=? WHERE person_id=?').run(keep.id, gone.id);
     const al = norm(gone.name); if (al && al !== norm(keep.name)) db.prepare('INSERT OR REPLACE INTO person_aliases(alias,person_id,created_at) VALUES(?,?,?)').run(al, keep.id, now());
