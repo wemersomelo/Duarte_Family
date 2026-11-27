@@ -103,6 +103,9 @@ function openDb(file) {
       key TEXT PRIMARY KEY,
       value TEXT
     );
+    CREATE TABLE IF NOT EXISTS removed_users (
+      id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT, removed_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS resets (
       token TEXT PRIMARY KEY,
       user_id INTEGER NOT NULL,

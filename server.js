@@ -341,7 +341,7 @@ app.get('/api/tree', needUserOrGuest, (req, res) => {
   const notes = db.prepare('SELECT id,person_id personId,kind,text,created_by createdBy,created_at createdAt FROM notes ORDER BY created_at').all();
   const media = db.prepare('SELECT id,person_id personId,url,title,created_by createdBy,created_at createdAt FROM media_links ORDER BY created_at').all();
   const files = db.prepare('SELECT id,person_id personId,original_name name,mime,size,caption,created_by createdBy,created_at createdAt FROM files ORDER BY created_at').all();
-  const users = db.prepare('SELECT id,name FROM users').all();
+  const users = db.prepare("SELECT id,name FROM users UNION ALL SELECT id, name || ' (conta removida)' FROM removed_users").all();
   // Relatos que citam cada pessoa (só para quem pode editar; os relatos são privados).
   const relatoLinks = req.user && req.user.role !== 'viewer' ? db.prepare(`SELECT rp.person_id personId, r.id relatoId, r.fonte, r.data, rp.hidden FROM relato_people rp JOIN relatos r ON r.id=rp.relato_id WHERE rp.hidden=0 OR (rp.hidden=1 AND ?) ORDER BY r.data`).all(req.user.role === 'admin' ? 1 : 0) : [];
   if (req.guest) {
@@ -639,6 +639,22 @@ app.put('/api/admin/users/:id', needAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
+// Eliminar conta: a pessoa perde o acesso e a conta some da lista. Tudo o que ela acrescentou fica,
+// com o nome dela e a marca "(conta removida)". O e-mail fica livre para um novo convite.
+app.delete('/api/admin/users/:id', needAdmin, (req, res) => {
+  const u = db.prepare('SELECT * FROM users WHERE id=?').get(Number(req.params.id));
+  if (!u) return res.status(404).json({ error: 'Conta não encontrada.' });
+  if (u.id === req.user.id) return res.status(400).json({ error: 'Você não pode eliminar a sua própria conta.' });
+  if (u.role === 'admin' && db.prepare("SELECT COUNT(*) n FROM users WHERE role='admin' AND active=1").get().n <= 1) return res.status(400).json({ error: 'É o único administrador.' });
+  db.transaction(() => {
+    db.prepare('INSERT OR REPLACE INTO removed_users(id,name,email,removed_at) VALUES(?,?,?,?)').run(u.id, u.name, u.email, now());
+    db.prepare('DELETE FROM sessions WHERE user_id=?').run(u.id);
+    db.prepare('DELETE FROM resets WHERE user_id=?').run(u.id);
+    db.prepare('DELETE FROM users WHERE id=?').run(u.id);
+  })();
+  log(req, 'eliminou conta', 'usuário ' + u.id, { nome: u.name, email: u.email });
+  res.json({ ok: true });
+});
 app.post('/api/admin/users/:id/reset', needAdmin, (req, res) => {
   const u = db.prepare('SELECT id FROM users WHERE id=?').get(Number(req.params.id));
   if (!u) return res.status(404).json({ error: 'Conta não encontrada.' });

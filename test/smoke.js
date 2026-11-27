@@ -333,6 +333,21 @@ function client() {
   const cross = await fetch(base + '/api/logout', { method: 'POST', headers: { origin: 'https://site-malicioso.com' } });
   assert.equal(cross.status, 403);
 
+  // eliminar conta
+  { const rq = (await admin('GET', '/api/admin')).data.users;
+    const self = rq.find(u => u.role === 'admin');
+    assert.equal((await admin('DELETE', '/api/admin/users/' + self.id)).status, 400, 'não elimina a si mesmo');
+    const other = rq.find(u => u.id !== self.id && u.role !== 'admin');
+    assert.ok(other, 'há outra conta para eliminar');
+    {
+      assert.equal((await tia('DELETE', '/api/admin/users/' + other.id)).status, 403);
+      assert.equal((await admin('DELETE', '/api/admin/users/' + other.id)).status, 200);
+      const after = (await admin('GET', '/api/admin')).data.users;
+      assert.ok(!after.some(u => u.id === other.id), 'some da lista');
+      const names = (await admin('GET', '/api/tree')).data.users;
+      assert.ok(names.some(u => u.id === other.id && /conta removida/.test(u.name)), 'nome continua nas contribuições');
+    } }
+
   console.log('OK: todos os testes passaram');
   server.close(); fs.rmSync(dir, { recursive: true, force: true });
 })().catch(e => { console.error('FALHOU:', e.stack); server.close(); process.exit(1); });
