@@ -414,7 +414,8 @@ app.post('/api/invites/:token', (req, res) => {
 // ---------- termos de uso e política de privacidade ----------
 // Mudou o texto de forma importante? Suba a versão: todo mundo terá de aceitar de novo.
 const TERMS_VERSION = '2026-11-27';
-const legal = () => ({ name: process.env.LEGAL_NAME || '[nome do responsável]', email: process.env.LEGAL_EMAIL || '[e-mail de contato]', address: process.env.LEGAL_ADDRESS || '[cidade e país]' });
+// Responsável pelos dados. O e-mail padrão é o mesmo que o site usa para enviar os avisos (SMTP_USER).
+const legal = () => ({ name: process.env.LEGAL_NAME || 'Wemerson Duarte Melo', email: process.env.LEGAL_EMAIL || process.env.SMTP_USER || '[e-mail de contato]', address: process.env.LEGAL_ADDRESS || 'Copenhague, Dinamarca' });
 app.get(['/termos', '/privacidade'], (req, res) => {
   const L = legal();
   const html = fs.readFileSync(path.join(__dirname, 'public', 'termos.html'), 'utf8')
