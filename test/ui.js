@@ -1,7 +1,7 @@
 'use strict';
 // Teste de verdade, com navegador escondido (Playwright): simula um clique de pessoa de carne e
-// osso, não só chamadas de API. É o que pega bugs de interação (ex.: um diálogo que não fecha)
-// que os outros testes, por falarem só com a API, não enxergam.
+// osso, não só chamadas de API. É o que pega bugs de interação que os outros testes, por falarem
+// só com a API, não enxergam.
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -29,7 +29,7 @@ async function setupData() {
   const avo = await post('/api/people', { name: 'Avô Teste' });
   await fetch(base + '/api/people/' + leo.id, { method: 'PUT', headers, body: JSON.stringify({ fatherId: pai.id }) });
   await fetch(base + '/api/people/' + pai.id, { method: 'PUT', headers, body: JSON.stringify({ fatherId: avo.id }) });
-  return { sid, leoId: leo.id, paiId: pai.id };
+  return { sid };
 }
 
 (async () => {
@@ -44,61 +44,37 @@ async function setupData() {
   await page.goto(base + '/');
   await page.waitForSelector('#fig button[data-id]');
 
-  // Clicar numa pessoa abre o cartão dela, por cima da árvore, sem navegar de página.
-  const urlAntes = page.url();
-  await page.locator('#fig button[data-id]').first().click();
-  await page.waitForSelector('#carddlg[open]');
-  assert.equal(page.url(), urlAntes.split('#')[0] + page.url().match(/#.*/)[0], 'mesma página, só o hash muda');
+  // Clicar numa pessoa na árvore atualiza a ficha logo abaixo, na mesma página.
   const nome1 = await page.locator('#slip h3.person').textContent();
+  const chipPai = page.locator('#kin [data-go]').first();
+  assert.ok(await chipPai.count(), 'tem um parente para clicar (pai)');
+  await chipPai.click();
+  await page.waitForFunction(prev => document.querySelector('#slip h3.person')?.textContent !== prev, nome1);
+  const nome2 = await page.locator('#slip h3.person').textContent();
+  assert.notEqual(nome1, nome2, 'a ficha trocou de pessoa');
 
-  // Clicar num parente, dentro do cartão, troca a pessoa mostrada mas não fecha o cartão
-  // nem mexe na árvore de fundo (o bug que estávamos resolvendo era bem aqui: duas coisas
-  // com o mesmo id brigando e travando o fechar).
-  const chip = page.locator('#kin [data-card]').first();
-  if (await chip.count()) {
-    await chip.click();
-    await page.waitForFunction(() => document.querySelector('#carddlg').open === true);
-    const nome2 = await page.locator('#slip h3.person').textContent();
-    assert.notEqual(nome1, nome2, 'trocou de pessoa dentro do mesmo cartão');
-  }
+  // "← Voltar" existe agora (temos de onde voltar) e volta para a pessoa de antes.
+  await page.waitForSelector('#backBtn:not([hidden])');
+  await page.locator('#backBtn').click();
+  await page.waitForFunction(prev => document.querySelector('#slip h3.person')?.textContent === prev, nome1);
 
-  // Fechar de verdade fecha (clique real, não via JS) — é a correção do bug de produção.
-  await page.locator('#carddlg .closeDlg').click();
-  await page.waitForFunction(() => document.querySelector('#carddlg').open === false, null, { timeout: 5000 });
-
-  // Abrir "Editar" por cima do cartão: o cartão fecha sozinho (nunca duas janelas abertas ao
-  // mesmo tempo), e volta sozinho quando o formulário fecha — sem isso, o botão "Fechar" do
-  // cartão ficava visível atrás mas o clique não chegava nele (pertencia à janela de trás).
-  await page.locator('#fig button[data-id]').first().click();
-  await page.waitForSelector('#carddlg[open]');
-  await page.locator('#slip [data-act="edit"], #slip button:has-text("Editar")').first().click();
+  // Editar abre um formulário por cima; cancelar fecha e volta para a árvore normalmente
+  // (nenhum outro diálogo fica aberto por baixo bloqueando o clique).
+  await page.locator('#slip button:has-text("Editar meus dados"), #slip button:has-text("Editar")').first().click();
   await page.waitForSelector('#dlg[open]');
-  assert.equal(await page.locator('#carddlg').evaluate(d => d.open), false, 'o cartão fecha sozinho enquanto o formulário está aberto');
   await page.locator('#dlg .closeDlg').click();
-  await page.waitForSelector('#carddlg[open]');
-  assert.equal(await page.locator('#dlg').evaluate(d => d.open), false, 'o formulário fechou');
-  // E agora o "Fechar" do cartão, que antes podia ficar bloqueado, funciona de verdade.
-  await page.locator('#carddlg .closeDlg').click();
-  await page.waitForFunction(() => document.querySelector('#carddlg').open === false, null, { timeout: 5000 });
+  await page.waitForFunction(() => document.querySelector('#dlg').open === false);
 
-  // "Ver a árvore desta pessoa" recentra a árvore e fecha o cartão.
-  await page.locator('#fig button[data-id]').first().click();
-  await page.waitForSelector('#carddlg[open]');
-  const tituloAntes = await page.locator('#chartTitle').textContent();
-  await page.locator('#cardTree').click();
-  await page.waitForFunction(() => document.querySelector('#carddlg').open === false);
-
-  // Trocar a senha usa outro diálogo (id diferente, de propósito): continua funcionando
-  // separado do cartão da pessoa.
+  // Trocar a senha continua funcionando, num diálogo separado.
   await page.locator('#pwBtn').click();
   await page.waitForSelector('#pdlg[open]');
   assert.equal(await page.locator('#pdlg h2').textContent(), 'Trocar senha');
-  assert.equal(await page.locator('#carddlg').evaluate(d => d.open), false, 'o cartão de pessoa continua fechado');
   await page.locator('#pdlg .closeDlg').click();
+  await page.waitForFunction(() => document.querySelector('#pdlg').open === false);
 
   assert.deepEqual(errors, [], 'sem erros de JavaScript na página: ' + errors.join(' | '));
 
-  console.log('OK: navegador de verdade — abrir cartão, trocar de parente, fechar, ver árvore, sem travar');
+  console.log('OK: navegador de verdade — clicar num parente, voltar, editar e trocar senha, sem travar nem erro de JS');
   await browser.close();
   server.close(); fs.rmSync(dir, { recursive: true, force: true });
   process.exit(0);

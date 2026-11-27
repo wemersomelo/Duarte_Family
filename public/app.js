@@ -204,51 +204,30 @@ async function load() {
 // Caminho percorrido: o botão "Voltar" e o voltar do celular desfazem um passo de cada vez (usam o mesmo histórico).
 const trail = [];
 let firstFocus = null;
-// anchor: quem a árvore de caixinhas mostra. focus: qual ficha está aberta no cartão.
-// São coisas separadas de propósito: navegar pela família (cliques nas caixinhas e nos parentes)
-// só muda o cartão; a árvore só muda de centro quando a pessoa escolhe "Ver a árvore desta pessoa".
-let anchor = null;
-const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
-const pdlg = $('#carddlg');
-// Nunca duas janelas abertas ao mesmo tempo. Sem isso, um formulário (Editar, por exemplo) abre
-// por cima da ficha da pessoa: o botão "Fechar" dela continua visível atrás, mas o navegador não
-// deixa clicar nele (pertence à janela de trás, que fica "congelada" enquanto a de cima está
-// aberta) — e a pessoa sente que travou. Aqui a ficha fecha sozinha antes de qualquer outro
-// formulário abrir, e volta sozinha quando ele fechar (de qualquer jeito: botão ou Esc).
-const cardReopenStack = [];
-for (const d of document.querySelectorAll('dialog')) {
-  if (d === pdlg) continue;
-  const abrir = d.showModal.bind(d);
-  d.showModal = () => {
-    cardReopenStack.push(pdlg.open);
-    if (pdlg.open) pdlg.close();
-    abrir();
-  };
-  d.addEventListener('close', () => { if (cardReopenStack.pop()) pdlg.showModal(); });
-}
 function setFocus(id, back) {
   if (!P(id)) return;
   if (!firstFocus) firstFocus = focus || id;
   if (!back && focus && focus !== id) { trail.push(focus); if (trail.length > 100) trail.shift(); history.pushState({ arvore: true }, '', '#' + id); }
   else if (location.hash !== '#' + id) history.replaceState(history.state, '', '#' + id);
+  const changed = focus && focus !== id;
   focus = id;
-  if ('speechSynthesis' in window) speechSynthesis.cancel();
-  const sb = $('#cardSpeak'); if (sb) sb.textContent = '🔊 Ouvir';
-  renderRecord(); renderIndex(); updateCardNav();
-  if (!reduceMotion()) for (const el of [$('#slip'), $('#kin')]) { el.classList.remove('fadein'); void el.offsetWidth; el.classList.add('fadein'); }
-  if (!pdlg.open) pdlg.showModal();
+  smoothRender(changed);
+}
+// Troca de pessoa com transição suave: os cartões que continuam na árvore deslizam para o lugar novo
+// (a mãe sobe para o topo, os avós dela aparecem embaixo) e a ficha se renova com um leve esmaecer.
+const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+function smoothRender(changed) {
+  if (!changed || reduceMotion()) { renderAll(); return; }
+  if (document.startViewTransition) { document.startViewTransition(() => renderAll()); return; }
+  renderAll();
+  for (const el of [$('#fig'), $('#slip'), $('#kin')]) { el.classList.remove('fadein'); void el.offsetWidth; el.classList.add('fadein'); }
 }
 function goBack() {
   if (history.state && history.state.arvore) { history.back(); return true; } // o popstate faz o resto
   while (trail.length) { const id = trail.pop(); if (P(id) && id !== focus) { setFocus(id, true); return true; } }
   return false;
 }
-// Navegação "de verdade": muda o centro da árvore e abre o cartão da pessoa.
-function go(id) {
-  if (!P(id)) return;
-  anchor = id; renderTree();
-  setFocus(id);
-}
+function go(id) { setFocus(id); $('#fig').scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' }); }
 addEventListener('popstate', () => {
   const h = decodeURIComponent(location.hash.slice(1)), id = P(h) ? h : firstFocus;
   if (!P(id) || id === focus) return;
@@ -265,7 +244,7 @@ const vtName = id => String(id).replace(/[^a-zA-Z0-9_-]/g, '_').replace(/^(\d)/,
 function drawChart() {
   const mob = isMobile();
   $('#gensWrap').hidden = mob;
-  const G = mob ? 3 : +$('#gens').value, p = P(anchor);
+  const G = mob ? 3 : +$('#gens').value, p = P(focus);
   if (!p) { fig.innerHTML = '<p class="none" style="padding:20px 0">Nenhuma pessoa selecionada.</p>'; fig.style.cssText = ''; return; }
   $('#chartTitle').textContent = 'Antepassados de ' + callName(p);
   const slots = 2 ** (G - 1), M = mob ? 4 : 8, GX = mob ? 6 : 10;
@@ -299,28 +278,20 @@ function drawChart() {
       html += `<button type="button" class="card td empty" data-add="${role}" data-child="${esc(childId)}" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px">+ ${role === 'father' ? 'Pai' : 'Mãe'}</button>`;
     }
   };
-  place(anchor, 0, 0, null, null, 0, 0);
+  place(focus, 0, 0, null, null, 0, 0);
   fig.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" aria-hidden="true" style="color:var(--ink)">${lines}</svg>` + html;
   const sc = fig.parentElement; sc.scrollLeft = (W - sc.clientWidth) / 2;
 }
-// Só redesenha quando o centro da árvore muda de verdade: evita perder a posição da rolagem
-// e o lugar onde a pessoa estava só porque ela abriu a ficha de um parente.
-let lastDrawnAnchor;
-function renderTree() {
-  if (anchor === lastDrawnAnchor) return;
-  lastDrawnAnchor = anchor;
-  drawChart();
-}
 fig.addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
-  if (b.dataset.id) setFocus(b.dataset.id);
+  if (b.dataset.id) { if (b.dataset.id === focus) $('#slip').scrollIntoView({ behavior: 'smooth', block: 'start' }); else setFocus(b.dataset.id); }
   else if (b.dataset.add) openForm(null, { parentOf: b.dataset.child, parentRole: b.dataset.add });
 });
 $('#gens').addEventListener('change', drawChart);
 let rt; addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(drawChart, 150); });
 
 /* ---------- ficha da pessoa ---------- */
-const chip = q => `<button type="button" class="chip" data-card="${esc(q.id)}">${esc(dn(q, nickOf(q) ? q.name + ' (' + nickOf(q) + ')' : q.name))}</button>`;
+const chip = q => `<button type="button" class="chip" data-go="${esc(q.id)}">${esc(dn(q, nickOf(q) ? q.name + ' (' + nickOf(q) + ')' : q.name))}</button>`;
 const chips = list => list.length ? `<div class="chips">${list.sort(byName).map(chip).join('')}</div>` : '<p class="none">Ninguém registrado ainda.</p>';
 // Selo de ligação com outro livro: pedido pendente, ou confirmado (com a foto pública, se liberada,
 // e um link para ver a subida de pais e avós, se a outra família liberou isso também).
@@ -425,7 +396,6 @@ document.addEventListener('change', async e => {
 document.addEventListener('toggle', e => { const d = e.target; if (d.classList && d.classList.contains('kfold')) d.open ? kinOpen.add(d.dataset.k) : kinOpen.delete(d.dataset.k); }, true);
 document.addEventListener('click', async e => {
   const g = e.target.closest('[data-go]'); if (g) { closeAll(); go(g.dataset.go); return; }
-  const cd = e.target.closest('[data-card]'); if (cd) { setFocus(cd.dataset.card); return; }
   const v = e.target.closest('[data-view]'); if (v) { openViewer(v.dataset.view); return; }
   const rv = e.target.closest('[data-relato]'); if (rv) { openRelato(rv.dataset.relato); return; }
   const rn = e.target.closest('[data-rmnote]'); if (rn) { if (await confirmBtn(rn)) { await api('/api/notes/' + rn.dataset.rmnote, { method: 'DELETE' }).catch(err => alertStatus(err)); load(); } return; }
@@ -496,46 +466,15 @@ function renderIndex() {
   $('#allBtn').hidden = !fam || fam.size >= all.length;
   $('#allBtn').textContent = showAll ? (root === myPerson() ? 'Ver só a sua família' : 'Ver só a família de ' + first) : `Ver todas as pessoas (${all.length})`;
   $('#index').innerHTML = list.length ? list.map(p => `<li><button type="button" data-go="${esc(p.id)}"${p.id === root ? ' class="me"' : ''}>${esc(dn(p))} <span>${esc(yr(p))}</span></button></li>`).join('') : '<li class="none">A árvore ainda está vazia. Comece adicionando alguém.</li>';
+  $('#backBtn').hidden = !trail.some(id => P(id) && id !== focus);
+  const home = $('#homeBtn'), r = rootPerson();
+  home.hidden = !r || r === focus;
+  home.textContent = r && r === myPerson() ? 'Voltar para mim' : 'Voltar ao início';
   $('#whoHint').hidden = !(me && !isGuest() && !myPerson());
 }
 $('#allBtn').addEventListener('click', () => { showAll = !showAll; renderIndex(); });
-// Controles de dentro do cartão da pessoa: voltar para a ficha anterior, voltar para a sua própria
-// ficha (e recentrar a árvore nela), ouvir em voz alta e ir ver a árvore a partir desta pessoa.
-function updateCardNav() {
-  $('#cardBack').hidden = !trail.some(id => P(id) && id !== focus);
-  const home = $('#cardHome'), r = rootPerson();
-  home.hidden = !r || r === focus;
-  home.textContent = r && r === myPerson() ? 'Voltar para mim' : 'Voltar ao início';
-}
-$('#cardBack').addEventListener('click', goBack);
-$('#cardHome').addEventListener('click', () => { const r = rootPerson(); if (r) go(r); });
-$('#cardTree').addEventListener('click', () => { anchor = focus; renderTree(); pdlg.close(); });
-pdlg.addEventListener('close', () => { if ('speechSynthesis' in window) speechSynthesis.cancel(); $('#cardSpeak').textContent = '🔊 Ouvir'; });
-// Lê a ficha em voz alta, como se alguém estivesse contando: quem é, filho de quem, onde nasceu,
-// com quem casou, os filhos que teve. Usa a leitura do próprio navegador (sem custo, sem internet).
-function speakPerson(p) {
-  if (!p || !('speechSynthesis' in window)) return;
-  const parts = [dn(p, nickOf(p) || p.name) + '.'];
-  const father = P(p.fatherId), mother = P(p.motherId);
-  if (father || mother) parts.push(`${p.sex === 'f' ? 'Filha' : p.sex === 'm' ? 'Filho' : 'Filho ou filha'} de ${[father?.name, mother?.name].filter(Boolean).join(' e ')}.`);
-  if (p.birth || p.birthPlace) parts.push(`Nasceu${p.birth ? ' em ' + p.birth : ''}${p.birthPlace ? ', em ' + p.birthPlace : ''}.`);
-  const sps = spousesOf(p.id).map(P).filter(Boolean);
-  if (sps.length) parts.push(`${p.sex === 'f' ? 'Casada' : 'Casado'} com ${sps.map(s => s.name).join(' e ')}.`);
-  const kids = childrenOf(p.id);
-  if (kids.length) parts.push(`${kids.length === 1 ? 'Teve um filho ou filha' : 'Teve ' + kids.length + ' filhos'}: ${kids.map(k => k.name).join(', ')}.`);
-  if (p.death || p.deathPlace) parts.push(`Faleceu${p.death ? ' em ' + p.death : ''}${p.deathPlace ? ', em ' + p.deathPlace : ''}.`);
-  if (p.notes) parts.push(p.notes);
-  speechSynthesis.cancel();
-  const u = new SpeechSynthesisUtterance(parts.join(' '));
-  u.lang = 'pt-BR';
-  u.onend = u.onerror = () => { $('#cardSpeak').textContent = '🔊 Ouvir'; };
-  $('#cardSpeak').textContent = '⏹ Parar';
-  speechSynthesis.speak(u);
-}
-$('#cardSpeak').addEventListener('click', () => {
-  if ('speechSynthesis' in window && speechSynthesis.speaking) { speechSynthesis.cancel(); $('#cardSpeak').textContent = '🔊 Ouvir'; return; }
-  speakPerson(P(focus));
-});
+$('#backBtn').addEventListener('click', () => { if (goBack()) scrollTo({ top: $('#chartTitle').offsetTop - 10, behavior: 'smooth' }); });
+$('#homeBtn').addEventListener('click', () => { const r = rootPerson(); if (r) { setFocus(r); scrollTo({ top: $('#chartTitle').offsetTop - 10, behavior: 'smooth' }); } });
 const q = $('#q'), res = $('#results');
 function search() {
   const t = norm(q.value.trim()); if (!t) { res.style.display = 'none'; return; }
@@ -1094,14 +1033,9 @@ $('#onform').addEventListener('submit', async e => {
     me.personId = meId; $('#ondlg').close(); focus = meId; await load();
   } catch (err) { $('#onErr').textContent = err.message; }
 });
-let firstRenderDone = false;
 function renderAll() {
-  const h = decodeURIComponent(location.hash.slice(1));
-  if (!P(focus)) focus = P(h) ? h : rootPerson() || (Object.values(people).find(p => p.createdBy === me?.id)?.id || Object.keys(people)[0] || null);
-  if (!P(anchor)) anchor = focus;
-  renderTree(); renderRecord(); renderIndex(); maybeOnboard();
-  // Um link direto para alguém (ex.: veio de um aviso por e-mail) já abre o cartão dela.
-  if (!firstRenderDone) { firstRenderDone = true; if (P(h)) pdlg.showModal(); }
+  if (!P(focus)) { const h = decodeURIComponent(location.hash.slice(1)); focus = P(h) ? h : rootPerson() || (Object.values(people).find(p => p.createdBy === me?.id)?.id || Object.keys(people)[0] || null); }
+  drawChart(); renderRecord(); renderIndex(); maybeOnboard();
 }
 addEventListener('hashchange', () => { const h = decodeURIComponent(location.hash.slice(1)); if (P(h) && h !== focus) setFocus(h); });
 

@@ -82,31 +82,22 @@
 <section class="band">
   <div class="chartbar">
     <h2 id="chartTitle">Antepassados</h2>
+    <span class="navbtns"><button type="button" id="backBtn" class="btn small" hidden aria-label="Voltar um passo">← Voltar</button>
+    <button type="button" id="homeBtn" class="btn small" hidden>Voltar para mim</button></span>
     <div class="chartopts" id="gensWrap">
       <label>Gerações <select id="gens"><option>3</option><option selected>4</option><option>5</option></select></label>
     </div>
   </div>
   <p class="hint" id="whoHint" hidden>Você ainda não está ligado a ninguém na árvore. Procure o seu nome acima, abra a sua ficha e toque em <b>Esta pessoa sou eu</b>. Depois disso, a árvore sempre começa por você.</p>
-  <p class="hint">Toque numa pessoa para abrir a ficha dela sem perder esta árvore de vista.</p>
   <div class="scroll"><div class="fig" id="fig"></div></div>
 </section>
 
-<!-- Ficha de uma pessoa: abre por cima da árvore, sem trocar de página. A árvore só muda de
-     centro quando a própria pessoa escolhe "Ver a árvore desta pessoa". -->
-<dialog id="carddlg" class="fullcard">
-  <div class="cardbar">
-    <button type="button" id="cardBack" class="btn small" hidden aria-label="Voltar à ficha anterior">← Voltar</button>
-    <button type="button" id="cardHome" class="btn small" hidden>Voltar para mim</button>
-    <span class="spacer"></span>
-    <button type="button" id="cardSpeak" class="btn small">🔊 Ouvir</button>
-    <button type="button" id="cardTree" class="btn small">Ver a árvore desta pessoa</button>
-    <button type="button" class="closeDlg btn small" aria-label="Fechar a ficha">Fechar</button>
-  </div>
+<section class="band nopad">
   <div class="record">
     <div class="slip" id="slip"></div>
     <div class="slip kin" id="kin"></div>
   </div>
-</dialog>
+</section>
 
 <section class="band nopad">
   <div class="chartbar"><h2><span id="indexTitle">Todas as pessoas</span> <span id="count" class="note"></span></h2><button type="button" id="allBtn" class="btn small" hidden></button></div>

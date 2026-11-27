@@ -95,12 +95,6 @@ dialog.wide{width:min(860px,96vw)}
 dialog::backdrop{background:#0008}
 dialog form,.admin{padding:22px}
 dialog.viewer{width:min(1000px,96vw)}
-/* Ficha de pessoa: cartão grande por cima da árvore, sem trocar de página. */
-dialog.fullcard{width:min(1100px,98vw);height:min(920px,94vh);max-height:94vh;display:flex;flex-direction:column}
-dialog.fullcard .cardbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:10px 16px;border-bottom:1px solid var(--line)}
-dialog.fullcard .cardbar .spacer{flex:1}
-dialog.fullcard .record{flex:1;overflow:auto;padding:20px 22px}
-@media(max-width:699px){dialog.fullcard{width:100vw;height:100vh;max-height:100vh;border-radius:0}}
 .vhead{display:flex;gap:10px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--line)}
 .vhead span{flex:1;font-size:14px}
 .vhead a{color:var(--ink-blue)}
