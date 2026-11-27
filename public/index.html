@@ -32,6 +32,7 @@
       <label class="f">E-mail<input name="email" type="email" autocomplete="email" required maxlength="120"></label>
       <label class="f">Senha<input name="password" type="password" autocomplete="current-password" required minlength="8" maxlength="200"></label>
       <label class="check" id="fMail" hidden><input type="checkbox" name="emailUpdates" checked> Quero receber por e-mail as novidades da família (quando alguém acrescenta ou muda algo na ficha de um parente direto meu), num resumo por dia. Dá para mudar depois, em Avisos.</label>
+      <label class="f" id="fFamily" hidden>Nome da família (como vai aparecer no site)<input name="family" maxlength="80" placeholder="ex.: Família Silva Santos"></label>
       <label class="f" id="fKey" hidden>Chave de instalação (se configurada)<input name="setupKey" autocomplete="off" maxlength="200"></label>
       <div class="err" id="authErr"></div>
       <button class="primary wide" type="submit" id="authBtn">Entrar</button>
@@ -252,6 +253,10 @@
     <details class="asec" data-sec="link"><summary>Link da família (só ver, sem cadastro)</summary>
     <p class="note">Um link único para mandar no grupo da família. Quem abre vê a árvore sem criar conta: dos falecidos aparece tudo; das pessoas vivas, só o nome e as ligações de família. Se o link se espalhar demais, troque: o antigo para de funcionar na hora.</p>
     <div id="famLink"></div>
+    </details>
+    <details class="asec" data-sec="familia"><summary>Nome da família</summary>
+    <p class="note">Aparece no topo, na tela de entrada e na aba do navegador, abaixo de "Dequem".</p>
+    <form id="famform" class="inline"><input name="name" maxlength="80" required><button class="primary" type="submit">Salvar</button></form>
     </details>
     <details class="asec" data-sec="usuarios"><summary>Pessoas com acesso</summary>
     <div id="idents"></div>

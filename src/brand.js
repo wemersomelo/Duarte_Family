@@ -4,6 +4,6 @@ const brand = {
   name: process.env.BRAND_NAME || 'Dequem',
   line: process.env.BRAND_LINE || 'Genealogia',
   slogan: process.env.BRAND_SLOGAN || 'Ocê é fi dequem?',
-  family: process.env.FAMILY_SUBTITLE || 'Família Duarte Melo'
+  family: process.env.FAMILY_SUBTITLE || '' // nome sugerido; o nome de verdade é escolhido por cada família (setting "familia")
 };
 module.exports = brand;

@@ -111,6 +111,8 @@ function startPerson() {
   const a = db.prepare("SELECT person_id FROM users WHERE role='admin' AND active=1 AND person_id<>'' ORDER BY id LIMIT 1").get();
   return (a && exists(a.person_id) ? a.person_id : '') || process.env.DEFAULT_PERSON || '';
 }
+// Nome da família deste livro: escolhido na instalação e editável em Administrar.
+const familyName = () => getSetting('familia') || BRAND.family || 'Nossa família';
 const setSetting = (k, v) => db.prepare('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(k, v);
 const GUEST_DAYS = 30;
 app.use((req, res, next) => {
@@ -303,9 +305,15 @@ app.get('/api/status', (req, res) => {
   }
   const inboxNew = req.user && req.user.role === 'admin' ? inboxState().filter(x => x.state !== 'importado').length : 0;
   let suggestionsN = 0; if (req.user && req.user.role === 'admin') try { suggestionsN = sugestoes.suggest(db, effectiveParents).length; } catch (e) { console.error(e); }
-  res.json({ request, inboxNew, suggestions: suggestionsN, needsSetup: users === 0, pendingRequests: pending, user: req.user || (req.guest ? { id: null, name: 'Visitante', role: 'guest' } : null), familyName: BRAND.family, brand: BRAND, defaultPerson: startPerson() });
+  res.json({ request, inboxNew, suggestions: suggestionsN, needsSetup: users === 0, pendingRequests: pending, user: req.user || (req.guest ? { id: null, name: 'Visitante', role: 'guest' } : null), familyName: familyName(), familySuggestion: BRAND.family, brand: BRAND, defaultPerson: startPerson() });
 });
 
+app.put('/api/admin/family-name', needAdmin, (req, res) => {
+  const fam = String(req.body.name || '').trim().slice(0, 80);
+  if (!fam) return res.status(400).json({ error: 'Escreva o nome da família.' });
+  setSetting('familia', fam); log(req, 'mudou o nome da família', null, { nome: fam });
+  res.json({ ok: true, name: fam });
+});
 app.post('/api/setup', (req, res) => {
   if (db.prepare('SELECT COUNT(*) n FROM users').get().n > 0) return res.status(400).json({ error: 'O administrador já foi criado.' });
   const setupKey = process.env.SETUP_KEY;
@@ -314,6 +322,8 @@ app.post('/api/setup', (req, res) => {
   const err = checkAccount(name, email, password); if (err) return res.status(400).json({ error: err });
   const id = db.prepare('INSERT INTO users(name,email,pass_hash,role,created_at) VALUES(?,?,?,?,?)')
     .run(name.trim(), email.trim().toLowerCase(), bcrypt.hashSync(password, 10), 'admin', now()).lastInsertRowid;
+  const fam = String(req.body.family || '').trim().slice(0, 80);
+  if (fam) setSetting('familia', fam);
   setSession(res, id);
   res.json({ ok: true });
 });
@@ -587,6 +597,7 @@ function alignSiblings(req, onlyParents) {
   return fills;
 }
 // Uma vez só, para os dados que já existiam antes desta regra.
+if (!getSetting('familia') && db.prepare('SELECT COUNT(*) n FROM users').get().n > 0) setSetting('familia', process.env.FAMILY_SUBTITLE || 'Família Duarte Melo');
 if (!getSetting('fichas_proprias_v1')) { db.exec("UPDATE users SET person_ok=1 WHERE person_id<>''"); setSetting('fichas_proprias_v1', new Date().toISOString()); }
 if (!getSetting('irmaos_alinhados_v1')) { try { const n = alignSiblings({ user: null }).length; setSetting('irmaos_alinhados_v1', new Date().toISOString()); if (n) console.log(`Irmãos: ${n} ligação(ões) de pai/mãe completada(s).`); } catch (e) { console.error(e); } }
 const parentsOf = id => { const c = effectiveParents()[id] || {}; return [c.f, c.m]; };
@@ -1198,7 +1209,7 @@ const sloganHtml = () => { const n = BRAND.name.toLowerCase(), s = escHtml(BRAND
 function sendIndex(req, res) {
   if (!indexHtml || process.env.NODE_ENV === 'development') indexHtml = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8');
   const html = indexHtml.replace(/\{\{BRAND_NAME\}\}/g, escHtml(BRAND.name)).replace(/\{\{BRAND_LINE\}\}/g, escHtml(BRAND.line))
-    .replace(/\{\{BRAND_SLOGAN\}\}/g, sloganHtml()).replace(/\{\{FAMILY\}\}/g, escHtml(BRAND.family));
+    .replace(/\{\{BRAND_SLOGAN\}\}/g, sloganHtml()).replace(/\{\{FAMILY\}\}/g, escHtml(familyName()));
   res.set('Cache-Control', 'no-cache').type('html').send(html);
 }
 app.get(['/', '/index.html'], sendIndex);

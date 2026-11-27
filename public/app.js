@@ -77,7 +77,7 @@ async function api(path, opts = {}) {
 }
 
 /* ---------- entrar / convite / instalação ---------- */
-let authMode = 'login', inviteToken = null, resetToken = null, familyName = 'Família Duarte Melo', defaultPerson = '';
+let authMode = 'login', inviteToken = null, resetToken = null, familyName = '', familySuggestion = '', defaultPerson = '';
 function showAuth(mode, info = {}) {
   authMode = mode;
   $('#main').hidden = true; $('#auth').hidden = false;
@@ -87,6 +87,7 @@ function showAuth(mode, info = {}) {
   f.querySelector('input[name=email]').closest('label').hidden = mode === 'reset';
   f.elements.email.required = mode !== 'reset';
   $('#fKey').hidden = mode !== 'setup';
+  $('#fFamily').hidden = mode !== 'setup'; if (mode === 'setup' && !$('#authForm').elements.family.value) $('#authForm').elements.family.value = familySuggestion;
   $('#fMail').hidden = mode !== 'invite';
   f.elements.name.required = mode !== 'login' && mode !== 'reset';
   f.elements.password.autocomplete = mode === 'login' ? 'current-password' : 'new-password';
@@ -99,7 +100,7 @@ function showAuth(mode, info = {}) {
 }
 $('#authForm').addEventListener('submit', async e => {
   e.preventDefault();
-  const f = e.target, body = { name: f.elements.name.value, email: f.elements.email.value, password: f.elements.password.value, setupKey: f.elements.setupKey.value, emailUpdates: f.elements.emailUpdates.checked };
+  const f = e.target, body = { name: f.elements.name.value, email: f.elements.email.value, password: f.elements.password.value, setupKey: f.elements.setupKey.value, family: f.elements.family.value, emailUpdates: f.elements.emailUpdates.checked };
   $('#authErr').textContent = '';
   try {
     if (authMode === 'login') await api('/api/login', { method: 'POST', body });
@@ -122,7 +123,7 @@ function showRequest(r) {
 }
 async function start() {
   const st = await api('/api/status');
-  familyName = st.familyName || familyName; defaultPerson = st.defaultPerson || '';
+  familyName = st.familyName || familyName; familySuggestion = st.familySuggestion || ''; defaultPerson = st.defaultPerson || '';
   showRequest(st.request);
   document.title = (st.brand ? st.brand.name : document.title.split(' · ')[0]) + ' · ' + familyName; $('#hsub').textContent = familyName;
   const rm = location.pathname.match(/^\/senha\/([\w-]+)/);
@@ -534,6 +535,12 @@ function openViewer(id) {
   $('#vdlg').showModal();
 }
 
+$('#famform').addEventListener('submit', async e => {
+  e.preventDefault();
+  try { const r = await api('/api/admin/family-name', { method: 'PUT', body: { name: e.target.elements.name.value } }); familyName = r.name; $('#hsub').textContent = r.name; document.title = document.title.split(' · ')[0] + ' · ' + r.name; $('#aErr').textContent = ''; }
+  catch (err) { $('#aErr').textContent = err.message; }
+});
+
 /* ---------- avisos ---------- */
 async function loadNotifCount() {
   try { const d = await api('/api/notifications'); $('#notifBtn').textContent = d.unread ? `Avisos (${d.unread})` : 'Avisos'; $('#notifBtn').classList.toggle('hot', !!d.unread); return d; } catch { return null; }
@@ -606,6 +613,7 @@ async function loadFamilyLink() {
     : `<p class="none">Nenhum link ativo.</p><div class="actions"><button type="button" class="primary" id="famNew">Criar link da família</button></div>`;
 }
 async function loadAdmin() {
+  $('#famform').elements.name.value = familyName;
   $('#aErr').textContent = '';
   loadFamilyLink().catch(err => $('#aErr').textContent = err.message);
   const d = await api('/api/admin');

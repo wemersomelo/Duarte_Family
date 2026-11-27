@@ -382,6 +382,13 @@ function client() {
     const ff = t.files.find(x => x.id === r.ids[0]);
     assert.ok(ff && ff.profile && !ff.doc, 'marcada como foto de perfil');
     assert.equal(t.people.find(x => x.id === pp).photoFileId, r.ids[0]); }
+  // nome da família: cada livro escolhe o seu
+  assert.equal((await tia('PUT', '/api/admin/family-name', { name: 'Família X' })).status, 403);
+  assert.equal((await admin('PUT', '/api/admin/family-name', { name: 'Família Teste Silva' })).status, 200);
+  assert.equal((await anon('GET', '/api/status')).data.familyName, 'Família Teste Silva');
+  assert.match((await fetch(base + '/')).headers.get('content-type'), /html/);
+  assert.match(await (await fetch(base + '/')).text(), /Família Teste Silva/);
+
   // juntar duas fichas da mesma pessoa
   const dupA = (await admin('POST', '/api/people', { name: 'Duplicada Teste', birth: '1950', fatherId: pai })).data.id;
   const dupB = (await admin('POST', '/api/people', { name: 'Duplicada T.', birth: '1951', birthPlace: 'Catuji' })).data.id;

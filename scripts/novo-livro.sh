@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Cria um "livro" (site separado) para uma família de teste, no mesmo servidor.
-# Uso:  scripts/novo-livro.sh <apelido> <endereço> "<Nome da família>" <e-mail do responsável>
+# Uso:  scripts/novo-livro.sh <apelido> <endereço> "<Nome sugerido da família>" <e-mail do responsável>
+# O nome é só uma sugestão: a família confirma ou troca na instalação e pode mudar depois em Administrar.
 # Ex.:  scripts/novo-livro.sh silva silva.familiaduartemelo.de "Família Silva" ana@exemplo.com
 # Cada livro tem os seus próprios dados, contas e senha de instalação. Nada é misturado com a sua árvore.
 set -euo pipefail
@@ -56,5 +57,6 @@ Pronto. Livro "$FAM" criado.
 2. Mande para $RESP:
    - o endereço: https://$DOM
    - a senha de instalação: $KEY
-   Na primeira visita, a pessoa cria a conta de administrador daquele livro com essa senha.
+   Na primeira visita, a pessoa cria a conta de administrador daquele livro com essa senha
+   e escolhe o nome da família (vem preenchido com "$FAM", mas ela pode trocar).
 MSG
