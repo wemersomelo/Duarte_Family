@@ -231,7 +231,8 @@ tr.flash td{background:light-dark(#fff3c4,#5a4a2a);transition:background .3s}
 .kfold[open]>summary::before{transform:rotate(90deg)}
 
 .docb{color:var(--accent);font-weight:600}
-label.check{display:flex;gap:8px;align-items:flex-start;margin:8px 0}
+label.check{display:flex;gap:10px;align-items:flex-start;margin:8px 0;font-size:15px}
+label.check input[type=checkbox]{width:20px;height:20px;min-height:0;flex:0 0 20px;margin:2px 0 0;padding:0;accent-color:var(--accent)}
 
 #notifBtn.hot{background:var(--accent);color:#fff;border-color:var(--accent)}
 #avList li.unread{font-weight:600}
@@ -330,3 +331,6 @@ body.landing{background:var(--bg)}
 
 .acct{margin:14px 0 4px;padding:0 4px}
 #delform{margin-top:10px}
+.cmdbox{margin:8px 0;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--paper)}
+.cmdbox pre{white-space:pre-wrap;word-break:break-all;font-size:13px;margin:6px 0;padding:8px;border-radius:4px;background:var(--soft);user-select:all}
+.cmdbox .note{margin:4px 0}

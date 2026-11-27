@@ -593,12 +593,13 @@ async function loadNotifCount() {
 }
 $('#notifBtn').addEventListener('click', async () => {
   const d = await loadNotifCount(); if (!d) return;
-  $('#avList').innerHTML = d.notifications.length ? `<ul class="notes">${d.notifications.map(n => `<li class="${n.readAt ? '' : 'unread'}">${esc(n.text)}<small>${esc(fmtDate(n.createdAt))}${n.personId && P(n.personId) ? ` · <button type="button" class="link" data-go="${esc(n.personId)}">ver a ficha</button>` : ''}</small></li>`).join('')}</ul>` : '<p class="none">Nenhum aviso ainda.</p>';
+  $('#avList').innerHTML = d.notifications.length ? `<ul class="notes">${d.notifications.map(n => `<li class="${n.readAt ? '' : 'unread'}">${esc(n.text)}${cmdBox(n)}<small>${esc(fmtDate(n.createdAt))}${n.personId && P(n.personId) ? ` · <button type="button" class="link" data-go="${esc(n.personId)}">ver a ficha</button>` : ''}</small></li>`).join('')}</ul>` : '<p class="none">Nenhum aviso ainda.</p>';
   $('#avMail').checked = !!d.emailUpdates;
   $('#avdlg').showModal();
   if (d.unread) { await api('/api/notifications/read', { method: 'POST' }).catch(() => {}); $('#notifBtn').textContent = 'Avisos'; $('#notifBtn').classList.remove('hot'); }
 });
 
+$('#avList').addEventListener('click', e => { const cu = e.target.closest('[data-copyurl]'); if (cu) copy(cu.dataset.copyurl, cu); });
 $('#avMail').addEventListener('change', e => api('/api/me/email-updates', { method: 'PUT', body: { on: e.target.checked } }).catch(err => alertStatus(err)));
 
 document.addEventListener('click', e => { if (e.target.closest('[data-themebtn]')) window.cycleTheme(); });
@@ -670,6 +671,7 @@ async function loadReports() {
   const K = { person: 'a ficha', note: 'uma informação', file: 'uma foto ou documento', media: 'um link' };
   $('#repList').innerHTML = d.reports.length ? d.reports.map(r => `<div class="alert"><p><b>${esc(r.byName || 'conta removida')}</b> denunciou ${K[r.kind]}${r.personId && P(r.personId) ? ` de <button type="button" class="link" data-go="${esc(r.personId)}">${esc(P(r.personId).name)}</button>` : ''} <span class="note">${esc(fmtDate(r.createdAt))}${r.status === 'closed' ? ' · resolvida' : ''}</span></p><p>"${esc(r.reason)}"</p>${r.status === 'open' ? `<div class="actions small"><button type="button" data-repclose="${r.id}">Marcar como resolvida</button></div>` : ''}</div>`).join('') : '<p class="none">Nenhuma denúncia.</p>';
 }
+const cmdBox = r => r.command ? `<div class="cmdbox"><p class="note">Para criar o livro, cole no terminal do servidor (já dentro do <code>root@ubuntu</code>):</p><pre>${esc(r.command)}</pre><button type="button" class="primary" data-copyurl="${esc(r.command)}">Copiar comando</button><p class="note">O endereço <b>${esc(r.domain)}</b> precisa apontar para o servidor. Faça uma vez só na Strato um registro A <code>*.${esc(r.base)}</code> com o IP do servidor e todos os livros novos já funcionam. No fim, o terminal mostra a senha de instalação para mandar à pessoa.</p></div>` : '';
 async function loadBookRequests() {
   const d = await api('/api/admin/book-requests');
   const pend = d.requests.filter(r => r.status === 'pending');
@@ -677,6 +679,7 @@ async function loadBookRequests() {
   $('#bookList').innerHTML = d.requests.length ? d.requests.map(r => `<div class="alert"><p><b>${esc(r.family || '')}</b> <span class="note">${esc(fmtDate(r.createdAt))}${r.status === 'done' ? ' · atendido' : ''}</span></p>
     <p>${esc(r.name)} · <a href="mailto:${esc(r.email)}">${esc(r.email)}</a>${r.place ? ' · ' + esc(r.place) : ''}</p>${r.relatives ? `<p class="note">Parentes que já usam: ${esc(r.relatives)}</p>` : ''}${r.message ? `<p class="note">${esc(r.message)}</p>` : ''}
     ${r.maybeSame && r.maybeSame.length ? `<div class="hint"><b>Pode ser a mesma família:</b><ul>${r.maybeSame.map(m => `<li>${esc(m.label)}${m.strong ? ' <span class="tag">mesmo sobrenome e cidade</span>' : ' <span class="note">(mesmo sobrenome, cidade não informada)</span>'}</li>`).join('')}</ul>Antes de criar outro livro, pergunte se a pessoa não quer entrar no que já existe.</div>` : ''}
+    ${r.status === 'pending' ? cmdBox(r) : ''}
     <div class="actions small">${r.status === 'pending' ? `<button type="button" data-bookreq="${r.id}" data-act2="done">Marcar como atendido</button>` : `<button type="button" class="link" data-bookreq="${r.id}" data-act2="reopen">reabrir</button>`}<button type="button" class="link danger" data-bookreq="${r.id}" data-act2="delete">apagar</button></div></div>`).join('') : '<p class="none">Nenhum pedido ainda. Divulgue o endereço /comecar.</p>';
 }
 async function loadAdmin() {

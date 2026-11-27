@@ -529,8 +529,10 @@ app.post('/api/livro-pedido', (req, res) => {
   db.prepare('INSERT INTO book_requests(name,email,family,place,message,ip,created_at,terms_version,relatives) VALUES(?,?,?,?,?,?,?,?,?)').run(name, email, family, place, message, ip, now(), TERMS_VERSION, relatives);
   const text = `${name} (${email}) quer começar a árvore da ${family}${place ? ', de ' + place : ''}.${relatives ? ' Parentes que já usam: ' + relatives + '.' : ''}${message ? ' Mensagem: ' + message : ''}`;
   const admins = db.prepare("SELECT id,email FROM users WHERE role='admin' AND active=1").all();
-  for (const u of admins) db.prepare('INSERT INTO notifications(user_id,person_id,text,created_at) VALUES(?,?,?,?)').run(u.id, null, 'Pedido de livro: ' + text, now());
-  mail.send(admins.map(u => u.email).join(','), `${BRAND.name}: pedido de livro da ${family}`, `${text}\n\nVeja em Administrar > Famílias pedindo um livro:\n${baseUrl(req)}`);
+  const reqId = db.prepare('SELECT last_insert_rowid() id').get().id;
+  for (const u of admins) db.prepare('INSERT INTO notifications(user_id,person_id,text,created_at,book_req) VALUES(?,?,?,?,?)').run(u.id, null, 'Pedido de livro: ' + text, now(), reqId);
+  const cmd = bookCommand({ id: reqId, family, place, email }, req);
+  mail.send(admins.map(u => u.email).join(','), `${BRAND.name}: pedido de livro da ${family}`, `${text}\n\nPara criar o livro, cole no terminal do servidor:\n\n${cmd.command}\n\nO endereço ${cmd.domain} precisa apontar para o servidor (uma vez só: registro A *.${cmd.base} na Strato).\n\nVeja em Administrar > Famílias pedindo um livro:\n${baseUrl(req)}`);
   res.json({ ok: true });
 });
 // Pode ser a mesma família? Sobrenome em comum e mesma cidade (ou cidade não informada) com outro pedido ou com um livro já criado.
@@ -549,12 +551,30 @@ function familyMatches(r, others) {
   }
   return out;
 }
+// Comando pronto para criar o livro no servidor (scripts/novo-livro.sh), montado a partir do pedido.
+const titleCase = s => String(s || '').toLowerCase().replace(/(^|[\s-])(\p{L})/gu, (m, a, b) => a + b.toUpperCase()).replace(/\b(Da|De|Do|Das|Dos|E)\b/g, w => w.toLowerCase());
+const slugWords = s => norm(s || '').replace(/[^a-z0-9]+/g, ' ').trim().split(' ').filter(w => w && !STOP.has(w));
+const shq = s => "'" + String(s).replace(/'/g, "'\\''") + "'";
+function bookCommand(r, req) {
+  const base = (process.env.BOOKS_DOMAIN || process.env.DOMAIN || (req && req.get('host')) || 'exemplo.com').replace(/:\d+$/, '');
+  const fam = titleCase(String(r.family || '').replace(/^\s*fam[ií]lia\s+/i, '').trim()) || 'Família';
+  const city = titleCase(String(r.place || '').split(/[,·]/)[0].trim());
+  const uf = (String(r.place || '').match(/[,·-]\s*([A-Za-z]{2})\s*$/) || [])[1];
+  const lugar = city ? city + (uf ? ', ' + uf.toUpperCase() : '') : '';
+  let slug = [...slugWords(fam), ...slugWords(city).slice(0, 2)].join('-').slice(0, 30).replace(/-+$/, '') || 'familia-' + r.id;
+  const taken = new Set(existingBooks().map(b => b.slug));
+  if (taken.has(slug)) { let n = 2; while (taken.has(slug.slice(0, 27) + '-' + n)) n++; slug = slug.slice(0, 27) + '-' + n; }
+  const domain = slug + '.' + base, label = 'Família ' + fam + (city ? ' · ' + city : '');
+  const command = `cd ~/arvore && git pull && scripts/novo-livro.sh ${slug} ${domain} ${shq(label)} ${shq(r.email)}${lugar ? ' ' + shq(lugar) : ''}`;
+  return { slug, domain, base, label, command };
+}
 app.get('/api/admin/book-requests', needAdmin, (req, res) => {
   const all = db.prepare("SELECT id,name,email,family,place,message,relatives,status,created_at createdAt,done_at doneAt FROM book_requests ORDER BY (status='pending') DESC, id DESC LIMIT 300").all();
   const books = existingBooks().map(b => ({ kind: 'livro', label: `livro ${b.family}${b.place ? ' (' + b.place + ')' : ''} · ${b.domain}`, family: b.family, place: b.place }));
   for (const r of all) {
     const others = all.filter(o => o.id !== r.id).map(o => ({ kind: 'pedido', label: `pedido de ${o.name}: ${o.family}${o.place ? ' (' + o.place + ')' : ''}`, family: o.family, place: o.place }));
     r.maybeSame = familyMatches(r, [...books, ...others]).map(m => ({ label: m.label, strong: m.strong }));
+    const c = bookCommand(r, req); r.command = c.command; r.domain = c.domain; r.base = c.base;
   }
   res.json({ requests: all, books: existingBooks() });
 });
@@ -697,7 +717,12 @@ app.get('/api/people/:id/kin-contacts', needUser, (req, res) => {
   res.json({ contacts: kinContacts(p.id), admins });
 });
 app.get('/api/notifications', needUser, (req, res) => {
-  const list = db.prepare('SELECT id,person_id personId,text,created_at createdAt,read_at readAt FROM notifications WHERE user_id=? ORDER BY id DESC LIMIT 150').all(req.user.id);
+  const list = db.prepare('SELECT id,person_id personId,text,created_at createdAt,read_at readAt,book_req bookReq FROM notifications WHERE user_id=? ORDER BY id DESC LIMIT 150').all(req.user.id);
+  for (const n of list) {
+    const r = n.bookReq && req.user.role === 'admin' ? db.prepare("SELECT id,family,place,email,status FROM book_requests WHERE id=?").get(n.bookReq) : null;
+    if (r && r.status === 'pending') { const c = bookCommand(r, req); n.command = c.command; n.domain = c.domain; n.base = c.base; }
+    delete n.bookReq;
+  }
   const em = db.prepare('SELECT email_updates FROM users WHERE id=?').get(req.user.id);
   res.json({ notifications: list, unread: list.filter(n => !n.readAt).length, emailUpdates: !!(em && em.email_updates) });
 });

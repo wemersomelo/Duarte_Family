@@ -398,6 +398,9 @@ function client() {
     assert.equal(robo.status, 200, 'robô recebe ok, mas nada é salvo');
     assert.equal((await tia('GET', '/api/admin/book-requests')).status, 403);
     const br = (await admin('GET', '/api/admin/book-requests')).data.requests;
+    assert.match(br[0].command, /^cd ~\/arvore && git pull && scripts\/novo-livro\.sh fora-itaipe fora-itaipe\.\S+ 'Família Fora · Itaipé' 'ana@fora\.com' 'Itaipé'$/, 'comando pronto para o terminal: ' + br[0].command);
+    const av = (await admin('GET', '/api/notifications')).data.notifications.find(n => /Pedido de livro/.test(n.text));
+    assert.equal(av.command, br[0].command, 'o aviso traz o mesmo comando');
     assert.equal(br.length, 1); assert.equal(br[0].family, 'Família Fora');
     assert.ok((await admin('GET', '/api/notifications')).data.notifications.some(n => /Pedido de livro/.test(n.text)), 'admin avisado');
     assert.equal((await admin('GET', '/api/status')).data.bookRequests, 1);

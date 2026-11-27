@@ -178,6 +178,8 @@ function openDb(file) {
   if (!cols('access_requests').includes('claim')) db.exec(`ALTER TABLE access_requests ADD COLUMN claim TEXT`);
   if (!cols('users').includes('person_id')) db.exec(`ALTER TABLE users ADD COLUMN person_id TEXT NOT NULL DEFAULT ''`);
   // relato_people.hidden: 0 = aparece, 1 = oculto (só o administrador vê), 2 = apagado (não volta ao reimportar)
+  // notifications.book_req: aviso de pedido de livro, para mostrar o comando pronto do terminal
+  if (!cols('notifications').includes('book_req')) db.exec(`ALTER TABLE notifications ADD COLUMN book_req INTEGER`);
   if (!cols('relato_people').includes('hidden')) db.exec(`ALTER TABLE relato_people ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0`);
   // files.doc: 1 = documento (certidão, identidade...), visível só para a família próxima da pessoa, quem enviou e o administrador.
   // Na primeira vez, por segurança, tudo o que já existe vira documento, menos as fotos de perfil.
