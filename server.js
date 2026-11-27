@@ -231,14 +231,14 @@ function notifyKin(req, action, pid, detail) {
   } else if (detail.text) text += `: "${String(detail.text).slice(0, 200)}"`;
   else if (detail.url) text += `: ${detail.url}`;
   const ep = effectiveParents();
-  const to = db.prepare("SELECT id,name,email,role,person_id FROM users WHERE active=1 AND id<>?").all(req.user.id)
+  const to = db.prepare("SELECT id,name,email,role,person_id,email_updates FROM users WHERE active=1 AND id<>?").all(req.user.id)
     .filter(u => u.role === 'admin' || (u.person_id && (u.person_id === pid || kinOf(u.person_id, ep).has(pid))));
   const ins = db.prepare('INSERT INTO notifications(user_id,person_id,text,by_user,created_at) VALUES(?,?,?,?,?)');
   for (const u of to) {
     ins.run(u.id, pid, text, req.user.id, now());
     // e-mail: no máximo um a cada 30 minutos por pessoa; o resto fica nos Avisos do site
     const key = 'aviso_mail:' + u.id, last = Number(getSetting(key) || 0);
-    if (Date.now() - last > 30 * 60e3) { setSetting(key, String(Date.now())); mail.send(u.email, `Novidade na árvore: ${p.name}`, `${text}.\n\nSe não for verdade, corrija ou avise o administrador. Veja todos os avisos no site, no botão Avisos:\n${baseUrl(req)}/#${encodeURIComponent(pid)}`); }
+    if (u.email_updates && Date.now() - last > 30 * 60e3) { setSetting(key, String(Date.now())); mail.send(u.email, `Novidade na árvore: ${p.name}`, `${text}.\n\nSe não for verdade, corrija ou avise o administrador. Veja todos os avisos no site, no botão Avisos:\n${baseUrl(req)}/#${encodeURIComponent(pid)}`); }
   }
 }
 
@@ -366,6 +366,7 @@ app.post('/api/invites/:token', (req, res) => {
   const err = checkAccount(name, email, password); if (err) return res.status(400).json({ error: err });
   const id = db.prepare('INSERT INTO users(name,email,pass_hash,role,created_at) VALUES(?,?,?,?,?)')
     .run(name.trim(), email.trim().toLowerCase(), bcrypt.hashSync(password, 10), inv.role, now()).lastInsertRowid;
+  db.prepare('UPDATE users SET email_updates=? WHERE id=?').run(req.body.emailUpdates === false ? 0 : 1, id);
   db.prepare('UPDATE invites SET used_by=?, used_at=? WHERE token=?').run(id, now(), inv.token);
   db.prepare("UPDATE access_requests SET status='joined' WHERE invite_token=?").run(inv.token);
   // Já entra ligado à sua ficha na árvore, se o administrador escolheu ao convidar.
@@ -493,7 +494,12 @@ app.get('/api/people/:id/kin-contacts', needUser, (req, res) => {
 });
 app.get('/api/notifications', needUser, (req, res) => {
   const list = db.prepare('SELECT id,person_id personId,text,created_at createdAt,read_at readAt FROM notifications WHERE user_id=? ORDER BY id DESC LIMIT 150').all(req.user.id);
-  res.json({ notifications: list, unread: list.filter(n => !n.readAt).length });
+  const em = db.prepare('SELECT email_updates FROM users WHERE id=?').get(req.user.id);
+  res.json({ notifications: list, unread: list.filter(n => !n.readAt).length, emailUpdates: !!(em && em.email_updates) });
+});
+app.put('/api/me/email-updates', needUser, (req, res) => {
+  db.prepare('UPDATE users SET email_updates=? WHERE id=?').run(req.body.on ? 1 : 0, req.user.id);
+  res.json({ ok: true, on: !!req.body.on });
 });
 app.post('/api/notifications/read', needUser, (req, res) => {
   db.prepare('UPDATE notifications SET read_at=? WHERE user_id=? AND read_at IS NULL').run(now(), req.user.id);

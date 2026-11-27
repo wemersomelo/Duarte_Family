@@ -87,6 +87,7 @@ function showAuth(mode, info = {}) {
   f.querySelector('input[name=email]').closest('label').hidden = mode === 'reset';
   f.elements.email.required = mode !== 'reset';
   $('#fKey').hidden = mode !== 'setup';
+  $('#fMail').hidden = mode !== 'invite';
   f.elements.name.required = mode !== 'login' && mode !== 'reset';
   f.elements.password.autocomplete = mode === 'login' ? 'current-password' : 'new-password';
   $('#authBtn').textContent = mode === 'login' ? 'Entrar' : mode === 'reset' ? 'Salvar nova senha' : 'Criar conta';
@@ -98,7 +99,7 @@ function showAuth(mode, info = {}) {
 }
 $('#authForm').addEventListener('submit', async e => {
   e.preventDefault();
-  const f = e.target, body = { name: f.elements.name.value, email: f.elements.email.value, password: f.elements.password.value, setupKey: f.elements.setupKey.value };
+  const f = e.target, body = { name: f.elements.name.value, email: f.elements.email.value, password: f.elements.password.value, setupKey: f.elements.setupKey.value, emailUpdates: f.elements.emailUpdates.checked };
   $('#authErr').textContent = '';
   try {
     if (authMode === 'login') await api('/api/login', { method: 'POST', body });
@@ -540,9 +541,12 @@ async function loadNotifCount() {
 $('#notifBtn').addEventListener('click', async () => {
   const d = await loadNotifCount(); if (!d) return;
   $('#avList').innerHTML = d.notifications.length ? `<ul class="notes">${d.notifications.map(n => `<li class="${n.readAt ? '' : 'unread'}">${esc(n.text)}<small>${esc(fmtDate(n.createdAt))}${n.personId && P(n.personId) ? ` · <button type="button" class="link" data-go="${esc(n.personId)}">ver a ficha</button>` : ''}</small></li>`).join('')}</ul>` : '<p class="none">Nenhum aviso ainda.</p>';
+  $('#avMail').checked = !!d.emailUpdates;
   $('#avdlg').showModal();
   if (d.unread) { await api('/api/notifications/read', { method: 'POST' }).catch(() => {}); $('#notifBtn').textContent = 'Avisos'; $('#notifBtn').classList.remove('hot'); }
 });
+
+$('#avMail').addEventListener('change', e => api('/api/me/email-updates', { method: 'PUT', body: { on: e.target.checked } }).catch(err => alertStatus(err)));
 
 /* ---------- senha ---------- */
 $('#pwBtn').addEventListener('click', () => { $('#pform').reset(); $('#pErr').textContent = ''; $('#pdlg').showModal(); });

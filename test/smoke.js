@@ -336,6 +336,12 @@ function client() {
     await admin('PUT', '/api/people/' + av, { birthPlace: 'Itaipé' });
     nn = (await nk('GET', '/api/notifications')).data;
     assert.ok(nn.notifications.some(n => /local de nascimento: vazio → Itaipé/.test(n.text)), 'aviso diz o que mudou');
+    { const tq = (await admin('POST', '/api/admin/invites', { role: 'viewer' })).data.token; const q = client();
+      await q('POST', '/api/invites/' + tq, { name: 'Sem Email', email: 'semmail@ex.com', password: 'senha-forte-6', emailUpdates: false });
+      assert.equal((await q('GET', '/api/notifications')).data.emailUpdates, false, 'escolheu não receber e-mail');
+      await q('PUT', '/api/me/email-updates', { on: true });
+      assert.equal((await q('GET', '/api/notifications')).data.emailUpdates, true, 'muda depois em Avisos'); }
+    assert.equal((await nk('GET', '/api/notifications')).data.emailUpdates, true, 'padrão: recebe');
     await nk('POST', '/api/notifications/read');
     assert.equal((await nk('GET', '/api/notifications')).data.unread, 0);
     assert.equal((await nk('PUT', '/api/people/' + primoMorto, { deathPlace: 'X' })).status, 403, 'primo não');
