@@ -286,15 +286,32 @@ function client() {
     const nid = (await irm('GET', '/api/tree')).data.notes.find(n => n.text === 'nota da tia').id;
     assert.equal((await irm('DELETE', '/api/notes/' + nid)).status, 200, 'dono da ficha remove notas da página dele');
     assert.equal((await admin('PUT', '/api/people/' + irmao, { birth: '1969' })).status, 200, 'admin continua podendo');
-    // auto-identificação sem confirmação não tira a edição de quem cadastrou
-    const outro = (await tia('POST', '/api/people', { name: 'Primo Autoident' })).data.id;
+    // "Esta pessoa sou eu": já administra; "não sou eu" desfaz tudo o que mudou
+    const outro = (await tia('POST', '/api/people', { name: 'Primo Autoident', birth: '1950' })).data.id;
+    await tia('POST', `/api/people/${outro}/notes`, { text: 'nota antiga da tia', kind: 'info' });
     const tok2 = (await admin('POST', '/api/admin/invites', { role: 'member' })).data.token;
     const pr = client(); await pr('POST', '/api/invites/' + tok2, { name: 'Primo', email: 'primo2@ex.com', password: 'senha-forte-8' });
+    const mail = require('../src/mail'); Object.assign(process.env, { SMTP_HOST: 'test', SMTP_USER: 'a@ex.com', SMTP_PASS: 'x' }); mail.sent.length = 0;
     await pr('PUT', '/api/me/person', { personId: outro });
-    assert.equal((await tia('PUT', '/api/people/' + outro, { birth: '1980' })).status, 200, 'sem confirmação, quem cadastrou ainda edita');
-    const uid = (await admin('GET', '/api/admin')).data.users.find(u => u.email === 'primo2@ex.com').id;
-    await admin('PUT', '/api/admin/users/' + uid, { personId: outro });
-    assert.equal((await tia('PUT', '/api/people/' + outro, { birth: '1981' })).status, 403, 'confirmado pelo admin: perde'); }
+    await new Promise(r => setTimeout(r, 100));
+    assert.ok(mail.sent.some(m => /se identificou/.test(m.subject)), 'admin recebe aviso');
+    assert.equal((await tia('PUT', '/api/people/' + outro, { birth: '1980' })).status, 403, 'quem cadastrou perde a edição na hora');
+    await pr('PUT', '/api/people/' + outro, { birth: '1999', birthPlace: 'Lugar Errado' });
+    await pr('POST', `/api/people/${outro}/notes`, { text: 'nota do impostor', kind: 'info' });
+    const tn = (await pr('GET', '/api/tree')).data.notes.find(n => n.text === 'nota antiga da tia');
+    await pr('DELETE', '/api/notes/' + tn.id);
+    assert.ok((await pr('GET', '/api/me/person/changes')).data.count >= 3, 'conta as alterações');
+    const und = (await pr('PUT', '/api/me/person', { personId: '' })).data;
+    assert.ok(und.undone >= 3, 'desfez ' + und.undone);
+    const t2 = (await admin('GET', '/api/tree')).data;
+    const po = t2.people.find(x => x.id === outro);
+    assert.equal(po.birth, '1950'); assert.equal(po.birthPlace || '', '', 'dados voltaram');
+    assert.ok(t2.notes.some(n => n.text === 'nota antiga da tia'), 'nota removida voltou');
+    assert.ok(!t2.notes.some(n => n.text === 'nota do impostor'), 'nota acrescentada saiu');
+    await new Promise(r => setTimeout(r, 100));
+    assert.ok(mail.sent.some(m => /não é/.test(m.subject)), 'admin avisado do "não sou eu"');
+    for (const k of ['SMTP_HOST', 'SMTP_USER', 'SMTP_PASS']) delete process.env[k];
+    assert.equal((await tia('PUT', '/api/people/' + outro, { birth: '1951' })).status, 200, 'quem cadastrou volta a editar'); }
 
   // juntar duas fichas da mesma pessoa
   const dupA = (await admin('POST', '/api/people', { name: 'Duplicada Teste', birth: '1950', fatherId: pai })).data.id;

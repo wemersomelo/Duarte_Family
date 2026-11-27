@@ -335,8 +335,17 @@ document.addEventListener('click', async e => {
   if (a.dataset.act === 'link') openLink(p.id);
   if (a.dataset.act === 'files') openFiles(p.id);
   if (a.dataset.act === 'isme' || a.dataset.act === 'notme') {
-    const pid = a.dataset.act === 'isme' ? p.id : '';
-    api('/api/me/person', { method: 'PUT', body: { personId: pid } }).then(() => { me.personId = pid; renderAll(); }).catch(err => alertStatus(err));
+    (async () => {
+      const pid = a.dataset.act === 'isme' ? p.id : '';
+      if (pid && !confirm(`Tem certeza de que você é ${p.name}?\n\nVocê vai administrar esta ficha: corrigir datas, lugares e a foto. O administrador recebe um aviso.`)) return;
+      if (!pid) {
+        const { count } = await api('/api/me/person/changes').catch(() => ({ count: 0 }));
+        const msg = count ? `Tem certeza de que quer apagar todas as alterações que você fez neste perfil (${count})?\n\nDatas, fotos, notas e o que você removeu voltam a ser como eram antes de você dizer que era esta pessoa.` : 'Tem certeza de que esta pessoa não é você?';
+        if (!confirm(msg)) return;
+      }
+      try { const r = await api('/api/me/person', { method: 'PUT', body: { personId: pid } }); me.personId = pid; await load(); if (r.undone) $('#status').textContent = `${r.undone} alteração(ões) desfeita(s).`; }
+      catch (err) { alertStatus(err); }
+    })();
   }
 });
 function closeAll() { document.querySelectorAll('dialog[open]').forEach(d => d.close()); }
@@ -577,6 +586,7 @@ async function loadAdmin() {
   loadRequests().catch(err => $('#aErr').textContent = err.message);
   loadRelatos().catch(err => $('#aErr').textContent = err.message);
   loadSuggestions().catch(err => $('#aErr').textContent = err.message);
+  $('#idents').innerHTML = (d.idents || []).length ? `<p class="note"><b>Identificações dos últimos 30 dias:</b></p><ul class="notes">${d.idents.map(x => `<li>${esc(x.name)} ${x.action === 'se identificou na árvore' ? 'disse que é' : 'disse que não é'} <button type="button" class="link" data-go="${esc(x.personId)}">${esc(P(x.personId)?.name || x.personId)}</button>${x.undone ? ` · ${x.undone} alteração(ões) desfeita(s)` : ''}<small>${esc(fmtDate(x.at))}</small></li>`).join('')}</ul>` : '';
   $('#users').innerHTML = `<table class="tbl"><thead><tr><th>Nome</th><th>E-mail</th><th>Acesso</th><th>Na árvore</th><th></th></tr></thead><tbody>${d.users.map(u => `<tr><td>${esc(u.name)}</td><td>${esc(u.email)}</td><td>${u.id === me.id ? ROLE[u.role] : `<select data-role="${u.id}">${Object.entries(ROLE).map(([k, v]) => `<option value="${k}"${k === u.role ? ' selected' : ''}>${v}</option>`).join('')}</select>`}</td><td><select data-person="${u.id}"><option value="">—</option>${Object.values(people).sort(byName).map(p => `<option value="${esc(p.id)}"${p.id === u.personId ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</select>${u.personId && !u.personOk ? `<br><span class="note">ela mesma se identificou; ainda não administra a ficha</span> <button type="button" class="link" data-personok="${u.id}" data-pid="${esc(u.personId)}">confirmar</button>` : ''}</td><td>${u.id === me.id ? 'você' : `<button type="button" class="link" data-reset="${u.id}">link de nova senha</button> <button type="button" class="link" data-active="${u.id}" data-to="${u.active ? 0 : 1}">${u.active ? 'bloquear' : 'desbloquear'}</button> <button type="button" class="link danger" data-deluser="${u.id}">eliminar conta</button>`}</td></tr>`).join('')}</tbody></table>`;
   const open = d.invites.filter(i => !i.usedBy && i.expires > Date.now());
   $('#invites').innerHTML = open.length ? `<p class="note">Convites ainda não usados (valem 30 dias):</p><table class="tbl"><tbody>${open.map(i => `<tr><td>${esc(i.label || 'sem nome')}</td><td>${ROLE[i.role]}</td><td><button type="button" class="link" data-copy="${esc(i.token)}">copiar link</button> <button type="button" class="link" data-revoke="${esc(i.token)}">cancelar</button></td></tr>`).join('')}</tbody></table>` : '';

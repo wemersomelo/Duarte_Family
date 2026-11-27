@@ -372,6 +372,51 @@ app.get('/api/tree', needUserOrGuest, (req, res) => {
 });
 
 // Cada conta pode dizer quem ela é na árvore.
+// Desfaz tudo o que a conta mudou na ficha desde que se identificou (quando diz "não sou eu").
+function revertSelfChanges(uid, pid) {
+  const claim = db.prepare("SELECT at FROM activity WHERE user_id=? AND target=? AND action='se identificou na árvore' ORDER BY id DESC LIMIT 1").get(uid, pid);
+  if (!claim) return 0;
+  const since = claim.at; let n = 0;
+  const acts = db.prepare('SELECT * FROM activity WHERE user_id=? AND target=? AND at>=? ORDER BY id DESC').all(uid, pid, since);
+  db.transaction(() => {
+    for (const a of acts) {
+      let d = {}; try { d = JSON.parse(a.detail || '{}'); } catch {}
+      if (a.action === 'editou pessoa' && d.antes) {
+        const cols = Object.keys(d.antes).filter(c => FIELDS.includes(c));
+        if (cols.length) { db.prepare(`UPDATE people SET ${cols.map(c => c + '=?').join(',')}, updated_at=? WHERE id=?`).run(...cols.map(c => d.antes[c] ?? ''), now(), pid); n++; }
+      } else if (a.action === 'escolheu foto principal') { db.prepare('UPDATE people SET photo_file_id=? WHERE id=?').run(d.antes || '', pid); n++; }
+      else if (a.action === 'removeu informação' && d.id) { n += db.prepare('INSERT OR IGNORE INTO notes(id,person_id,kind,text,created_by,created_at) VALUES(?,?,?,?,?,?)').run(d.id, d.person_id, d.kind || 'info', d.text, d.created_by, d.created_at).changes; }
+      else if (a.action === 'removeu link' && d.id) { n += db.prepare('INSERT OR IGNORE INTO media_links(id,person_id,url,title,created_by,created_at) VALUES(?,?,?,?,?,?)').run(d.id, d.person_id, d.url, d.title || '', d.created_by, d.created_at).changes; }
+      else if (a.action === 'removeu arquivo' && d.id) {
+        const from = path.join(TRASH_DIR, path.basename(d.stored_name || ''));
+        if (d.stored_name && fs.existsSync(from)) {
+          try { fs.renameSync(from, path.join(UPLOAD_DIR, path.basename(d.stored_name))); } catch {}
+          n += db.prepare('INSERT OR IGNORE INTO files(id,person_id,stored_name,original_name,mime,size,caption,created_by,created_at,doc) VALUES(?,?,?,?,?,?,?,?,?,?)').run(d.id, d.person_id, d.stored_name, d.original_name, d.mime, d.size, d.caption || '', d.created_by, d.created_at, d.doc ?? 1).changes;
+        }
+      }
+    }
+    // o que a conta acrescentou na ficha depois de se identificar sai
+    n += db.prepare('DELETE FROM notes WHERE person_id=? AND created_by=? AND created_at>=?').run(pid, uid, since).changes;
+    n += db.prepare('DELETE FROM media_links WHERE person_id=? AND created_by=? AND created_at>=?').run(pid, uid, since).changes;
+    for (const f of db.prepare('SELECT * FROM files WHERE person_id=? AND created_by=? AND created_at>=?').all(pid, uid, since)) {
+      db.prepare('DELETE FROM files WHERE id=?').run(f.id); db.prepare("UPDATE people SET photo_file_id='' WHERE photo_file_id=?").run(f.id); n++;
+      fs.mkdirSync(TRASH_DIR, { recursive: true });
+      try { fs.renameSync(path.join(UPLOAD_DIR, path.basename(f.stored_name)), path.join(TRASH_DIR, path.basename(f.stored_name))); } catch {}
+    }
+  })();
+  return n;
+}
+// Quantas alterações a conta fez na própria ficha desde que se identificou (para o aviso de "não sou eu").
+app.get('/api/me/person/changes', needUser, (req, res) => {
+  const pid = req.user.personId; if (!pid) return res.json({ count: 0 });
+  const claim = db.prepare("SELECT at FROM activity WHERE user_id=? AND target=? AND action='se identificou na árvore' ORDER BY id DESC LIMIT 1").get(req.user.id, pid);
+  const count = claim ? db.prepare("SELECT COUNT(*) n FROM activity WHERE user_id=? AND target=? AND at>=? AND action<>'se identificou na árvore'").get(req.user.id, pid, claim.at).n : 0;
+  res.json({ count });
+});
+function notifyAdmins(req, subject, text) {
+  const admins = db.prepare("SELECT email FROM users WHERE role='admin' AND active=1 AND id<>?").all(req.user.id).map(u => u.email);
+  if (admins.length) mail.send(admins.join(','), subject, text + `\n\n${baseUrl(req)}`);
+}
 app.put('/api/me/person', needUser, (req, res) => {
   const pid = String(req.body.personId || '');
   if (pid && !exists(pid)) return res.status(404).json({ error: 'Pessoa não encontrada.' });
@@ -380,9 +425,20 @@ app.put('/api/me/person', needUser, (req, res) => {
     const other = db.prepare('SELECT name FROM users WHERE person_id=? AND id<>?').get(pid, req.user.id);
     if (other) return res.status(409).json({ error: `Esta pessoa já está ligada à conta de ${other.name}. Fale com o administrador.` });
   }
-  db.prepare('UPDATE users SET person_id=?, person_ok=? WHERE id=?').run(pid, pid && req.user.role === 'admin' ? 1 : 0, req.user.id);
-  log(req, pid ? 'se identificou na árvore' : 'desfez a identificação na árvore', pid || null);
-  res.json({ ok: true, personId: pid });
+  const prev = req.user.personId, prevName = prev && (db.prepare('SELECT name FROM people WHERE id=?').get(prev) || {}).name;
+  let undone = 0;
+  if (!pid && prev) undone = revertSelfChanges(req.user.id, prev);
+  // Quem se identifica já administra a própria ficha; o administrador recebe um aviso.
+  db.prepare('UPDATE users SET person_id=?, person_ok=? WHERE id=?').run(pid, pid ? 1 : 0, req.user.id);
+  if (pid) {
+    log(req, 'se identificou na árvore', pid);
+    const nm = db.prepare('SELECT name FROM people WHERE id=?').get(pid).name;
+    notifyAdmins(req, `${req.user.name} se identificou como ${nm}`, `${req.user.name} (${req.user.email}) tocou em "Esta pessoa sou eu" na ficha de ${nm} e agora administra essa ficha.\nSe não for a pessoa certa, abra Administrar > Pessoas com acesso e troque ou tire a ligação.`);
+  } else if (prev) {
+    log(req, 'desfez a identificação na árvore', prev, { desfeitas: undone });
+    notifyAdmins(req, `${req.user.name} disse que não é ${prevName}`, `${req.user.name} (${req.user.email}) tocou em "não sou eu" na ficha de ${prevName}. ${undone ? undone + ' alteração(ões) que essa conta fez na ficha foram desfeitas automaticamente.' : 'Não havia alterações a desfazer.'}`);
+  }
+  res.json({ ok: true, personId: pid, undone });
 });
 
 // ---------- irmãos: por padrão têm os mesmos pais ----------
@@ -423,6 +479,7 @@ function alignSiblings(req, onlyParents) {
   return fills;
 }
 // Uma vez só, para os dados que já existiam antes desta regra.
+if (!getSetting('fichas_proprias_v1')) { db.exec("UPDATE users SET person_ok=1 WHERE person_id<>''"); setSetting('fichas_proprias_v1', new Date().toISOString()); }
 if (!getSetting('irmaos_alinhados_v1')) { try { const n = alignSiblings({ user: null }).length; setSetting('irmaos_alinhados_v1', new Date().toISOString()); if (n) console.log(`Irmãos: ${n} ligação(ões) de pai/mãe completada(s).`); } catch (e) { console.error(e); } }
 const parentsOf = id => { const c = effectiveParents()[id] || {}; return [c.f, c.m]; };
 
@@ -539,6 +596,7 @@ app.put('/api/people/:id/photo', needUser, (req, res) => {
     if (f.doc) return res.status(400).json({ error: 'Este arquivo está marcado como documento (restrito). Para usar como foto de perfil, libere-o como foto primeiro.' });
   }
   db.prepare('UPDATE people SET photo_file_id=?, updated_at=?, updated_by=? WHERE id=?').run(fileId, now(), req.user.id, p.id);
+  log(req, 'escolheu foto principal', p.id, { antes: p.photo_file_id || '', depois: fileId });
   res.json({ ok: true });
 });
 
@@ -642,7 +700,9 @@ app.delete('/api/files/:id', needUser, (req, res) => {
 app.get('/api/admin', needAdmin, (req, res) => {
   const users = db.prepare('SELECT id,name,email,role,active,person_id personId,person_ok personOk,created_at createdAt FROM users ORDER BY created_at').all();
   const invites = db.prepare('SELECT token,role,label,created_at createdAt,expires,used_by usedBy,person_id personId FROM invites ORDER BY created_at DESC LIMIT 100').all();
-  res.json({ users, invites });
+  const idents = db.prepare("SELECT a.action,a.target,a.detail,a.at,u.name FROM activity a LEFT JOIN users u ON u.id=a.user_id WHERE a.action IN ('se identificou na árvore','desfez a identificação na árvore') AND a.at>=? ORDER BY a.id DESC LIMIT 30").all(new Date(Date.now() - 30 * 864e5).toISOString())
+    .map(x => { let d = {}; try { d = JSON.parse(x.detail || '{}'); } catch {} return { action: x.action, personId: x.target, at: x.at, name: x.name || 'conta removida', undone: d.desfeitas || 0 }; });
+  res.json({ users, invites, idents });
 });
 app.post('/api/admin/invites', needAdmin, (req, res) => {
   const role = ['member', 'viewer', 'admin'].includes(req.body.role) ? req.body.role : 'member';
