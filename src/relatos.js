@@ -253,14 +253,32 @@ function alertContext(a, rows, relatoText) {
 function scanDuplicates(db) {
   const all = db.prepare('SELECT * FROM people').all();
   const no = new Set(db.prepare('SELECT a,b FROM not_duplicates').all().map(r => r.a + '|' + r.b));
-  const out = [];
+  const out = [], byId = {};
+  for (const p of all) byId[p.id] = p;
+  // pais efetivos: os da ficha e, se faltarem, os das ligações extras
+  const par = {};
+  for (const p of all) par[p.id] = { f: p.father_id || '', m: p.mother_id || '' };
+  for (const l of db.prepare('SELECT child_id,parent_id,role FROM links ORDER BY id').all()) {
+    const c = par[l.child_id]; if (!c || !byId[l.parent_id]) continue;
+    const r = l.role === 'father' ? 'f' : 'm'; if (!c[r] || !byId[c[r]]) c[r] = l.parent_id;
+  }
+  // a mesma pessoa pode estar em duas fichas; pais "diferentes" que são parecidos entre si não contam como prova
+  const samePerson = (x, y) => x === y || (byId[x] && byId[y] && (similar(byId[x].name, byId[y], null, true) || similar(byId[y].name, byId[x], null, true)));
+  const differ = (x, y) => x && y && byId[x] && byId[y] && !samePerson(x, y);
   for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) {
     const a = all[i], b = all[j], k = [a.id, b.id].sort().join('|');
     if (no.has(k)) continue;
+    const pa = par[a.id], pb = par[b.id];
     // parentes diretos com nomes parecidos (pai e filho com o mesmo nome) não são duplicados
-    if ([a.father_id, a.mother_id, a.spouse_id].includes(b.id) || [b.father_id, b.mother_id, b.spouse_id].includes(a.id)) continue;
+    if ([pa.f, pa.m, a.spouse_id].includes(b.id) || [pb.f, pb.m, b.spouse_id].includes(a.id)) continue;
     // irmãos (mesmo pai ou mesma mãe) podem ter nomes parecidos
-    if ((a.father_id && a.father_id === b.father_id) || (a.mother_id && a.mother_id === b.mother_id)) continue;
+    if ((pa.f && pa.f === pb.f) || (pa.m && pa.m === pb.m)) continue;
+    // pais conhecidos e diferentes: são pessoas diferentes (Francisco filho do João x Francisco filho do Antônio)
+    if (differ(pa.f, pb.f) || differ(pa.m, pb.m)) continue;
+    // cônjuges conhecidos e diferentes também
+    if (differ(a.spouse_id, b.spouse_id)) continue;
+    // avô e neto com o mesmo nome
+    if ([pa.f, pa.m].some(x => x && par[x] && [par[x].f, par[x].m].includes(b.id)) || [pb.f, pb.m].some(x => x && par[x] && [par[x].f, par[x].m].includes(a.id))) continue;
     const why = similar(a.name, b, null, true) || similar(b.name, a, null, true);
     if (!why) continue;
     // datas diferentes conhecidas tornam improvável

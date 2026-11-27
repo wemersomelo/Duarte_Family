@@ -243,6 +243,17 @@ function client() {
     await admin('POST', '/api/admin/relato-people', { relatoId: L.relatoId, personId: L.personId, action: 'remove' });
     assert.ok(!has((await admin('GET', '/api/tree')).data.relatoLinks), 'apagado some para todos'); }
 
+  // procurar duplicados: pais conhecidos e diferentes = pessoas diferentes
+  { const pj = (await admin('POST', '/api/people', { name: 'Joaquim Dupteste', sex: 'm' })).data.id;
+    const pk = (await admin('POST', '/api/people', { name: 'Benedito Outroteste', sex: 'm' })).data.id;
+    const f1 = (await admin('POST', '/api/people', { name: 'Francisco Dupx', fatherId: pj })).data.id;
+    const f2 = (await admin('POST', '/api/people', { name: 'Francisco Dupx', fatherId: pk })).data.id;
+    const f3 = (await admin('POST', '/api/people', { name: 'Francisco Dupx' })).data.id;
+    const pairs = (await admin('GET', '/api/admin/duplicates')).data.pairs;
+    const pair = (x, y) => pairs.some(q => [q.a.id, q.b.id].sort().join() === [x, y].sort().join());
+    assert.ok(!pair(f1, f2), 'pais diferentes: não pergunta');
+    assert.ok(pair(f1, f3), 'sem pais em uma das fichas: ainda pergunta'); }
+
   // juntar duas fichas da mesma pessoa
   const dupA = (await admin('POST', '/api/people', { name: 'Duplicada Teste', birth: '1950', fatherId: pai })).data.id;
   const dupB = (await admin('POST', '/api/people', { name: 'Duplicada T.', birth: '1951', birthPlace: 'Catuji' })).data.id;
