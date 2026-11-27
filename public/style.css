@@ -290,3 +290,5 @@ label.check{display:flex;gap:8px;align-items:flex-start;margin:8px 0}
 [data-theme="green"] header.head::after{opacity:.08;filter:grayscale(1) brightness(3)}
 [data-theme="green"] .auth{background:#5B673C}
 [data-theme="green"] .auth::before{opacity:.08;filter:grayscale(1) brightness(3)}
+
+.sloganword{font-style:normal;font-weight:700;color:var(--ink-blue)}

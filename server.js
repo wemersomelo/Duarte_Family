@@ -1193,10 +1193,12 @@ app.post('/api/admin/duplicates/not', needAdmin, (req, res) => {
 // Página principal e manifesto com a marca do .env (BRAND_NAME, BRAND_LINE, BRAND_SLOGAN, FAMILY_SUBTITLE).
 const escHtml = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 let indexHtml = null;
+// "Ocê é fi dequem?": o nome da marca dentro da frase ganha destaque
+const sloganHtml = () => { const n = BRAND.name.toLowerCase(), s = escHtml(BRAND.slogan), i = s.toLowerCase().lastIndexOf(n); return i < 0 ? s : s.slice(0, i) + `<b class="sloganword">${s.slice(i, i + n.length)}</b>` + s.slice(i + n.length); };
 function sendIndex(req, res) {
   if (!indexHtml || process.env.NODE_ENV === 'development') indexHtml = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8');
   const html = indexHtml.replace(/\{\{BRAND_NAME\}\}/g, escHtml(BRAND.name)).replace(/\{\{BRAND_LINE\}\}/g, escHtml(BRAND.line))
-    .replace(/\{\{BRAND_SLOGAN\}\}/g, escHtml(BRAND.slogan)).replace(/\{\{FAMILY\}\}/g, escHtml(BRAND.family));
+    .replace(/\{\{BRAND_SLOGAN\}\}/g, sloganHtml()).replace(/\{\{FAMILY\}\}/g, escHtml(BRAND.family));
   res.set('Cache-Control', 'no-cache').type('html').send(html);
 }
 app.get(['/', '/index.html'], sendIndex);
