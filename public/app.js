@@ -209,7 +209,7 @@ let firstFocus = null;
 // só muda o cartão; a árvore só muda de centro quando a pessoa escolhe "Ver a árvore desta pessoa".
 let anchor = null;
 const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
-const pdlg = $('#pdlg');
+const pdlg = $('#carddlg');
 function setFocus(id, back) {
   if (!P(id)) return;
   if (!firstFocus) firstFocus = focus || id;
