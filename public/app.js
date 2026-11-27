@@ -265,7 +265,10 @@ function renderRecord() {
   const host = u => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return ''; } };
   const kindOf = u => /youtu\.?be/.test(u) ? 'YouTube' : /drive\.google|photos\.google/.test(u) ? 'Google' : /instagram/.test(u) ? 'Instagram' : /facebook|fb\.watch/.test(u) ? 'Facebook' : /vimeo/.test(u) ? 'Vimeo' : /whatsapp/.test(u) ? 'WhatsApp' : 'Link';
   const noteList = list => list.length ? `<ul class="notes">${list.map(n => `<li>${esc(n.text)}<small>${esc(who(n.createdBy))}, ${esc(fmtDate(n.createdAt))}${mine(n) ? ` · <button type="button" class="link" data-rmnote="${n.id}">remover</button>` : ''}</small></li>`).join('')}</ul>` : '';
-  slip.innerHTML = `<div class="phead">${p.photoFileId ? `<button type="button" class="pphoto" data-view="${esc(p.photoFileId)}" aria-label="Ver foto"><img src="/api/files/${encodeURIComponent(p.photoFileId)}" alt="Foto de ${esc(p.name)}"></button>` : ''}<div><h3 class="person">${esc(dn(p, nickOf(p) || p.name))}</h3><p class="nick">${nickOf(p) ? esc(p.name) : '&nbsp;'}</p></div></div>
+  const initials = (nickOf(p) || p.name || '?').replace(/\([^)]*\)/g, '').trim().split(/\s+/).filter(w => w.length > 2 || /^[A-ZÀ-Ú]/.test(w)).slice(0, 2).map(w => w[0].toUpperCase()).join('') || '?';
+  const canPhoto = !!ed;
+  const avatar = `<div class="avatar${p.photoFileId ? ' has' : ''}">${p.photoFileId ? `<button type="button" class="pphoto" data-view="${esc(p.photoFileId)}" aria-label="Ampliar a foto"><img src="/api/files/${encodeURIComponent(p.photoFileId)}" alt="Foto de ${esc(p.name)}"></button>` : canPhoto ? `<label class="pphoto empty" aria-label="Pôr foto de perfil"><span>${esc(initials)}</span><input type="file" accept="image/*" data-profilephoto hidden></label>` : `<div class="pphoto empty"><span>${esc(initials)}</span></div>`}${canPhoto ? `<label class="pcam" title="${p.photoFileId ? 'Trocar a foto de perfil' : 'Pôr foto de perfil'}" aria-label="${p.photoFileId ? 'Trocar a foto de perfil' : 'Pôr foto de perfil'}">+<input type="file" accept="image/*" data-profilephoto hidden></label>` : ''}</div>`;
+  slip.innerHTML = `<div class="phead">${avatar}<div><h3 class="person">${esc(dn(p, nickOf(p) || p.name))}</h3><p class="nick">${nickOf(p) ? esc(p.name) : '&nbsp;'}</p></div></div>
   <dl>${row('Nascimento', p.birth)}${row('Local', p.birthPlace)}${row('Casamento', marr)}${row('Falecimento', p.death)}${row('Local', p.deathPlace)}${row('Descendentes', DESC[p.descendants])}${row('Cor/raça', COLOR[p.color])}${row('Origem/etnia', p.origin)}${row('Histórias', p.notes, 1)}${row('Fontes', p.sources, 1)}</dl>
   ${me && !isGuest() ? (myPerson() === p.id ? '<p class="mine">Esta pessoa é você. Para corrigir as suas datas, toque em <b>Editar meus dados</b>. <button type="button" class="link" data-act="notme">não sou eu</button></p>' : !myPerson() ? '<div class="actions small"><button type="button" class="primary" data-act="isme">Esta pessoa sou eu</button></div>' : '') : ''}
   ${!p.birth && !p.birthPlace && !p.notes ? '<p class="none">Ainda faltam informações sobre esta pessoa. Se você sabe algo, acrescente.</p>' : ''}
@@ -294,6 +297,16 @@ function renderRecord() {
     + (P(p.fatherId) ? fold('tp', 'Tios paternos', uncles(p.fatherId)) : '') + (P(p.motherId) ? fold('tm', 'Tios maternos', uncles(p.motherId)) : '')
     + (P(p.fatherId) ? fold('pp', 'Primos do lado do pai', cousins(p.fatherId)) : '') + (P(p.motherId) ? fold('pm', 'Primos do lado da mãe', cousins(p.motherId)) : '');
 }
+document.addEventListener('change', async e => {
+  const inp = e.target.closest('[data-profilephoto]'); if (!inp || !inp.files.length) return;
+  const fd = new FormData(); fd.append('files', inp.files[0]); fd.append('caption', 'Foto de perfil'); inp.value = '';
+  const box = inp.closest('.avatar'); if (box) box.classList.add('busy');
+  try {
+    const r = await api(`/api/people/${encodeURIComponent(focus)}/files`, { method: 'POST', body: fd });
+    if (r.ids && r.ids[0]) await api(`/api/people/${encodeURIComponent(focus)}/photo`, { method: 'PUT', body: { fileId: r.ids[0] } });
+    await load();
+  } catch (err) { alertStatus(err); if (box) box.classList.remove('busy'); }
+});
 document.addEventListener('toggle', e => { const d = e.target; if (d.classList && d.classList.contains('kfold')) d.open ? kinOpen.add(d.dataset.k) : kinOpen.delete(d.dataset.k); }, true);
 document.addEventListener('click', async e => {
   const g = e.target.closest('[data-go]'); if (g) { closeAll(); go(g.dataset.go); return; }

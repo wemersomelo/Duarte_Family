@@ -543,13 +543,15 @@ app.post('/api/people/:id/files', needUser, (req, res) => {
     if (!req.files || !req.files.length) return res.status(400).json({ error: 'Envie fotos (JPG, PNG, HEIC) ou PDF.' });
     const caption = String(req.body.caption || '').trim().slice(0, 500);
     const ins = db.prepare('INSERT INTO files(id,person_id,stored_name,original_name,mime,size,caption,created_by,created_at) VALUES(?,?,?,?,?,?,?,?,?)');
+    const ids = [];
     for (const f of req.files) {
       const info = await cleanImage(f);
       if (!info) { fs.unlink(f.path, () => {}); continue; }
-      ins.run(crypto.randomBytes(8).toString('hex'), req.params.id, info.filename, String(f.originalname).slice(0, 200), info.mime, info.size, caption, req.user.id, now());
+      const fid = crypto.randomBytes(8).toString('hex'); ids.push(fid);
+      ins.run(fid, req.params.id, info.filename, String(f.originalname).slice(0, 200), info.mime, info.size, caption, req.user.id, now());
     }
     log(req, 'enviou arquivos', req.params.id, { count: req.files.length });
-    res.json({ ok: true, count: req.files.length });
+    res.json({ ok: true, count: req.files.length, ids });
   });
 });
 // Fotos: confere que é mesmo imagem, gira conforme o celular e remove os dados escondidos

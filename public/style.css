@@ -109,7 +109,13 @@ dialog.viewer{width:min(1000px,96vw)}
 .card .av{position:absolute;left:8px;top:50%;transform:translateY(-50%);width:40px;height:40px;border-radius:50%;object-fit:cover;border:1px solid var(--line);background:var(--soft)}
 .phead{display:flex;gap:16px;align-items:center}
 .pphoto{all:unset;cursor:pointer;flex:none}
-.pphoto img{display:block;width:92px;height:92px;border-radius:50%;object-fit:cover;border:3px solid var(--paper);box-shadow:0 0 0 1px var(--line)}
+.avatar{position:relative;flex:none;width:92px;height:92px;padding:3px;box-sizing:border-box;border-radius:50%;background:var(--line, #ddd)}
+.avatar.has{background:conic-gradient(from 200deg,#c8553d,#e0a34a,#7a8b5c,#c8553d)}
+.avatar.busy{opacity:.5}
+.pphoto img{display:block;width:86px;height:86px;border-radius:50%;object-fit:cover;border:3px solid var(--paper)}
+.pphoto.empty{display:flex;align-items:center;justify-content:center;width:86px;height:86px;border-radius:50%;background:var(--soft);border:3px solid var(--paper);box-sizing:border-box;font:600 28px system-ui,sans-serif;color:var(--mute)}
+label.pphoto.empty{cursor:pointer}
+.pcam{position:absolute;right:0;bottom:0;width:28px;height:28px;border-radius:50%;background:var(--accent);color:#fff;font:700 20px/26px system-ui,sans-serif;text-align:center;border:2px solid var(--paper);cursor:pointer}
 .actions.small{margin-top:8px}
 .actions.small button{min-height:38px;font-size:14px}
 .doc.main{border-color:var(--accent)}
