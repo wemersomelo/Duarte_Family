@@ -166,6 +166,12 @@ function openDb(file) {
   if (!cols('users').includes('person_id')) db.exec(`ALTER TABLE users ADD COLUMN person_id TEXT NOT NULL DEFAULT ''`);
   // relato_people.hidden: 0 = aparece, 1 = oculto (só o administrador vê), 2 = apagado (não volta ao reimportar)
   if (!cols('relato_people').includes('hidden')) db.exec(`ALTER TABLE relato_people ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0`);
+  // files.doc: 1 = documento (certidão, identidade...), visível só para a família próxima da pessoa, quem enviou e o administrador.
+  // Na primeira vez, por segurança, tudo o que já existe vira documento, menos as fotos de perfil.
+  if (!cols('files').includes('doc')) {
+    db.exec(`ALTER TABLE files ADD COLUMN doc INTEGER NOT NULL DEFAULT 1`);
+    if (cols('people').includes('photo_file_id')) db.exec(`UPDATE files SET doc=0 WHERE id IN (SELECT photo_file_id FROM people WHERE photo_file_id<>'')`);
+  }
   if (!cols('people').includes('photo_file_id')) db.exec(`ALTER TABLE people ADD COLUMN photo_file_id TEXT DEFAULT ''`);
   db.prepare('DELETE FROM sessions WHERE expires < ?').run(Date.now());
   return db;

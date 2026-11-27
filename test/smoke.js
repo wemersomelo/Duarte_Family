@@ -77,10 +77,28 @@ function client() {
   fd.append('files', new Blob([png], { type: 'image/png' }), 'certidao.png');
   fd.append('caption', 'Certidão');
   assert.equal((await tia('POST', '/api/people/avo/files', fd, true)).status, 200);
+  // documento: restrito à família próxima, a quem enviou e ao admin
+  tree = (await leitor('GET', '/api/tree')).data;
+  assert.equal(tree.files.length, 0, 'leitor fora da família não vê o documento');
+  const docId = (await tia('GET', '/api/tree')).data.files[0].id;
+  assert.equal((await leitor('GET', '/api/files/' + docId)).status, 404, 'nem pelo endereço direto');
+  assert.ok((await admin('GET', '/api/tree')).data.files.some(f => f.id === docId && f.doc), 'admin vê');
+  assert.equal((await leitor('PUT', '/api/files/' + docId, { doc: false })).status, 403, 'só quem enviou libera');
+  assert.equal((await tia('PUT', '/api/files/' + docId, { doc: false })).status, 200);
   tree = (await leitor('GET', '/api/tree')).data;
   assert.equal(tree.files.length, 1);
   const fget = await leitor('GET', '/api/files/' + tree.files[0].id);
-  assert.equal(fget.status, 200, 'leitor vê documento');
+  assert.equal(fget.status, 200, 'liberado como foto: leitor vê');
+  { // família próxima vê o documento: leitor ligado a um filho da pessoa
+    const filho = (await admin('POST', '/api/people', { name: 'Filho Doc', motherId: 'avo' })).data.id;
+    const lid = (await admin('GET', '/api/admin')).data.users.find(u => u.role === 'viewer').id;
+    await admin('PUT', '/api/admin/users/' + lid, { personId: filho });
+    const f2 = new FormData(); f2.append('files', new Blob([png], { type: 'image/png' }), 'rg.png'); await tia('POST', '/api/people/avo/files', f2, true);
+    const d2 = (await admin('GET', '/api/tree')).data.files.find(f => f.name === 'rg.png');
+    assert.equal((await leitor('GET', '/api/files/' + d2.id)).status, 200, 'filho vê o documento da mãe');
+    await admin('PUT', '/api/admin/users/' + lid, { personId: '' });
+    assert.equal((await leitor('GET', '/api/files/' + d2.id)).status, 404, 'desligado, não vê mais');
+    await admin('DELETE', '/api/files/' + d2.id); await admin('DELETE', '/api/people/' + filho); }
   assert.equal((await anon('GET', '/api/files/' + tree.files[0].id)).status, 401, 'sem login não vê documento');
   const bad = new FormData();
   bad.append('files', new Blob(['<script>'], { type: 'text/html' }), 'x.html');

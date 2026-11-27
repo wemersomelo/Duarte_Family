@@ -277,7 +277,7 @@ function renderRecord() {
   ${canContribute() ? `<div class="actions">${canWrite() ? '<button type="button" class="primary" data-act="note">+ Acrescentar informação</button>' : ''}<button type="button"${canWrite() ? '' : ' class="primary"'} data-act="memory">+ Deixar uma lembrança</button><button type="button" data-act="files">+ Fotos e documentos</button><button type="button" data-act="link">+ Vídeo ou link</button></div>` : ''}
   ${canWrite() || ed ? `<div class="actions small">${ed ? `<button type="button"${isSelfP(p) ? ' class="primary"' : ''} data-act="edit">${isSelfP(p) ? 'Editar meus dados' : 'Editar'}</button>` : ''}${canWrite() ? (p.fatherId || p.motherId ? '<button type="button" data-act="sibling">+ Irmão ou irmã</button>' : '') + '<button type="button" data-act="child">+ Filho ou filha</button><button type="button" data-act="spouse">+ Cônjuge</button>' : ''}${ownsP(p) ? '<button type="button" class="danger" data-act="del">Excluir</button>' : ''}</div>` : ''}
   ${p.living ? '' : `<h4>Fotos e documentos (${pf.length})</h4>
-  ${pf.length ? `<div class="docs">${pf.map(f => `<div class="doc${f.id === p.photoFileId ? ' main' : ''}"><button type="button" class="thumb${f.mime === 'application/pdf' ? ' pdf' : ''}" data-view="${esc(f.id)}" ${isImg(f) ? `style="background-image:url('/api/files/${encodeURIComponent(f.id)}')"` : ''} aria-label="Abrir ${esc(f.name)}">${f.mime === 'application/pdf' ? 'PDF' : /hei[cf]/.test(f.mime) ? 'HEIC' : ''}</button><small title="${esc(f.caption || f.name)}">${esc(f.caption || f.name)}</small>${f.id === p.photoFileId ? '<small class="star">foto principal</small>' : ed && isImg(f) ? `<button type="button" class="link" data-mainphoto="${esc(f.id)}">usar como foto principal</button>` : ''}${mine(f) ? `<button type="button" class="link" data-rmfile="${esc(f.id)}">remover</button>` : ''}</div>`).join('')}</div>` : '<p class="none">Nenhum ainda.</p>'}
+  ${pf.length ? `<div class="docs">${pf.map(f => `<div class="doc${f.id === p.photoFileId ? ' main' : ''}"><button type="button" class="thumb${f.mime === 'application/pdf' ? ' pdf' : ''}" data-view="${esc(f.id)}" ${isImg(f) ? `style="background-image:url('/api/files/${encodeURIComponent(f.id)}')"` : ''} aria-label="Abrir ${esc(f.name)}">${f.mime === 'application/pdf' ? 'PDF' : /hei[cf]/.test(f.mime) ? 'HEIC' : ''}</button><small title="${esc(f.caption || f.name)}">${esc(f.caption || f.name)}</small>${f.doc ? '<small class="docb" title="Só a família próxima, quem enviou e o administrador veem">documento · restrito</small>' : ''}${f.id === p.photoFileId ? '<small class="star">foto principal</small>' : ed && isImg(f) && !f.doc ? `<button type="button" class="link" data-mainphoto="${esc(f.id)}">usar como foto principal</button>` : ''}${(me.role === 'admin' || f.createdBy === me.id) && f.mime !== 'application/pdf' ? `<button type="button" class="link" data-docflag="${esc(f.id)}" data-to="${f.doc ? 0 : 1}">${f.doc ? 'liberar como foto' : 'marcar como documento'}</button>` : ''}${mine(f) ? `<button type="button" class="link" data-rmfile="${esc(f.id)}">remover</button>` : ''}</div>`).join('')}</div>` : '<p class="none">Nenhum ainda.</p>'}
   <h4>Vídeos e links (${pm.length})</h4>
   ${pm.length ? `<ul class="mlinks">${pm.map(m => `<li><a href="${esc(m.url)}" target="_blank" rel="noopener noreferrer"><span class="tag">${esc(kindOf(m.url))}</span>${esc(m.title || host(m.url))}</a><small>${esc(host(m.url))} · ${esc(who(m.createdBy))}, ${esc(fmtDate(m.createdAt))}${mine(m) ? ` · <button type="button" class="link" data-rmlink="${m.id}">remover</button>` : ''}</small></li>`).join('')}</ul>` : '<p class="none">Nenhum ainda.</p>'}
   <h4>Lembranças da família (${mem.length})</h4>
@@ -299,7 +299,7 @@ function renderRecord() {
 }
 document.addEventListener('change', async e => {
   const inp = e.target.closest('[data-profilephoto]'); if (!inp || !inp.files.length) return;
-  const fd = new FormData(); fd.append('files', inp.files[0]); fd.append('caption', 'Foto de perfil'); inp.value = '';
+  const fd = new FormData(); fd.append('files', inp.files[0]); fd.append('caption', 'Foto de perfil'); fd.append('doc', '0'); inp.value = '';
   const box = inp.closest('.avatar'); if (box) box.classList.add('busy');
   try {
     const r = await api(`/api/people/${encodeURIComponent(focus)}/files`, { method: 'POST', body: fd });
@@ -315,6 +315,7 @@ document.addEventListener('click', async e => {
   const rn = e.target.closest('[data-rmnote]'); if (rn) { if (await confirmBtn(rn)) { await api('/api/notes/' + rn.dataset.rmnote, { method: 'DELETE' }).catch(err => alertStatus(err)); load(); } return; }
   const rl = e.target.closest('[data-rmlink]'); if (rl) { if (await confirmBtn(rl)) { await api('/api/media-links/' + rl.dataset.rmlink, { method: 'DELETE' }).catch(err => alertStatus(err)); load(); } return; }
   const mp = e.target.closest('[data-mainphoto]'); if (mp) { await api(`/api/people/${encodeURIComponent(focus)}/photo`, { method: 'PUT', body: { fileId: mp.dataset.mainphoto } }).catch(err => alertStatus(err)); load(); return; }
+  const df = e.target.closest('[data-docflag]'); if (df) { if (df.dataset.to === '0' && !(await confirmBtn(df))) return; await api('/api/files/' + df.dataset.docflag, { method: 'PUT', body: { doc: df.dataset.to === '1' } }).catch(err => alertStatus(err)); load(); return; }
   const rf = e.target.closest('[data-rmfile]'); if (rf) { if (await confirmBtn(rf)) { await api('/api/files/' + rf.dataset.rmfile, { method: 'DELETE' }).catch(err => alertStatus(err)); load(); } return; }
   const rp = e.target.closest('[data-relp]'); if (rp) { if (rp.dataset.relp === 'remove' && !(await confirmBtn(rp))) return; await api('/api/admin/relato-people', { method: 'POST', body: { relatoId: rp.dataset.rel, personId: focus, action: rp.dataset.relp } }).catch(err => alertStatus(err)); load(); return; }
   const c = e.target.closest('.closeDlg'); if (c) { c.closest('dialog').close(); return; }
@@ -494,9 +495,9 @@ const fdlg = $('#fdlg'), fform = $('#fform'); let filePerson = null;
 function openFiles(id) { if (!canContribute()) return; filePerson = id; $('#fTitle').textContent = 'Fotos e documentos de ' + P(id).name; fform.reset(); $('#fErr').textContent = ''; fdlg.showModal(); }
 fform.addEventListener('submit', async e => {
   e.preventDefault();
-  const fd = new FormData(fform);
+  const fd = new FormData(fform); fd.set('doc', fform.elements.doc.checked ? '1' : '0');
   $('#fSave').disabled = true; $('#fErr').textContent = 'Enviando…';
-  try { await api(`/api/people/${encodeURIComponent(filePerson)}/files`, { method: 'POST', body: fd }); fdlg.close(); await load(); }
+  try { await api(`/api/people/${encodeURIComponent(filePerson)}/files`, { method: 'POST', body: fd }); fdlg.close(); await load(); $('#status').textContent = fd.get('doc') === '1' ? 'Documento enviado. Por segurança, só as pessoas envolvidas (família próxima, quem enviou e o administrador) têm acesso.' : 'Foto enviada.'; }
   catch (err) { $('#fErr').textContent = err.message; }
   finally { $('#fSave').disabled = false; }
 });

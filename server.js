@@ -340,7 +340,9 @@ app.get('/api/tree', needUserOrGuest, (req, res) => {
   }
   const notes = db.prepare('SELECT id,person_id personId,kind,text,created_by createdBy,created_at createdAt FROM notes ORDER BY created_at').all();
   const media = db.prepare('SELECT id,person_id personId,url,title,created_by createdBy,created_at createdAt FROM media_links ORDER BY created_at').all();
-  const files = db.prepare('SELECT id,person_id personId,original_name name,mime,size,caption,created_by createdBy,created_at createdAt FROM files ORDER BY created_at').all();
+  const ep = effectiveParents();
+  const files = db.prepare('SELECT id,person_id personId,original_name name,mime,size,caption,doc,created_by createdBy,created_at createdAt FROM files ORDER BY created_at').all()
+    .filter(f => canSeeDoc(req, { doc: f.doc, created_by: f.createdBy, person_id: f.personId }, ep)).map(f => ({ ...f, doc: !!f.doc }));
   const users = db.prepare("SELECT id,name FROM users UNION ALL SELECT id, name || ' (conta removida)' FROM removed_users").all();
   // Relatos que citam cada pessoa (só para quem pode editar; os relatos são privados).
   const relatoLinks = req.user && req.user.role !== 'viewer' ? db.prepare(`SELECT rp.person_id personId, r.id relatoId, r.fonte, r.data, rp.hidden FROM relato_people rp JOIN relatos r ON r.id=rp.relato_id WHERE rp.hidden=0 OR (rp.hidden=1 AND ?) ORDER BY r.data`).all(req.user.role === 'admin' ? 1 : 0) : [];
@@ -380,6 +382,25 @@ app.put('/api/me/person', needUser, (req, res) => {
 // os filhos sem esse dado recebem o mesmo. Nunca troca um pai/mãe já registrado: meio-irmãos
 // continuam como estão, e cada pessoa pode corrigir a própria ficha.
 // A ligação vai na tabela links (não altera o registro de quem o criou).
+// Família próxima de uma pessoa: ela mesma, pais, filhos, irmãos e cônjuges. Quem pode ver os documentos dela.
+function closeFamilyOf(personId, ep) {
+  ep = ep || effectiveParents();
+  const fam = new Set([personId]), me = ep[personId];
+  if (!me) return fam;
+  if (me.f) fam.add(me.f); if (me.m) fam.add(me.m);
+  for (const [id, c] of Object.entries(ep)) {
+    if (c.f === personId || c.m === personId) fam.add(id); // filhos
+    if ((me.f && c.f === me.f) || (me.m && c.m === me.m)) fam.add(id); // irmãos
+  }
+  for (const r of db.prepare('SELECT id,spouse_id FROM people WHERE id=? OR spouse_id=?').all(personId, personId)) { if (r.id !== personId) fam.add(r.id); if (r.spouse_id && r.id === personId) fam.add(r.spouse_id); }
+  return fam;
+}
+function canSeeDoc(req, f, ep) {
+  if (!f.doc) return true;
+  if (req.guest || !req.user) return false;
+  if (req.user.role === 'admin' || f.created_by === req.user.id) return true;
+  return !!req.user.personId && closeFamilyOf(f.person_id, ep).has(req.user.personId);
+}
 function effectiveParents() {
   const ps = db.prepare('SELECT id,father_id,mother_id FROM people').all(), by = {};
   for (const p of ps) by[p.id] = { f: p.father_id || '', m: p.mother_id || '' };
@@ -519,6 +540,7 @@ app.put('/api/people/:id/photo', needUser, (req, res) => {
   if (fileId) {
     const f = db.prepare('SELECT * FROM files WHERE id=? AND person_id=?').get(fileId, p.id);
     if (!f || !/^image\/(jpeg|png|webp)$/.test(f.mime)) return res.status(400).json({ error: 'Escolha uma foto (JPG, PNG ou WebP) desta pessoa.' });
+    if (f.doc) return res.status(400).json({ error: 'Este arquivo está marcado como documento (restrito). Para usar como foto de perfil, libere-o como foto primeiro.' });
   }
   db.prepare('UPDATE people SET photo_file_id=?, updated_at=?, updated_by=? WHERE id=?').run(fileId, now(), req.user.id, p.id);
   res.json({ ok: true });
@@ -542,13 +564,14 @@ app.post('/api/people/:id/files', needUser, (req, res) => {
     if (!exists(req.params.id)) { (req.files || []).forEach(f => fs.unlink(f.path, () => {})); return res.status(404).json({ error: 'Pessoa não encontrada.' }); }
     if (!req.files || !req.files.length) return res.status(400).json({ error: 'Envie fotos (JPG, PNG, HEIC) ou PDF.' });
     const caption = String(req.body.caption || '').trim().slice(0, 500);
-    const ins = db.prepare('INSERT INTO files(id,person_id,stored_name,original_name,mime,size,caption,created_by,created_at) VALUES(?,?,?,?,?,?,?,?,?)');
+    const asDoc = String(req.body.doc ?? '1') !== '0'; // padrão: documento (restrito)
+    const ins = db.prepare('INSERT INTO files(id,person_id,stored_name,original_name,mime,size,caption,created_by,created_at,doc) VALUES(?,?,?,?,?,?,?,?,?,?)');
     const ids = [];
     for (const f of req.files) {
       const info = await cleanImage(f);
       if (!info) { fs.unlink(f.path, () => {}); continue; }
       const fid = crypto.randomBytes(8).toString('hex'); ids.push(fid);
-      ins.run(fid, req.params.id, info.filename, String(f.originalname).slice(0, 200), info.mime, info.size, caption, req.user.id, now());
+      ins.run(fid, req.params.id, info.filename, String(f.originalname).slice(0, 200), info.mime, info.size, caption, req.user.id, now(), asDoc || info.mime === 'application/pdf' ? 1 : 0);
     }
     log(req, 'enviou arquivos', req.params.id, { count: req.files.length });
     res.json({ ok: true, count: req.files.length, ids });
@@ -586,6 +609,7 @@ app.get('/api/files/:id', needUserOrGuest, (req, res) => {
     const p = db.prepare('SELECT * FROM people WHERE id=?').get(f.person_id);
     if (!p || !isDeceased(personOut(p))) return res.status(404).end();
   }
+  if (!canSeeDoc(req, f)) return res.status(404).end();
   const file = path.join(UPLOAD_DIR, path.basename(f.stored_name));
   res.set('Content-Type', f.mime);
   res.set('X-Frame-Options', 'SAMEORIGIN');
@@ -593,6 +617,18 @@ app.get('/api/files/:id', needUserOrGuest, (req, res) => {
   res.set('Content-Disposition', `${req.query.download ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(f.original_name)}`);
   res.set('Cache-Control', 'private, max-age=86400');
   res.sendFile(file);
+});
+// Marcar como documento (restrito) ou liberar como foto: quem enviou ou o administrador.
+app.put('/api/files/:id', needUser, (req, res) => {
+  const f = db.prepare('SELECT * FROM files WHERE id=?').get(req.params.id);
+  if (!f) return res.status(404).json({ error: 'Não encontrado.' });
+  if (!owns(req, f.created_by)) return res.status(403).json({ error: 'Só quem enviou (ou o administrador) muda isso.' });
+  if (typeof req.body.doc !== 'boolean') return res.status(400).json({ error: 'Informe doc.' });
+  if (!req.body.doc && f.mime === 'application/pdf') return res.status(400).json({ error: 'PDF fica sempre como documento.' });
+  db.prepare('UPDATE files SET doc=? WHERE id=?').run(req.body.doc ? 1 : 0, f.id);
+  if (req.body.doc) db.prepare("UPDATE people SET photo_file_id='' WHERE photo_file_id=?").run(f.id);
+  log(req, req.body.doc ? 'marcou como documento' : 'liberou como foto', f.person_id, { file: f.id, nome: f.original_name });
+  res.json({ ok: true });
 });
 app.delete('/api/files/:id', needWriter, (req, res) => {
   const f = db.prepare('SELECT * FROM files WHERE id=?').get(req.params.id);

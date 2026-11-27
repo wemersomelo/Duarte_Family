@@ -214,3 +214,6 @@ tr.flash td{background:#fff3c4;transition:background .3s}
 .kfold>summary::-webkit-details-marker{display:none}
 .kfold>summary::before{content:"▸";color:var(--accent);display:inline-block;transition:transform .15s}
 .kfold[open]>summary::before{transform:rotate(90deg)}
+
+.docb{color:var(--accent);font-weight:600}
+label.check{display:flex;gap:8px;align-items:flex-start;margin:8px 0}

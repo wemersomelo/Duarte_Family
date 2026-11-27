@@ -161,6 +161,8 @@
     <p class="note">Fotos de certidões, carteiras, identidades e retratos antigos. JPG, PNG, HEIC ou PDF, até 10 de cada vez.</p>
     <label class="f">Arquivos<input name="files" type="file" multiple accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf" required></label>
     <label class="f">O que é (ex.: certidão de casamento)<input name="caption" maxlength="500"></label>
+    <label class="check"><input type="checkbox" name="doc" value="1" checked> É documento (certidão, identidade, carteira, registro)</label>
+    <p class="hint" id="fDocNote"><b>Por segurança, documentos não ficam expostos</b>, mesmo de quem já faleceu. Só as pessoas envolvidas terão acesso: a própria pessoa, os pais, filhos, irmãos e cônjuge dela, quem enviou e o administrador. PDF é sempre documento. Desmarque só para fotos comuns (retratos, festas), que a família toda pode ver.</p>
     <div class="err" id="fErr"></div>
     <div class="actions"><button class="primary" type="submit" id="fSave">Enviar</button><button type="button" class="closeDlg">Cancelar</button></div>
   </form>

@@ -111,13 +111,19 @@ function client() {
   assert.equal((await guest('GET', '/api/admin')).status, 403);
   // foto de pessoa viva não abre para visitante; de falecido abre
   const jpg = await sharp({ create: { width: 8, height: 8, channels: 3, background: '#555' } }).jpeg().toBuffer();
-  for (const pid of ['vivo', 'antigo']) { const f = new FormData(); f.append('files', new Blob([jpg], { type: 'image/jpeg' }), pid + '.jpg'); await admin('POST', `/api/people/${pid}/files`, f, true); }
+  for (const pid of ['vivo', 'antigo']) { const f = new FormData(); f.append('files', new Blob([jpg], { type: 'image/jpeg' }), pid + '.jpg'); f.append('doc', '0'); await admin('POST', `/api/people/${pid}/files`, f, true); }
   const all = (await admin('GET', '/api/tree')).data.files;
   const fVivo = all.find(f => f.personId === 'vivo'), fAntigo = all.find(f => f.personId === 'antigo');
   gt = (await guest('GET', '/api/tree')).data;
   assert.ok(!gt.files.some(f => f.id === fVivo.id), 'lista não mostra arquivo do vivo');
   assert.equal((await guest('GET', '/api/files/' + fVivo.id)).status, 404, 'arquivo do vivo bloqueado');
   assert.equal((await guest('GET', '/api/files/' + fAntigo.id)).status, 200);
+  // documento de falecido: visitante não vê
+  { const f = new FormData(); f.append('files', new Blob([jpg], { type: 'image/jpeg' }), 'certidao.jpg'); await admin('POST', '/api/people/antigo/files', f, true);
+    const d = (await admin('GET', '/api/tree')).data.files.find(x => x.personId === 'antigo' && x.doc);
+    assert.ok(d, 'padrão é documento');
+    assert.ok(!(await guest('GET', '/api/tree')).data.files.some(x => x.id === d.id), 'visitante não vê documento na lista');
+    assert.equal((await guest('GET', '/api/files/' + d.id)).status, 404, 'nem pelo endereço'); }
   // pedir para participar: só pelo link; convite aprovado só vale para aquele e-mail
   assert.equal((await client()('POST', '/api/access-requests', { name: 'X', email: 'x@ex.com', relation: 'primo' })).status, 403, 'sem o link não pede');
   assert.equal((await guest('POST', '/api/access-requests', { name: 'Prima Nova', email: 'nova@ex.com', relation: '' })).status, 400, 'parentesco obrigatório');
