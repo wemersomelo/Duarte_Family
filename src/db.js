@@ -172,6 +172,9 @@ function openDb(file) {
     db.exec(`ALTER TABLE files ADD COLUMN doc INTEGER NOT NULL DEFAULT 1`);
     if (cols('people').includes('photo_file_id')) db.exec(`UPDATE files SET doc=0 WHERE id IN (SELECT photo_file_id FROM people WHERE photo_file_id<>'')`);
   }
+  // users.person_ok: 1 = a ligação conta-ficha foi confirmada (pelo convite ou pelo administrador). Só aí a pessoa
+  // passa a administrar a própria ficha e quem a cadastrou perde o direito de alterá-la.
+  if (!cols('users').includes('person_ok')) db.exec(`ALTER TABLE users ADD COLUMN person_ok INTEGER NOT NULL DEFAULT 0`);
   if (!cols('people').includes('photo_file_id')) db.exec(`ALTER TABLE people ADD COLUMN photo_file_id TEXT DEFAULT ''`);
   db.prepare('DELETE FROM sessions WHERE expires < ?').run(Date.now());
   return db;

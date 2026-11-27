@@ -135,6 +135,13 @@ const needAdmin = (req, res, next) => req.user && req.user.role === 'admin' ? ne
 const owns = (req, createdBy) => req.user.role === 'admin' || (createdBy != null && createdBy === req.user.id);
 // A própria pessoa (conta ligada a ela) também pode corrigir os seus dados, mesmo que outro parente tenha criado o registro.
 const isSelf = (req, p) => !!req.user.personId && req.user.personId === p.id;
+// Ficha administrada pela própria pessoa: a conta dela está ligada e confirmada.
+const managerOf = pid => { const u = pid && db.prepare("SELECT id FROM users WHERE person_id=? AND person_ok=1 AND active=1").get(pid); return u ? u.id : null; };
+const isManager = (req, pid) => !!req.user && managerOf(pid) === req.user.id;
+// Quem altera a ficha: o administrador, a própria pessoa, ou quem a cadastrou (enquanto ela não assumir a própria ficha).
+const canManagePerson = (req, p) => req.user.role === 'admin' || isSelf(req, p) || (owns(req, p.created_by) && !managerOf(p.id));
+// Quem remove uma nota, link ou foto: quem acrescentou, o administrador, ou a pessoa dona da ficha (confirmada).
+const canRemoveOn = (req, createdBy, pid) => (req.user.role !== 'viewer' && owns(req, createdBy)) || isManager(req, pid);
 
 // Limite simples de tentativas de login.
 const attempts = new Map();
@@ -298,7 +305,7 @@ app.post('/api/invites/:token', (req, res) => {
   db.prepare("UPDATE access_requests SET status='joined' WHERE invite_token=?").run(inv.token);
   // Já entra ligado à sua ficha na árvore, se o administrador escolheu ao convidar.
   if (inv.person_id && exists(inv.person_id) && !db.prepare('SELECT 1 FROM users WHERE person_id=?').get(inv.person_id))
-    db.prepare('UPDATE users SET person_id=? WHERE id=?').run(inv.person_id, id);
+    db.prepare('UPDATE users SET person_id=?, person_ok=1 WHERE id=?').run(inv.person_id, id);
   setSession(res, id);
   res.json({ ok: true });
 });
@@ -340,6 +347,8 @@ app.get('/api/tree', needUserOrGuest, (req, res) => {
   }
   const notes = db.prepare('SELECT id,person_id personId,kind,text,created_by createdBy,created_at createdAt FROM notes ORDER BY created_at').all();
   const media = db.prepare('SELECT id,person_id personId,url,title,created_by createdBy,created_at createdAt FROM media_links ORDER BY created_at').all();
+  const mg = Object.fromEntries(db.prepare("SELECT person_id,id FROM users WHERE person_id<>'' AND person_ok=1 AND active=1").all().map(u => [u.person_id, u.id]));
+  for (const p of people) p.managedBy = mg[p.id] || null;
   const files = db.prepare('SELECT id,person_id personId,original_name name,mime,size,caption,doc,created_by createdBy,created_at createdAt FROM files ORDER BY created_at').all()
     .filter(f => canSeeDoc(req, { doc: f.doc })).map(f => ({ ...f, doc: !!f.doc }));
   const users = db.prepare("SELECT id,name FROM users UNION ALL SELECT id, name || ' (conta removida)' FROM removed_users").all();
@@ -371,7 +380,7 @@ app.put('/api/me/person', needUser, (req, res) => {
     const other = db.prepare('SELECT name FROM users WHERE person_id=? AND id<>?').get(pid, req.user.id);
     if (other) return res.status(409).json({ error: `Esta pessoa já está ligada à conta de ${other.name}. Fale com o administrador.` });
   }
-  db.prepare('UPDATE users SET person_id=? WHERE id=?').run(pid, req.user.id);
+  db.prepare('UPDATE users SET person_id=?, person_ok=? WHERE id=?').run(pid, pid && req.user.role === 'admin' ? 1 : 0, req.user.id);
   log(req, pid ? 'se identificou na árvore' : 'desfez a identificação na árvore', pid || null);
   res.json({ ok: true, personId: pid });
 });
@@ -440,7 +449,7 @@ app.put('/api/people/:id', needUser, (req, res) => {
   const p = db.prepare('SELECT * FROM people WHERE id=?').get(req.params.id);
   if (!p) return res.status(404).json({ error: 'Pessoa não encontrada.' });
   if (req.user.role === 'viewer' && !isSelf(req, p)) return res.status(403).json({ error: 'Seu acesso é só de leitura.' });
-  if (!owns(req, p.created_by) && !isSelf(req, p)) return res.status(403).json({ error: 'Você só pode alterar o que você mesmo adicionou. Use "Acrescentar informação".' });
+  if (!canManagePerson(req, p)) return res.status(403).json({ error: managerOf(p.id) ? 'Esta ficha agora é administrada pela própria pessoa. Use "Acrescentar informação".' : 'Você só pode alterar o que você mesmo adicionou. Use "Acrescentar informação".' });
   const d = clean(req.body);
   if ('name' in d && !d.name) return res.status(400).json({ error: 'O nome não pode ficar vazio.' });
   for (const k of ['father_id', 'mother_id', 'spouse_id']) if (d[k] && (d[k] === p.id || !exists(d[k]))) d[k] = '';
@@ -456,6 +465,7 @@ app.delete('/api/people/:id', needWriter, (req, res) => {
   const p = db.prepare('SELECT * FROM people WHERE id=?').get(req.params.id);
   if (!p) return res.status(404).json({ error: 'Pessoa não encontrada.' });
   if (!owns(req, p.created_by)) return res.status(403).json({ error: 'Você só pode excluir o que você mesmo adicionou.' });
+  if (req.user.role !== 'admin' && managerOf(p.id)) return res.status(403).json({ error: 'Esta ficha é administrada pela própria pessoa; só o administrador pode excluí-la.' });
   log(req, 'excluiu pessoa', p.id, p);
   const tx = db.transaction(() => {
     db.prepare('DELETE FROM links WHERE child_id=? OR parent_id=?').run(p.id, p.id);
@@ -481,10 +491,10 @@ app.post('/api/people/:id/notes', needUser, (req, res) => {
   log(req, kind === 'memory' ? 'deixou lembrança' : 'acrescentou informação', req.params.id);
   res.json({ ok: true });
 });
-app.delete('/api/notes/:id', needWriter, (req, res) => {
+app.delete('/api/notes/:id', needUser, (req, res) => {
   const n = db.prepare('SELECT * FROM notes WHERE id=?').get(req.params.id);
   if (!n) return res.status(404).json({ error: 'Não encontrada.' });
-  if (!owns(req, n.created_by)) return res.status(403).json({ error: 'Você só pode remover o que você escreveu.' });
+  if (!canRemoveOn(req, n.created_by, n.person_id)) return res.status(403).json({ error: 'Você só pode remover o que você escreveu.' });
   log(req, 'removeu informação', n.person_id, n);
   db.prepare('DELETE FROM notes WHERE id=?').run(n.id);
   res.json({ ok: true });
@@ -506,10 +516,10 @@ app.post('/api/people/:id/links', needUser, (req, res) => {
   log(req, 'adicionou link', req.params.id, { url });
   res.json({ ok: true });
 });
-app.delete('/api/media-links/:id', needWriter, (req, res) => {
+app.delete('/api/media-links/:id', needUser, (req, res) => {
   const l = db.prepare('SELECT * FROM media_links WHERE id=?').get(req.params.id);
   if (!l) return res.status(404).json({ error: 'Não encontrado.' });
-  if (!owns(req, l.created_by)) return res.status(403).json({ error: 'Você só pode remover o que você adicionou.' });
+  if (!canRemoveOn(req, l.created_by, l.person_id)) return res.status(403).json({ error: 'Você só pode remover o que você adicionou.' });
   log(req, 'removeu link', l.person_id, l);
   db.prepare('DELETE FROM media_links WHERE id=?').run(l.id);
   res.json({ ok: true });
@@ -521,7 +531,7 @@ app.put('/api/people/:id/photo', needUser, (req, res) => {
   const p = db.prepare('SELECT * FROM people WHERE id=?').get(req.params.id);
   if (!p) return res.status(404).json({ error: 'Pessoa não encontrada.' });
   if (req.user.role === 'viewer' && !isSelf(req, p)) return res.status(403).json({ error: 'Seu acesso é só de leitura.' });
-  if (!owns(req, p.created_by) && !isSelf(req, p)) return res.status(403).json({ error: 'Só quem adicionou esta pessoa (ou o administrador) escolhe a foto principal.' });
+  if (!canManagePerson(req, p)) return res.status(403).json({ error: 'Só a própria pessoa, quem a cadastrou (se ela não tiver assumido a ficha) ou o administrador escolhe a foto principal.' });
   const fileId = String(req.body.fileId || '');
   if (fileId) {
     const f = db.prepare('SELECT * FROM files WHERE id=? AND person_id=?').get(fileId, p.id);
@@ -615,10 +625,10 @@ app.put('/api/files/:id', needAdmin, (req, res) => {
   log(req, req.body.doc ? 'marcou como documento' : 'liberou como foto', f.person_id, { file: f.id, nome: f.original_name });
   res.json({ ok: true });
 });
-app.delete('/api/files/:id', needWriter, (req, res) => {
+app.delete('/api/files/:id', needUser, (req, res) => {
   const f = db.prepare('SELECT * FROM files WHERE id=?').get(req.params.id);
   if (!f) return res.status(404).json({ error: 'Não encontrado.' });
-  if (!owns(req, f.created_by)) return res.status(403).json({ error: 'Você só pode remover o que você enviou.' });
+  if (!canRemoveOn(req, f.created_by, f.person_id) || (f.doc && req.user.role !== 'admin')) return res.status(403).json({ error: 'Você só pode remover o que você enviou.' });
   log(req, 'removeu arquivo', f.person_id, f);
   db.prepare('DELETE FROM files WHERE id=?').run(f.id);
   db.prepare("UPDATE people SET photo_file_id='' WHERE photo_file_id=?").run(f.id);
@@ -630,7 +640,7 @@ app.delete('/api/files/:id', needWriter, (req, res) => {
 
 // ---------- administração ----------
 app.get('/api/admin', needAdmin, (req, res) => {
-  const users = db.prepare('SELECT id,name,email,role,active,person_id personId,created_at createdAt FROM users ORDER BY created_at').all();
+  const users = db.prepare('SELECT id,name,email,role,active,person_id personId,person_ok personOk,created_at createdAt FROM users ORDER BY created_at').all();
   const invites = db.prepare('SELECT token,role,label,created_at createdAt,expires,used_by usedBy,person_id personId FROM invites ORDER BY created_at DESC LIMIT 100').all();
   res.json({ users, invites });
 });
@@ -650,7 +660,7 @@ app.put('/api/admin/users/:id', needAdmin, (req, res) => {
   const id = Number(req.params.id);
   if (typeof req.body.personId === 'string') {
     if (req.body.personId && !exists(req.body.personId)) return res.status(404).json({ error: 'Pessoa não encontrada.' });
-    db.prepare('UPDATE users SET person_id=? WHERE id=?').run(req.body.personId, id);
+    db.prepare('UPDATE users SET person_id=?, person_ok=? WHERE id=?').run(req.body.personId, req.body.personId ? 1 : 0, id);
     if (req.body.role === undefined && req.body.active === undefined) return res.json({ ok: true });
   }
   if (id === req.user.id) return res.status(400).json({ error: 'Você não pode mudar a sua própria conta aqui.' });

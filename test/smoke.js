@@ -273,6 +273,29 @@ function client() {
     assert.ok(!pair(f1, f2), 'pais diferentes: não pergunta');
     assert.ok(pair(f1, f3), 'sem pais em uma das fichas: ainda pergunta'); }
 
+  // a pessoa que assume a própria ficha passa a administrá-la; quem a cadastrou perde a edição
+  { const irmao = (await tia('POST', '/api/people', { name: 'Irmão Autonomo', birth: '1970' })).data.id;
+    assert.equal((await tia('PUT', '/api/people/' + irmao, { birth: '1971' })).status, 200, 'antes: quem cadastrou edita');
+    const tok = (await admin('POST', '/api/admin/invites', { role: 'member', personId: irmao })).data.token;
+    const irm = client();
+    assert.equal((await irm('POST', '/api/invites/' + tok, { name: 'Irmão', email: 'irmao@ex.com', password: 'senha-forte-9' })).status, 200);
+    assert.equal((await tia('PUT', '/api/people/' + irmao, { birth: '1972' })).status, 403, 'depois: quem cadastrou não edita');
+    assert.equal((await tia('DELETE', '/api/people/' + irmao)).status, 403, 'nem exclui');
+    assert.equal((await irm('PUT', '/api/people/' + irmao, { birth: '1969' })).status, 200, 'a própria pessoa edita');
+    await tia('POST', `/api/people/${irmao}/notes`, { text: 'nota da tia', kind: 'info' });
+    const nid = (await irm('GET', '/api/tree')).data.notes.find(n => n.text === 'nota da tia').id;
+    assert.equal((await irm('DELETE', '/api/notes/' + nid)).status, 200, 'dono da ficha remove notas da página dele');
+    assert.equal((await admin('PUT', '/api/people/' + irmao, { birth: '1969' })).status, 200, 'admin continua podendo');
+    // auto-identificação sem confirmação não tira a edição de quem cadastrou
+    const outro = (await tia('POST', '/api/people', { name: 'Primo Autoident' })).data.id;
+    const tok2 = (await admin('POST', '/api/admin/invites', { role: 'member' })).data.token;
+    const pr = client(); await pr('POST', '/api/invites/' + tok2, { name: 'Primo', email: 'primo2@ex.com', password: 'senha-forte-8' });
+    await pr('PUT', '/api/me/person', { personId: outro });
+    assert.equal((await tia('PUT', '/api/people/' + outro, { birth: '1980' })).status, 200, 'sem confirmação, quem cadastrou ainda edita');
+    const uid = (await admin('GET', '/api/admin')).data.users.find(u => u.email === 'primo2@ex.com').id;
+    await admin('PUT', '/api/admin/users/' + uid, { personId: outro });
+    assert.equal((await tia('PUT', '/api/people/' + outro, { birth: '1981' })).status, 403, 'confirmado pelo admin: perde'); }
+
   // juntar duas fichas da mesma pessoa
   const dupA = (await admin('POST', '/api/people', { name: 'Duplicada Teste', birth: '1950', fatherId: pai })).data.id;
   const dupB = (await admin('POST', '/api/people', { name: 'Duplicada T.', birth: '1951', birthPlace: 'Catuji' })).data.id;
