@@ -434,6 +434,24 @@ app.post('/api/password', needUser, (req, res) => {
   res.json({ ok: true });
 });
 
+// ---------- esqueci a senha: a própria pessoa pede o link por e-mail (vale 1 hora) ----------
+// A resposta é sempre a mesma, exista ou não a conta.
+app.post('/api/forgot', (req, res) => {
+  const email = String(req.body.email || '').trim().toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(400).json({ error: 'E-mail inválido.' });
+  if (!mail.configured()) return res.status(400).json({ error: 'O envio de e-mail não está configurado. Peça ao administrador um link de nova senha.' });
+  const key = 'forgot|' + (req.ip || '') + '|' + email;
+  if (tooMany(key) || tooManyIp(req.ip || '')) return res.status(429).json({ error: 'Muitos pedidos. Espere 15 minutos.' });
+  noteAttempt(key); noteAttempt('ip|' + (req.ip || ''));
+  const u = db.prepare('SELECT id,name FROM users WHERE email=? AND active=1').get(email);
+  if (u) {
+    const token = crypto.randomBytes(24).toString('hex');
+    db.prepare('INSERT INTO resets(token,user_id,expires) VALUES(?,?,?)').run(token, u.id, Date.now() + 3600e3);
+    mail.send(email, `${BRAND.name}: criar uma senha nova`, `Olá, ${u.name}!\n\nAlguém pediu uma senha nova para a sua conta no ${BRAND.name} da ${familyName()}. Se foi você, abra o link abaixo e escolha a senha nova. Ele vale 1 hora:\n${baseUrl(req)}/senha/${token}\n\nSe não foi você, ignore este e-mail: a sua senha continua a mesma.\n\nVocê também pode entrar sem senha, com um código por e-mail, na tela de entrada.`);
+  }
+  res.json({ ok: true });
+});
+
 // ---------- nova senha (link criado pelo administrador) ----------
 app.get('/api/reset/:token', (req, res) => {
   const r = db.prepare('SELECT r.*,u.name FROM resets r JOIN users u ON u.id=r.user_id WHERE token=?').get(req.params.token);

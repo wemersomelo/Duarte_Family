@@ -339,3 +339,4 @@ body.landing{background:var(--bg)}
 .bookcode label.f{flex:1;margin:0}
 .bookcode input{text-transform:uppercase;letter-spacing:.15em}
 .bookcode button{min-height:44px;white-space:nowrap}
+.klabel{margin:6px 0 2px;font-size:13px;color:var(--muted,inherit);opacity:.85}

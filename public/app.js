@@ -89,10 +89,11 @@ function showAuth(mode, info = {}) {
   const f = $('#authForm');
   $('#fName').hidden = mode === 'login' || mode === 'reset';
   f.querySelector('input[name=email]').closest('label').hidden = mode === 'reset';
-  f.elements.password.closest('label').hidden = mode === 'code'; f.elements.password.required = mode !== 'code';
+  f.elements.password.closest('label').hidden = mode === 'code' || mode === 'forgot'; f.elements.password.required = mode !== 'code' && mode !== 'forgot';
   if (mode !== 'code') codeSent = false;
   $('#fCode').hidden = !(mode === 'code' && codeSent); f.elements.code.required = mode === 'code' && codeSent;
-  $('#codeSwitch').hidden = !(codeLogin && (mode === 'login' || mode === 'code'));
+  $('#codeSwitch').hidden = !(codeLogin && ['login', 'code', 'forgot'].includes(mode));
+  $('#forgotBtn').textContent = mode === 'forgot' ? 'Voltar para entrar com senha' : 'Esqueci a senha';
   $('#codeBtn').textContent = mode === 'code' ? 'Entrar com e-mail e senha' : 'Entrar com um código por e-mail, sem senha';
   $('#bookCodeForm').hidden = isBook || mode !== 'login';
   if (mode === 'setup') { const k = new URLSearchParams(location.search).get('chave'); if (k) f.elements.setupKey.value = k; }
@@ -101,14 +102,15 @@ function showAuth(mode, info = {}) {
   $('#fFamily').hidden = mode !== 'setup'; if (mode === 'setup' && !$('#authForm').elements.family.value) $('#authForm').elements.family.value = familySuggestion;
   $('#fMail').hidden = mode !== 'invite';
   $('#fTerms').hidden = !(mode === 'invite' || mode === 'setup'); $('#fAdult').hidden = $('#fTerms').hidden; $('#authForm').elements.adult.required = !$('#fAdult').hidden; $('#authForm').elements.terms.required = mode === 'invite' || mode === 'setup';
-  f.elements.name.required = !['login', 'reset', 'code'].includes(mode);
+  f.elements.name.required = !['login', 'reset', 'code', 'forgot'].includes(mode);
   f.elements.password.autocomplete = mode === 'login' ? 'current-password' : 'new-password';
-  $('#authBtn').textContent = mode === 'code' ? (codeSent ? 'Entrar' : 'Mandar o código') : mode === 'login' ? 'Entrar' : mode === 'reset' ? 'Salvar nova senha' : 'Criar conta';
+  $('#authBtn').textContent = mode === 'forgot' ? 'Mandar o link' : mode === 'code' ? (codeSent ? 'Entrar' : 'Mandar o código') : mode === 'login' ? 'Entrar' : mode === 'reset' ? 'Salvar nova senha' : 'Criar conta';
   $('#authSub').textContent = mode === 'reset' ? `Olá, ${info.name || ''}. Escolha uma senha nova (mínimo 8 caracteres).` : mode === 'setup' ? 'Primeira vez: crie a conta do administrador.' :
     mode === 'invite' ? (info.personName ? `Olá! Você já está na árvore como ${info.personName}. Só falta criar uma senha para ${info.role === 'viewer' ? 'ver' : 'ver e completar'} a árvore da família.` : `Você foi convidado${info.label ? ' (' + info.label + ')' : ''}. Crie sua conta para ${info.role === 'viewer' ? 'ver' : 'ver e completar'} a árvore da família.`) :
+    mode === 'forgot' ? 'Escreva o seu e-mail. Mandamos um link para você criar uma senha nova (vale 1 hora).' :
     mode === 'code' ? (codeSent ? 'Se o e-mail tiver conta aqui, o código chegou nele (olhe também no spam). Ele vale 10 minutos.' : 'Escreva o seu e-mail. Mandamos um código de 6 números para você entrar.') :
     'Entre com seu e-mail e senha.';
-  $('#authHelp').hidden = mode !== 'login' && mode !== 'code';
+  $('#authHelp').hidden = !['login', 'code'].includes(mode);
   $('#authNew').hidden = mode !== 'login' || isBook;
   $('#authErr').textContent = '';
 }
@@ -117,6 +119,7 @@ $('#authForm').addEventListener('submit', async e => {
   const f = e.target, body = { name: f.elements.name.value, email: f.elements.email.value, password: f.elements.password.value, setupKey: f.elements.setupKey.value, family: f.elements.family.value, terms: f.elements.terms.checked, adult: f.elements.adult.checked, emailUpdates: f.elements.emailUpdates.checked };
   $('#authErr').textContent = '';
   try {
+    if (authMode === 'forgot') { await api('/api/forgot', { method: 'POST', body: { email: body.email } }); $('#authSub').textContent = 'Se o e-mail tiver conta aqui, o link chegou nele. Olhe também no spam.'; return; }
     if (authMode === 'code' && !codeSent) { await api('/api/login/code', { method: 'POST', body: { email: body.email } }); codeSent = true; showAuth('code'); f.elements.code.focus(); return; }
     if (authMode === 'code') await api('/api/login/code/verify', { method: 'POST', body: { email: body.email, code: f.elements.code.value } });
     else if (authMode === 'login') await api('/api/login', { method: 'POST', body });
@@ -128,6 +131,7 @@ $('#authForm').addEventListener('submit', async e => {
   } catch (err) { $('#authErr').textContent = err.message; }
 });
 
+$('#forgotBtn').addEventListener('click', () => { const em = $('#authForm').elements.email.value; showAuth(authMode === 'forgot' ? 'login' : 'forgot'); $('#authForm').elements.email.value = em; });
 $('#codeBtn').addEventListener('click', () => { const em = $('#authForm').elements.email.value; showAuth(authMode === 'code' ? 'login' : 'code'); $('#authForm').elements.email.value = em; });
 $('#bookCodeForm').addEventListener('submit', e => {
   e.preventDefault(); const c = e.target.elements.code.value.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -341,7 +345,17 @@ function renderRecord() {
   const cousins = parId => { const seen = new Set(); return uncles(parId).flatMap(u => childrenOf(u.id)).filter(c => !skip.has(c.id) && !seen.has(c.id) && seen.add(c.id)); };
   const kids = childrenOf(p.id), descNote = p.descendants ? `<p class="none">${DESC[p.descendants]}.</p>` : '';
   const fold = (key, label, list) => `<details class="kfold" data-k="${key}"${kinOpen.has(key) ? ' open' : ''}><summary>${label} (${list.length})</summary>${chips(list)}</details>`;
-  kin.innerHTML = `<h4>Pais</h4>${chips(par)}<h4>Cônjuge</h4>${chips(spousesOf(p.id).map(P))}<h4>Filhos</h4>${kids.length ? chips(kids) + descNote : descNote || chips(kids)}<h4>Irmãos</h4>${chips(sibs)}`
+  // Cada pessoa tem um pai e uma mãe, casados ou não. Irmãos por parte de pai ou de mãe e filhos com pessoas diferentes
+  // aparecem do mesmo jeito, só separados para ficar claro de quem é cada um.
+  const other = q => q.fatherId === p.id ? q.motherId : q.fatherId;
+  const sps = spousesOf(p.id), coparents = [...new Set(kids.map(other).filter(id => id && P(id) && !sps.includes(id)))];
+  const byOther = new Map(); for (const k of kids) { const o = P(other(k)) ? other(k) : ''; byOther.set(o, [...(byOther.get(o) || []), k]); }
+  const kidsHtml = byOther.size > 1 ? [...byOther].map(([o, list]) => `<p class="klabel">${o ? 'Com ' + esc(P(o).name) : (p.sex === 'f' ? 'Pai' : p.sex === 'm' ? 'Mãe' : 'Pai ou mãe') + ' não informado'}</p>${chips(list)}`).join('') : chips(kids);
+  const half = (q, side) => { const a = side === 'f' ? p.motherId : p.fatherId, b = side === 'f' ? q.motherId : q.fatherId; return a && b && a !== b; };
+  const sibF = sibs.filter(q => p.fatherId && q.fatherId === p.fatherId && half(q, 'f')), sibM = sibs.filter(q => p.motherId && q.motherId === p.motherId && half(q, 'm'));
+  const sibFull = sibs.filter(q => !sibF.includes(q) && !sibM.includes(q));
+  const sibHtml = (sibF.length || sibM.length ? (sibFull.length ? chips(sibFull) : '') : chips(sibFull)) + (sibF.length ? `<p class="klabel">Por parte de pai</p>${chips(sibF)}` : '') + (sibM.length ? `<p class="klabel">Por parte de mãe</p>${chips(sibM)}` : '');
+  kin.innerHTML = `<h4>Pais</h4>${chips(par)}<h4>Cônjuge</h4>${chips(sps.map(P))}${coparents.length ? `<h4>Teve filhos com</h4>${chips(coparents.map(P))}` : ''}<h4>Filhos</h4>${kids.length ? kidsHtml + descNote : descNote || chips(kids)}<h4>Irmãos</h4>${sibHtml}`
     + (P(p.fatherId) ? fold('tp', 'Tios paternos', uncles(p.fatherId)) : '') + (P(p.motherId) ? fold('tm', 'Tios maternos', uncles(p.motherId)) : '')
     + (P(p.fatherId) ? fold('pp', 'Primos do lado do pai', cousins(p.fatherId)) : '') + (P(p.motherId) ? fold('pm', 'Primos do lado da mãe', cousins(p.motherId)) : '');
 }
@@ -502,7 +516,9 @@ function openForm(id, c = {}) {
   document.querySelectorAll('.datef').forEach(b => b.load());
   form.elements.minorConsent.checked = false; formRules();
   fillSelect(form.elements.fatherId, p.fatherId, id); fillSelect(form.elements.motherId, p.motherId, id); fillSelect(form.elements.spouseId, p.spouseId, id);
-  if (c.childOf) { const par = P(c.childOf); form.elements[par.sex === 'f' ? 'motherId' : 'fatherId'].value = par.id; const sp = spousesOf(par.id)[0]; if (sp) form.elements[par.sex === 'f' ? 'fatherId' : 'motherId'].value = sp; }
+  $('#parentHint').hidden = !c.childOf;
+  // Só preenche o outro pai/mãe quando a pessoa tem um único cônjuge ou companheiro conhecido.
+  if (c.childOf) { const par = P(c.childOf), sp = [...new Set([...spousesOf(par.id), ...childrenOf(par.id).map(k => k.fatherId === par.id ? k.motherId : k.fatherId).filter(x => x && P(x))])]; form.elements[par.sex === 'f' ? 'motherId' : 'fatherId'].value = par.id; if (sp.length === 1) form.elements[par.sex === 'f' ? 'fatherId' : 'motherId'].value = sp[0]; }
   if (c.parentOf) { form.elements.sex.value = c.parentRole === 'father' ? 'm' : 'f'; const ch = P(c.parentOf), other = c.parentRole === 'father' ? ch.motherId : ch.fatherId; if (P(other)) form.elements.spouseId.value = other; }
   // Irmãos: os mesmos pais por padrão; para meio-irmãos, é só trocar o pai ou a mãe aqui.
   if (c.siblingOf) { const sb = P(c.siblingOf); form.elements.fatherId.value = sb.fatherId || ''; form.elements.motherId.value = sb.motherId || ''; }

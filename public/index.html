@@ -41,7 +41,7 @@
       <div class="err" id="authErr"></div>
       <button class="primary wide" type="submit" id="authBtn">Entrar</button>
     </form>
-    <p class="note authswitch" id="codeSwitch" hidden><button type="button" class="link" id="codeBtn">Entrar com um código por e-mail, sem senha</button></p>
+    <p class="note authswitch" id="codeSwitch" hidden><button type="button" class="link" id="codeBtn">Entrar com um código por e-mail, sem senha</button><br><button type="button" class="link" id="forgotBtn">Esqueci a senha</button></p>
     <form id="bookCodeForm" class="bookcode" hidden>
       <label class="f">Tem o código do livro da sua família?<input name="code" maxlength="5" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="ex.: K7P2Q"></label>
       <button type="submit">Abrir o livro</button>
@@ -125,6 +125,7 @@
       <label class="f">Pai<select name="fatherId"></select></label>
       <label class="f">Mãe<select name="motherId"></select></label>
     </div>
+    <p class="note" id="parentHint" hidden>Os filhos ficam ligados ao pai e à mãe, casados ou não. Se este filho ou filha for de outra pessoa, troque aqui. Se não souber, deixe em branco.</p>
     <label class="f">Cônjuge<select name="spouseId"></select></label>
     <div class="grid2">
       <div class="f datef"><span>Data do casamento</span><input name="marriage" maxlength="60" placeholder="ex.: 01/01/1980"></div>

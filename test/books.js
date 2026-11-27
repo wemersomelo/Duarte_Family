@@ -85,6 +85,17 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
   const msg2 = mail.sent.filter(m => m.to === 'leo@ex.com').pop().subject.match(/(\d{6})/)[1];
   assert.equal((await cx('POST', '/api/login/code/verify', { email: 'leo@ex.com', code: msg2 })).status, 401, 'depois de 5 erros, pede outro');
 
-  console.log('OK: livros por código e entrar com código');
+  // esqueci a senha
+  const n1 = mail.sent.length;
+  assert.equal((await anon('POST', '/api/forgot', { email: 'ninguem@ex.com' })).status, 200); await wait(50);
+  assert.equal(mail.sent.length, n1, 'sem conta, sem e-mail');
+  assert.equal((await anon('POST', '/api/forgot', { email: 'leo@ex.com' })).status, 200); await wait(50);
+  const tok = mail.sent.filter(m => m.to === 'leo@ex.com').pop().text.match(/\/senha\/([a-f0-9]+)/)[1];
+  const fg = client();
+  assert.equal((await fg('POST', '/api/reset/' + tok, { password: 'senha-nova-123' })).status, 200);
+  assert.equal((await client()('POST', '/api/login', { email: 'leo@ex.com', password: 'senha-nova-123' })).status, 200, 'entra com a senha nova');
+  assert.equal((await client()('POST', '/api/reset/' + tok, { password: 'outra-senha-1' })).status, 404, 'link vale uma vez só');
+
+  console.log('OK: livros por código, entrar com código e esqueci a senha');
   app.locals.books.stop(code); server.close(); process.exit(0);
 })().catch(e => { console.error(e); try { for (const b of app.locals.books.list()) app.locals.books.stop(b.code); } catch {} process.exit(1); });
