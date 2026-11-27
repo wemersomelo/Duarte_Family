@@ -80,8 +80,8 @@ app.use((req, res, next) => {
   const sid = parseCookies(req).sid;
   req.user = null;
   if (sid) {
-    const row = db.prepare('SELECT u.id,u.name,u.email,u.role,u.person_id,s.expires FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=? AND u.active=1').get(sid);
-    if (row && row.expires > Date.now()) { req.user = { id: row.id, name: row.name, email: row.email, role: row.role, personId: row.person_id || '' }; req.sid = sid; }
+    const row = db.prepare('SELECT u.id,u.name,u.email,u.role,u.person_id,u.person_ok,s.expires FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=? AND u.active=1').get(sid);
+    if (row && row.expires > Date.now()) { req.user = { id: row.id, name: row.name, email: row.email, role: row.role, personId: row.person_id || '', personOk: !!row.person_ok }; req.sid = sid; }
   }
   next();
 });
@@ -138,8 +138,28 @@ const isSelf = (req, p) => !!req.user.personId && req.user.personId === p.id;
 // Ficha administrada pela própria pessoa: a conta dela está ligada e confirmada.
 const managerOf = pid => { const u = pid && db.prepare("SELECT id FROM users WHERE person_id=? AND person_ok=1 AND active=1").get(pid); return u ? u.id : null; };
 const isManager = (req, pid) => !!req.user && managerOf(pid) === req.user.id;
-// Quem altera a ficha: o administrador, a própria pessoa, ou quem a cadastrou (enquanto ela não assumir a própria ficha).
-const canManagePerson = (req, p) => req.user.role === 'admin' || isSelf(req, p) || (owns(req, p.created_by) && !managerOf(p.id));
+// Parentes diretos de uma pessoa falecida podem corrigir a ficha dela: cônjuge, pais, irmãos,
+// filhos, netos e bisnetos. Vale para quem tem a conta ligada à própria ficha.
+function kinOfDeceased(myPid, ep) {
+  const out = new Set(); if (!myPid) return out;
+  ep = ep || effectiveParents();
+  const me = ep[myPid]; if (!me) return out;
+  // meus pais, avós e bisavós (eu sou filho, neto ou bisneto)
+  let gen = [me.f, me.m].filter(Boolean);
+  for (let i = 0; i < 3 && gen.length; i++) { gen.forEach(x => out.add(x)); gen = gen.flatMap(x => ep[x] ? [ep[x].f, ep[x].m] : []).filter(Boolean); }
+  for (const [id, c] of Object.entries(ep)) {
+    if (id === myPid) continue;
+    if (c.f === myPid || c.m === myPid) out.add(id); // meus filhos
+    if ((me.f && c.f === me.f) || (me.m && c.m === me.m)) out.add(id); // meus irmãos
+  }
+  for (const r of db.prepare('SELECT id,spouse_id FROM people WHERE id=? OR spouse_id=?').all(myPid, myPid)) { if (r.id !== myPid) out.add(r.id); else if (r.spouse_id) out.add(r.spouse_id); }
+  const dead = new Set(db.prepare('SELECT * FROM people').all().map(personOut).filter(isDeceased).map(p => p.id));
+  return new Set([...out].filter(id => dead.has(id)));
+}
+const isKinOfDeceased = (req, p) => !!req.user && req.user.role !== 'viewer' && req.user.personOk && kinOfDeceased(req.user.personId).has(p.id);
+// Quem altera a ficha: o administrador, a própria pessoa, quem a cadastrou (enquanto ela não assumir a própria ficha)
+// e, se a pessoa já faleceu, os parentes diretos dela.
+const canManagePerson = (req, p) => req.user.role === 'admin' || isSelf(req, p) || (owns(req, p.created_by) && !managerOf(p.id)) || isKinOfDeceased(req, p);
 // Quem remove uma nota, link ou foto: quem acrescentou, o administrador, ou a pessoa dona da ficha (confirmada).
 const canRemoveOn = (req, createdBy, pid) => (req.user.role !== 'viewer' && owns(req, createdBy)) || isManager(req, pid);
 
@@ -305,7 +325,8 @@ app.post('/api/invites/:token', (req, res) => {
   db.prepare("UPDATE access_requests SET status='joined' WHERE invite_token=?").run(inv.token);
   // Já entra ligado à sua ficha na árvore, se o administrador escolheu ao convidar.
   if (inv.person_id && exists(inv.person_id) && !db.prepare('SELECT 1 FROM users WHERE person_id=?').get(inv.person_id))
-    db.prepare('UPDATE users SET person_id=?, person_ok=1 WHERE id=?').run(inv.person_id, id);
+    { db.prepare('UPDATE users SET person_id=?, person_ok=1 WHERE id=?').run(inv.person_id, id);
+      db.prepare("INSERT INTO activity(user_id,action,target,detail,at) VALUES(?,'ligado à ficha',?,?,?)").run(id, inv.person_id, JSON.stringify({ por: 'convite' }), now()); }
   setSession(res, id);
   res.json({ ok: true });
 });
@@ -349,6 +370,7 @@ app.get('/api/tree', needUserOrGuest, (req, res) => {
   const media = db.prepare('SELECT id,person_id personId,url,title,created_by createdBy,created_at createdAt FROM media_links ORDER BY created_at').all();
   const mg = Object.fromEntries(db.prepare("SELECT person_id,id FROM users WHERE person_id<>'' AND person_ok=1 AND active=1").all().map(u => [u.person_id, u.id]));
   for (const p of people) p.managedBy = mg[p.id] || null;
+  if (req.user && !req.guest && req.user.role !== 'viewer' && req.user.personOk) { const kin = kinOfDeceased(req.user.personId); for (const p of people) if (kin.has(p.id)) p.kinEdit = true; }
   const files = db.prepare('SELECT id,person_id personId,original_name name,mime,size,caption,doc,created_by createdBy,created_at createdAt FROM files ORDER BY created_at').all()
     .filter(f => canSeeDoc(req, { doc: f.doc })).map(f => ({ ...f, doc: !!f.doc }));
   const users = db.prepare("SELECT id,name FROM users UNION ALL SELECT id, name || ' (conta removida)' FROM removed_users").all();
@@ -374,17 +396,18 @@ app.get('/api/tree', needUserOrGuest, (req, res) => {
 // Cada conta pode dizer quem ela é na árvore.
 // Desfaz tudo o que a conta mudou na ficha desde que se identificou (quando diz "não sou eu").
 function revertSelfChanges(uid, pid) {
-  const claim = db.prepare("SELECT at FROM activity WHERE user_id=? AND target=? AND action='se identificou na árvore' ORDER BY id DESC LIMIT 1").get(uid, pid);
+  const claim = db.prepare("SELECT at FROM activity WHERE user_id=? AND target=? AND action IN ('se identificou na árvore','ligado à ficha') ORDER BY id DESC LIMIT 1").get(uid, pid);
   if (!claim) return 0;
   const since = claim.at; let n = 0;
-  const acts = db.prepare('SELECT * FROM activity WHERE user_id=? AND target=? AND at>=? ORDER BY id DESC').all(uid, pid, since);
+  // a ficha dela e as fichas de falecidos que ela só podia corrigir por ser parente direto
+  const acts = db.prepare(`SELECT a.* FROM activity a LEFT JOIN people p ON p.id=a.target WHERE a.user_id=? AND a.at>=? AND (a.target=? OR (a.action IN ('editou pessoa','escolheu foto principal') AND COALESCE(p.created_by,-1)<>?)) ORDER BY a.id DESC`).all(uid, since, pid, uid);
   db.transaction(() => {
     for (const a of acts) {
       let d = {}; try { d = JSON.parse(a.detail || '{}'); } catch {}
       if (a.action === 'editou pessoa' && d.antes) {
         const cols = Object.keys(d.antes).filter(c => FIELDS.includes(c));
-        if (cols.length) { db.prepare(`UPDATE people SET ${cols.map(c => c + '=?').join(',')}, updated_at=? WHERE id=?`).run(...cols.map(c => d.antes[c] ?? ''), now(), pid); n++; }
-      } else if (a.action === 'escolheu foto principal') { db.prepare('UPDATE people SET photo_file_id=? WHERE id=?').run(d.antes || '', pid); n++; }
+        if (cols.length) { db.prepare(`UPDATE people SET ${cols.map(c => c + '=?').join(',')}, updated_at=? WHERE id=?`).run(...cols.map(c => d.antes[c] ?? ''), now(), a.target); n++; }
+      } else if (a.action === 'escolheu foto principal') { db.prepare('UPDATE people SET photo_file_id=? WHERE id=?').run(d.antes || '', a.target); n++; }
       else if (a.action === 'removeu informação' && d.id) { n += db.prepare('INSERT OR IGNORE INTO notes(id,person_id,kind,text,created_by,created_at) VALUES(?,?,?,?,?,?)').run(d.id, d.person_id, d.kind || 'info', d.text, d.created_by, d.created_at).changes; }
       else if (a.action === 'removeu link' && d.id) { n += db.prepare('INSERT OR IGNORE INTO media_links(id,person_id,url,title,created_by,created_at) VALUES(?,?,?,?,?,?)').run(d.id, d.person_id, d.url, d.title || '', d.created_by, d.created_at).changes; }
       else if (a.action === 'removeu arquivo' && d.id) {
@@ -409,8 +432,8 @@ function revertSelfChanges(uid, pid) {
 // Quantas alterações a conta fez na própria ficha desde que se identificou (para o aviso de "não sou eu").
 app.get('/api/me/person/changes', needUser, (req, res) => {
   const pid = req.user.personId; if (!pid) return res.json({ count: 0 });
-  const claim = db.prepare("SELECT at FROM activity WHERE user_id=? AND target=? AND action='se identificou na árvore' ORDER BY id DESC LIMIT 1").get(req.user.id, pid);
-  const count = claim ? db.prepare("SELECT COUNT(*) n FROM activity WHERE user_id=? AND target=? AND at>=? AND action<>'se identificou na árvore'").get(req.user.id, pid, claim.at).n : 0;
+  const claim = db.prepare("SELECT at FROM activity WHERE user_id=? AND target=? AND action IN ('se identificou na árvore','ligado à ficha') ORDER BY id DESC LIMIT 1").get(req.user.id, pid);
+  const count = claim ? db.prepare("SELECT COUNT(*) n FROM activity a LEFT JOIN people p ON p.id=a.target WHERE a.user_id=? AND a.at>=? AND a.action NOT IN ('se identificou na árvore','ligado à ficha') AND (a.target=? OR (a.action IN ('editou pessoa','escolheu foto principal') AND COALESCE(p.created_by,-1)<>?))").get(req.user.id, claim.at, pid, req.user.id).n : 0;
   res.json({ count });
 });
 function notifyAdmins(req, subject, text) {
@@ -721,6 +744,7 @@ app.put('/api/admin/users/:id', needAdmin, (req, res) => {
   if (typeof req.body.personId === 'string') {
     if (req.body.personId && !exists(req.body.personId)) return res.status(404).json({ error: 'Pessoa não encontrada.' });
     db.prepare('UPDATE users SET person_id=?, person_ok=? WHERE id=?').run(req.body.personId, req.body.personId ? 1 : 0, id);
+    if (req.body.personId) db.prepare("INSERT INTO activity(user_id,action,target,detail,at) VALUES(?,'ligado à ficha',?,?,?)").run(id, req.body.personId, JSON.stringify({ por: 'administrador', admin: req.user.id }), now());
     if (req.body.role === undefined && req.body.active === undefined) return res.json({ ok: true });
   }
   if (id === req.user.id) return res.status(400).json({ error: 'Você não pode mudar a sua própria conta aqui.' });

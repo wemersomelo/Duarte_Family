@@ -313,6 +313,28 @@ function client() {
     for (const k of ['SMTP_HOST', 'SMTP_USER', 'SMTP_PASS']) delete process.env[k];
     assert.equal((await tia('PUT', '/api/people/' + outro, { birth: '1951' })).status, 200, 'quem cadastrou volta a editar'); }
 
+  // parentes diretos corrigem a ficha de quem já faleceu
+  { const bis = (await admin('POST', '/api/people', { name: 'Bisavo Kin', death: '1960', sex: 'm' })).data.id;
+    const av = (await admin('POST', '/api/people', { name: 'Avo Kin', death: '1990', fatherId: bis, sex: 'm' })).data.id;
+    const tioVivo = (await admin('POST', '/api/people', { name: 'Tio Kin', fatherId: av, birth: '1950' })).data.id;
+    const tioMorto = (await admin('POST', '/api/people', { name: 'Tio Morto Kin', fatherId: av, death: '2000' })).data.id;
+    const pai = (await admin('POST', '/api/people', { name: 'Pai Kin', fatherId: av, birth: '1955', sex: 'm' })).data.id;
+    const eu = (await admin('POST', '/api/people', { name: 'Neto Kin', fatherId: pai, birth: '1985' })).data.id;
+    const primoMorto = (await admin('POST', '/api/people', { name: 'Primo Morto Kin', fatherId: tioVivo, death: '2010' })).data.id;
+    const tk = (await admin('POST', '/api/admin/invites', { role: 'member', personId: eu })).data.token;
+    const nk = client(); await nk('POST', '/api/invites/' + tk, { name: 'Neto', email: 'neto@ex.com', password: 'senha-forte-7' });
+    assert.equal((await nk('PUT', '/api/people/' + av, { deathPlace: 'Sooretama' })).status, 200, 'neto corrige o avô falecido');
+    assert.equal((await nk('PUT', '/api/people/' + bis, { deathPlace: 'Itaipé' })).status, 200, 'bisneto corrige o bisavô');
+    assert.equal((await nk('PUT', '/api/people/' + tioMorto, { deathPlace: 'X' })).status, 403, 'tio não é parente direto');
+    assert.equal((await nk('PUT', '/api/people/' + primoMorto, { deathPlace: 'X' })).status, 403, 'primo não');
+    assert.equal((await nk('PUT', '/api/people/' + tioVivo, { birth: '1951' })).status, 403, 'vivo não');
+    assert.equal((await nk('DELETE', '/api/people/' + av)).status, 403, 'não exclui');
+    const tr = (await nk('GET', '/api/tree')).data.people;
+    assert.ok(tr.find(x => x.id === av).kinEdit && !tr.find(x => x.id === tioMorto).kinEdit, 'o site sabe quem ele pode corrigir');
+    // "não sou eu" desfaz também o que ele corrigiu nos falecidos
+    await nk('PUT', '/api/me/person', { personId: '' });
+    assert.equal((await admin('GET', '/api/tree')).data.people.find(x => x.id === av).deathPlace || '', '', 'desfeito'); }
+
   // juntar duas fichas da mesma pessoa
   const dupA = (await admin('POST', '/api/people', { name: 'Duplicada Teste', birth: '1950', fatherId: pai })).data.id;
   const dupB = (await admin('POST', '/api/people', { name: 'Duplicada T.', birth: '1951', birthPlace: 'Catuji' })).data.id;

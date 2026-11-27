@@ -13,8 +13,8 @@ const canContribute = () => !!me && !isGuest();
 const isSelfP = p => !!p && !!me && !!me.personId && me.personId === p.id;
 // Quem cadastrou perde a edição quando a própria pessoa assume a ficha (conta ligada e confirmada).
 const ownsP = p => !!p && canWrite() && (me.role === 'admin' || (p.createdBy != null && p.createdBy === me.id && (!p.managedBy || p.managedBy === me.id)));
-// Editar: quem criou, o administrador, ou a própria pessoa.
-const canEdit = p => ownsP(p) || (isSelfP(p) && !isGuest());
+// Editar: quem criou, o administrador, a própria pessoa e, se já faleceu, os parentes diretos (kinEdit vem do servidor).
+const canEdit = p => ownsP(p) || (isSelfP(p) && !isGuest()) || (!!p && !!p.kinEdit);
 const y4 = s => (String(s || '').match(/\d{4}/) || [''])[0];
 const isDead = p => !!(p.death || p.deathPlace || (y4(p.birth) && +y4(p.birth) <= 1915));
 const yr = p => { const b = y4(p.birth), d = y4(p.death), out = []; if (b) out.push('★\uFE0E ' + b); if (isDead(p)) out.push(d ? '✝\uFE0E ' + d : '✝\uFE0E'); return out.join('  ') || '—'; };
@@ -340,7 +340,7 @@ document.addEventListener('click', async e => {
       if (pid && !confirm(`Tem certeza de que você é ${p.name}?\n\nVocê vai administrar esta ficha: corrigir datas, lugares e a foto. O administrador recebe um aviso.`)) return;
       if (!pid) {
         const { count } = await api('/api/me/person/changes').catch(() => ({ count: 0 }));
-        const msg = count ? `Tem certeza de que quer apagar todas as alterações que você fez neste perfil (${count})?\n\nDatas, fotos, notas e o que você removeu voltam a ser como eram antes de você dizer que era esta pessoa.` : 'Tem certeza de que esta pessoa não é você?';
+        const msg = count ? `Tem certeza de que quer apagar todas as alterações que você fez neste perfil (${count})?\n\nDatas, fotos, notas e o que você removeu voltam a ser como eram antes de você dizer que era esta pessoa. O que você corrigiu nas fichas de parentes falecidos também é desfeito.` : 'Tem certeza de que esta pessoa não é você?';
         if (!confirm(msg)) return;
       }
       try { const r = await api('/api/me/person', { method: 'PUT', body: { personId: pid } }); me.personId = pid; await load(); if (r.undone) $('#status').textContent = `${r.undone} alteração(ões) desfeita(s).`; }
