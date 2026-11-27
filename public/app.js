@@ -183,8 +183,18 @@ function setFocus(id, back) {
   if (!firstFocus) firstFocus = focus || id;
   if (!back && focus && focus !== id) { trail.push(focus); if (trail.length > 100) trail.shift(); history.pushState({ arvore: true }, '', '#' + id); }
   else if (location.hash !== '#' + id) history.replaceState(history.state, '', '#' + id);
+  const changed = focus && focus !== id;
   focus = id;
+  smoothRender(changed);
+}
+// Troca de pessoa com transição suave: os cartões que continuam na árvore deslizam para o lugar novo
+// (a mãe sobe para o topo, os avós dela aparecem embaixo) e a ficha se renova com um leve esmaecer.
+const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+function smoothRender(changed) {
+  if (!changed || reduceMotion()) { renderAll(); return; }
+  if (document.startViewTransition) { document.startViewTransition(() => renderAll()); return; }
   renderAll();
+  for (const el of [$('#fig'), $('#slip'), $('#kin')]) { el.classList.remove('fadein'); void el.offsetWidth; el.classList.add('fadein'); }
 }
 function goBack() {
   if (history.state && history.state.arvore) { history.back(); return true; } // o popstate faz o resto
@@ -204,6 +214,7 @@ const fig = $('#fig');
 const isMobile = () => innerWidth < 700;
 // Árvore de cima para baixo: a pessoa procurada no topo e os antepassados descendo.
 // Celular: sempre 3 gerações. Computador: 3, 4 ou 5.
+const vtName = id => String(id).replace(/[^a-zA-Z0-9_-]/g, '_').replace(/^(\d)/, '_$1');
 function drawChart() {
   const mob = isMobile();
   $('#gensWrap').hidden = mob;
@@ -220,7 +231,7 @@ function drawChart() {
   const H = rowY(G - 1) + CH + 12;
   fig.style.cssText = `--cw:${CW}px;width:${W}px;height:${H}px`;
   const labels = ['', 'Pais', 'Avós', 'Bisavós', 'Tataravós'];
-  let html = '', lines = '';
+  let html = '', lines = ''; const vtSeen = new Set();
   if (!mob) for (let g = 1; g < G; g++) html += `<div class="gen" style="left:${M}px;top:${rowY(g) - 20}px">${labels[g]}</div>`;
   const place = (id, g, i, childId, role, cx0, cy0) => {
     const n = 2 ** g, w = g === 0 ? PW : CW, h = g === 0 ? PH : CH;
@@ -234,7 +245,8 @@ function drawChart() {
       const full = mob && g > 0 ? shortName(q) : (g === 0 || !mob ? q.name : shortName(q));
       const nk = nickOf(q), nm = nk || full, sub = nk ? (mob ? shortName(q) : q.name) : '';
       const mt = mob && g > 0 ? meta.replace(/([★✝]\uFE0E?) /g, '$1') : meta;
-      html += `<button type="button" class="card td${g === 0 ? ' focus main' : ''}" data-id="${esc(q.id)}" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px" title="${esc(q.name)}">${av}<span class="nm">${esc(nm)}${isDead(q) ? '<span class="x">\u00a0✝\uFE0E</span>' : ''}</span>${sub ? `<span class="fn">${esc(sub)}</span>` : ''}${mt ? `<span class="meta">${esc(mt)}</span>` : ''}</button>`;
+      const vt = vtSeen.has(q.id) ? '' : (vtSeen.add(q.id), `view-transition-name:p-${vtName(q.id)};`);
+      html += `<button type="button" class="card td${g === 0 ? ' focus main' : ''}" data-id="${esc(q.id)}" style="${vt}left:${x}px;top:${y}px;width:${w}px;height:${h}px" title="${esc(q.name)}">${av}<span class="nm">${esc(nm)}${isDead(q) ? '<span class="x">\u00a0✝\uFE0E</span>' : ''}</span>${sub ? `<span class="fn">${esc(sub)}</span>` : ''}${mt ? `<span class="meta">${esc(mt)}</span>` : ''}</button>`;
       if (g < G - 1) { place(q.fatherId, g + 1, i * 2, q.id, 'father', cx, y + h); place(q.motherId, g + 1, i * 2 + 1, q.id, 'mother', cx, y + h); }
     } else {
       html += `<button type="button" class="card td empty" data-add="${role}" data-child="${esc(childId)}" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px">+ ${role === 'father' ? 'Pai' : 'Mãe'}</button>`;

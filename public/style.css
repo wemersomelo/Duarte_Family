@@ -319,3 +319,11 @@ body.landing{background:var(--bg)}
 .legal h1{font-size:clamp(28px,6vw,38px);margin:10px 0}
 .legal h2{font-size:22px;margin:26px 0 8px}.legal h3{font-size:17px;margin:16px 0 6px}
 .legal li{margin:6px 0}.legalnav{font-size:14px;margin:10px 0 4px}
+
+/* ---------- transição ao trocar de pessoa ---------- */
+::view-transition-group(*){animation-duration:.42s;animation-timing-function:cubic-bezier(.2,.7,.2,1)}
+::view-transition-old(root),::view-transition-new(root){animation-duration:.3s}
+#slip,#kin{view-transition-name:none}
+@keyframes fadein{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.fadein{animation:fadein .35s ease-out}
+@media (prefers-reduced-motion: reduce){::view-transition-group(*),::view-transition-old(*),::view-transition-new(*){animation:none!important}.fadein{animation:none}}
